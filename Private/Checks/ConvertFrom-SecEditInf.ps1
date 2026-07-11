@@ -9,7 +9,7 @@ function ConvertFrom-SecEditInf {
         if (-not $line) { continue }
         if ($line -match '^\[(.+)\]$') {
             $section = $matches[1]
-            $result[$section] = @{}
+            if (-not $result.ContainsKey($section)) { $result[$section] = @{} }
             continue
         }
         if ($null -ne $section -and $line -match '^(.*?)\s*=\s*(.*)$') {

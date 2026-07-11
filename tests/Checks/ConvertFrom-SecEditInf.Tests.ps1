@@ -24,4 +24,12 @@ Describe 'ConvertFrom-SecEditInf' {
             $p['Privilege Rights']['SeDenyNetworkLogonRight'] | Should -Be @('*S-1-5-32-546','*S-1-5-113')
         }
     }
+    It 'preserves earlier keys when a section header repeats' {
+        InModuleScope woscap {
+            $inf = "[System Access]`r`nMinimumPasswordLength = 14`r`n[System Access]`r`nPasswordComplexity = 1"
+            $p = ConvertFrom-SecEditInf -InfText $inf
+            $p['System Access']['MinimumPasswordLength'] | Should -Be '14'
+            $p['System Access']['PasswordComplexity']    | Should -Be '1'
+        }
+    }
 }

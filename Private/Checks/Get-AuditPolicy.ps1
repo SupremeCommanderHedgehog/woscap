@@ -2,5 +2,5 @@ function Get-AuditPolicy {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $Subcategory)
     $parsed = ConvertFrom-AuditPolCsv -CsvText (Invoke-AuditPol)
-    if ($parsed.ContainsKey($Subcategory)) { @($parsed[$Subcategory]) } else { $null }
+    if ($parsed.ContainsKey($Subcategory)) { @($parsed[$Subcategory]) } else { @() } # absent subcategory -> empty collection (consistent with Get-UserRight)
 }
