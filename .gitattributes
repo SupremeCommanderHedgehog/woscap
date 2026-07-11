@@ -1,0 +1,11 @@
+# Normalize line endings: store text as LF in the repo.
+* text=auto eol=lf
+
+# PowerShell and related tooling files are text.
+*.ps1   text eol=lf
+*.psm1  text eol=lf
+*.psd1  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
