@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: PSScriptAnalyzer (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: powershell
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Run analyzer
+        shell: powershell
+        run: |
+          $settings = './PSScriptAnalyzerSettings.psd1'
+          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings $settings
+          if ($results) { $results | Format-Table -AutoSize | Out-String | Write-Host }
+          $errors = @($results | Where-Object Severity -eq 'Error')
+          if ($errors.Count -gt 0) {
+            Write-Host "::error::PSScriptAnalyzer found $($errors.Count) error(s)."
+            exit 1
+          }
+          Write-Host 'PSScriptAnalyzer: no errors.'
+
+  test:
+    name: Pester (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Pester
+        shell: powershell
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.5.0 -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Run tests
+        shell: powershell
+        run: |
+          if (-not (Test-Path ./tests)) {
+            Write-Host 'No tests directory yet; skipping.'
+            exit 0
+          }
+          Import-Module Pester -MinimumVersion 5.5.0
+          $config = New-PesterConfiguration
+          $config.Run.Path = './tests'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputPath = 'testResults.xml'
+          Invoke-Pester -Configuration $config
+
+      - name: Upload test results
+        if: always() && hashFiles('testResults.xml') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-results
+          path: testResults.xml

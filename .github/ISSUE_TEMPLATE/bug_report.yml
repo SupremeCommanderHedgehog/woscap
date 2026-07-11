@@ -1,0 +1,39 @@
+name: Bug report
+description: Report incorrect behavior in woscap.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `Invoke-WoscapScan ...`
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: benchmark
+    attributes:
+      label: Benchmark / content pack
+      placeholder: "Windows 11 STIG vNrM"
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: PowerShell version, OS, local vs remote.
+      placeholder: |
+        - PowerShell: 5.1
+        - OS: Windows 11 23H2
+        - Mode: local / remote
+    validations:
+      required: true
