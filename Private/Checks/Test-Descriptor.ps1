@@ -1,0 +1,43 @@
+function Test-Descriptor {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [hashtable] $Descriptor)
+
+    $expected = if ($Descriptor.ContainsKey('Expected')) { $Descriptor.Expected } else { $null }
+    try {
+        $observed = $null
+        switch ($Descriptor.Type) {
+            'Registry' {
+                $observed = Get-RegValue -Path $Descriptor.Path -Name $Descriptor.Name
+            }
+            'SecEdit' {
+                $section = if ($Descriptor.ContainsKey('Section')) { $Descriptor.Section } else { 'System Access' }
+                $observed = Get-SecEditSetting -Name $Descriptor.Name -Section $section
+            }
+            'UserRight' {
+                $observed = Get-UserRight -Privilege $Descriptor.Privilege
+            }
+            'AuditPolicy' {
+                $observed = Get-AuditPolicy -Subcategory $Descriptor.Subcategory
+            }
+            'Service' {
+                $property = if ($Descriptor.ContainsKey('Property')) { $Descriptor.Property } else { 'StartMode' }
+                $observed = (Get-ServiceState -Name $Descriptor.Name).$property
+            }
+            'ScriptBlock' {
+                $sbResult = & $Descriptor.Script
+                return [pscustomobject]@{ Result = [string]$sbResult; Observed = $sbResult; Expected = $null }
+            }
+            default {
+                return [pscustomobject]@{ Result = 'Error'; Observed = $null; Expected = $expected }
+            }
+        }
+        $pass = Compare-WoscapValue -Operator $Descriptor.Operator -Observed $observed -Expected $expected
+        [pscustomobject]@{
+            Result   = if ($pass) { 'Pass' } else { 'Fail' }
+            Observed = $observed
+            Expected = $expected
+        }
+    } catch {
+        [pscustomobject]@{ Result = 'Error'; Observed = "$_"; Expected = $expected }
+    }
+}
