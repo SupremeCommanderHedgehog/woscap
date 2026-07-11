@@ -1,0 +1,51 @@
+BeforeAll {
+    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
+    $script:Fixture = Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures/sample-xccdf.xml'
+    $script:Pack    = Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures/contentpack'
+}
+AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
+
+Describe 'Invoke-WoscapScan' {
+    It 'is exported as a public command' {
+        Get-Command Invoke-WoscapScan -Module woscap | Should -Not -BeNullOrEmpty
+    }
+    It 'returns one RuleResult per rule and evaluates the fixture end-to-end' {
+        # Fixture pack: WNTEST-00-000010 = Registry Foo eq 1; WNTEST-00-000020 = ScriptBlock 'Pass';
+        # WNTEST-00-000030 has no authored check -> Not_Reviewed.
+        Mock -ModuleName woscap Get-RegValue { 1 }
+        $res = Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -Quiet
+        @($res).Count | Should -Be 3
+        ($res | Where-Object StigId -eq 'WNTEST-00-000010').Status | Should -Be 'NotAFinding'
+        ($res | Where-Object StigId -eq 'WNTEST-00-000020').Status | Should -Be 'NotAFinding'
+        ($res | Where-Object StigId -eq 'WNTEST-00-000030').Status | Should -Be 'Not_Reviewed'
+    }
+    It 'writes a JSON report when -JsonPath is given' {
+        Mock -ModuleName woscap Get-RegValue { 1 }
+        $out = Join-Path ([System.IO.Path]::GetTempPath()) ("woscap-" + [System.Guid]::NewGuid() + ".json")
+        try {
+            Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -JsonPath $out -Quiet | Out-Null
+            Test-Path $out | Should -BeTrue
+            (Get-Content $out -Raw | ConvertFrom-Json).Count | Should -Be 3
+        } finally { Remove-Item $out -Force -ErrorAction SilentlyContinue }
+    }
+    It 'serializes a single-result scan as a JSON array (not a bare object)' {
+        $single = Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures/single-rule-xccdf.xml'
+        $emptyPack = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid())
+        New-Item -ItemType Directory -Path $emptyPack | Out-Null
+        $out = Join-Path ([System.IO.Path]::GetTempPath()) ("woscap-" + [System.Guid]::NewGuid() + ".json")
+        try {
+            $res = Invoke-WoscapScan -XccdfPath $single -ContentPath $emptyPack -JsonPath $out -Quiet
+            @($res).Count | Should -Be 1
+            (Get-Content $out -Raw).TrimStart()[0] | Should -Be '['   # array, not '{'
+        } finally {
+            Remove-Item $out -Force -ErrorAction SilentlyContinue
+            Remove-Item $emptyPack -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    It 'emits results enumerated so pipeline filtering works per-rule' {
+        Mock -ModuleName woscap Get-RegValue { 1 }
+        $nr = Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -Quiet |
+            Where-Object Status -eq 'Not_Reviewed'
+        @($nr).Count | Should -Be 1   # only WNTEST-00-000030 has no authored check
+    }
+}

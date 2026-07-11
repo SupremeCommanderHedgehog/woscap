@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Benchmark xmlns="http://checklists.nist.gov/xccdf/1.1" id="Single_Rule_STIG" xml:lang="en">
+  <status date="2026-01-01">accepted</status>
+  <title>Single Rule STIG</title>
+  <version>1</version>
+  <Group id="V-200001">
+    <title>SRG-OS-000001</title>
+    <Rule id="SV-200001r1_rule" severity="low" weight="10.0">
+      <version>WNTEST-00-000090</version>
+      <title>Lone rule with no automated check.</title>
+      <description>&lt;VulnDiscussion&gt;Lone.&lt;/VulnDiscussion&gt;</description>
+      <ident system="http://cyber.mil/cci">CCI-000001</ident>
+      <fixtext fixref="F-1">Fix it.</fixtext>
+      <check system="C-1"><check-content>Manual.</check-content></check>
+    </Rule>
+  </Group>
+</Benchmark>

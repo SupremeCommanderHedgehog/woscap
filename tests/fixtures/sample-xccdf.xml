@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Benchmark xmlns="http://checklists.nist.gov/xccdf/1.1" id="Test_Windows_STIG" xml:lang="en">
+  <status date="2026-01-01">accepted</status>
+  <title>Test Windows STIG</title>
+  <description>Fixture benchmark for parser tests.</description>
+  <version>1</version>
+  <plain-text id="release-info">Release: 1 Benchmark Date: 01 Jan 2026</plain-text>
+  <Group id="V-100001">
+    <title>SRG-OS-000001</title>
+    <Rule id="SV-100001r1_rule" severity="medium" weight="10.0">
+      <version>WNTEST-00-000010</version>
+      <title>Example registry rule must be configured.</title>
+      <description>&lt;VulnDiscussion&gt;Discussion text.&lt;/VulnDiscussion&gt;</description>
+      <ident system="http://cyber.mil/cci">CCI-000366</ident>
+      <fixtext fixref="F-1">Set the value.</fixtext>
+      <check system="C-1"><check-content>Registry check text.</check-content></check>
+    </Rule>
+  </Group>
+  <Group id="V-100002">
+    <title>SRG-OS-000002</title>
+    <Rule id="SV-100002r1_rule" severity="high" weight="10.0">
+      <version>WNTEST-00-000020</version>
+      <title>Example scriptblock rule must be configured.</title>
+      <description>&lt;VulnDiscussion&gt;Scriptblock discussion.&lt;/VulnDiscussion&gt;</description>
+      <ident system="http://cyber.mil/cci">CCI-000999</ident>
+      <fixtext fixref="F-2">Do the scripted thing.</fixtext>
+      <check system="C-2"><check-content>Scriptblock check text.</check-content></check>
+    </Rule>
+  </Group>
+  <Group id="V-100003">
+    <title>SRG-OS-000003</title>
+    <Rule id="SV-100003r1_rule" severity="low" weight="10.0">
+      <version>WNTEST-00-000030</version>
+      <title>Manual rule with no automated check.</title>
+      <description>&lt;VulnDiscussion&gt;Manual discussion.&lt;/VulnDiscussion&gt;</description>
+      <ident system="http://cyber.mil/cci">CCI-000123</ident>
+      <fixtext fixref="F-3">Do the manual thing.</fixtext>
+      <check system="C-3"><check-content>Manual verification.</check-content></check>
+    </Rule>
+  </Group>
+</Benchmark>

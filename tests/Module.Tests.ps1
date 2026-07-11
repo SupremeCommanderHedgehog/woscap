@@ -12,7 +12,7 @@ Describe 'woscap module' {
         $manifest = Import-PowerShellDataFile (Join-Path $ModuleRoot 'woscap.psd1')
         [version]$manifest.PowerShellVersion | Should -Be ([version]'5.1')
     }
-    It 'exports no public functions yet' {
-        (Get-Command -Module woscap).Count | Should -Be 0
+    It 'exports only the intended public commands' {
+        (Get-Command -Module woscap).Name | Should -Be 'Invoke-WoscapScan'
     }
 }

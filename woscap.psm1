@@ -1,4 +1,6 @@
 Set-StrictMode -Version Latest
+# Absolute path to the module root, for resolving bundled Content/ packs.
+$script:WoscapModuleRoot = $PSScriptRoot
 
 $private = @( Get-ChildItem -Path (Join-Path $PSScriptRoot 'Private') -Recurse -Filter '*.ps1' -ErrorAction SilentlyContinue )
 $public  = @( Get-ChildItem -Path (Join-Path $PSScriptRoot 'Public')  -Recurse -Filter '*.ps1' -ErrorAction SilentlyContinue )

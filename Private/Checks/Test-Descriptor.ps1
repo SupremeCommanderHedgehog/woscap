@@ -25,7 +25,9 @@ function Test-Descriptor {
             }
             'ScriptBlock' {
                 $sbResult = & $Descriptor.Script
-                return [pscustomobject]@{ Result = [string]$sbResult; Observed = $sbResult; Expected = $null }
+                $sbStatus = [string]$sbResult
+                if ($sbStatus -notin @('Pass','Fail','NA','NotReviewed','Error')) { $sbStatus = 'Error' }
+                return [pscustomobject]@{ Result = $sbStatus; Observed = $sbResult; Expected = $null }
             }
             default {
                 return [pscustomobject]@{ Result = 'Error'; Observed = $null; Expected = $expected }

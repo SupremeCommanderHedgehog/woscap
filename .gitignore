@@ -1,2 +1,5 @@
 # Local Claude Code settings (machine-specific)
 .claude/settings.local.json
+
+# DISA STIG content (licensed — never commit)
+STIG/

@@ -62,4 +62,10 @@ Describe 'Test-Descriptor' {
             (Test-Descriptor -Descriptor @{ Type='Bogus' }).Result | Should -Be 'Error'
         }
     }
+    It 'normalizes an out-of-set ScriptBlock result to Error (fail closed)' {
+        InModuleScope woscap {
+            $d = @{ Type='ScriptBlock'; Script={ 'Yes' } }
+            (Test-Descriptor -Descriptor $d).Result | Should -Be 'Error'
+        }
+    }
 }
