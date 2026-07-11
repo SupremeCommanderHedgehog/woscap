@@ -15,6 +15,6 @@ Describe 'Real Windows 11 XCCDF smoke' -Skip:(-not (Test-Path (Join-Path (Split-
         $res = Invoke-WoscapScan -XccdfPath $script:RealXccdf -Benchmark Windows11 -Quiet
         @($res).Count | Should -Be 256
         ($res | Where-Object StigId -eq 'WN11-00-000165').Status | Should -BeIn @('Open','NotAFinding')
-        ($res | Where-Object Status -eq 'Not_Reviewed').Count | Should -BeGreaterThan 200
+        ($res | Where-Object Status -eq 'Not_Reviewed').Count | Should -BeLessThan 160
     }
 }
