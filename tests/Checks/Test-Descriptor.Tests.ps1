@@ -68,4 +68,41 @@ Describe 'Test-Descriptor' {
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'Error'
         }
     }
+    It 'UserRight passes when the assigned SID set exactly matches the expected principals' {
+        InModuleScope woscap {
+            Mock Get-UserRight { @('*S-1-5-32-544') }   # Administrators, secedit's leading-* form
+            $d = @{ Type='UserRight'; Privilege='SeBackupPrivilege'; Operator='setequals'; Expected=@('Administrators') }
+            (Test-Descriptor -Descriptor $d).Result | Should -Be 'Pass'
+        }
+    }
+    It 'UserRight fails (Open) when an extra principal holds the right' {
+        InModuleScope woscap {
+            Mock Get-UserRight { @('*S-1-5-32-544','*S-1-5-32-545') }  # Administrators + Users
+            $d = @{ Type='UserRight'; Privilege='SeBackupPrivilege'; Operator='setequals'; Expected=@('Administrators') }
+            (Test-Descriptor -Descriptor $d).Result | Should -Be 'Fail'
+        }
+    }
+    It 'UserRight passes when the right is assigned to no one and expected is empty' {
+        InModuleScope woscap {
+            Mock Get-UserRight { @() }
+            $d = @{ Type='UserRight'; Privilege='SeTcbPrivilege'; Operator='setequals'; Expected=@() }
+            (Test-Descriptor -Descriptor $d).Result | Should -Be 'Pass'
+        }
+    }
+    It 'UserRight returns Error (fail closed) when an expected principal cannot be resolved' {
+        InModuleScope woscap {
+            Mock Get-UserRight { @('*S-1-5-32-544') }
+            $d = @{ Type='UserRight'; Privilege='SeBackupPrivilege'; Operator='setequals'; Expected=@('NoSuchPrincipalXyZ123') }
+            (Test-Descriptor -Descriptor $d).Result | Should -Be 'Error'
+        }
+    }
+    It 'UserRight surfaces a clear message when the security policy cannot be read' {
+        InModuleScope woscap {
+            Mock Invoke-SecEditExport { throw 'secedit export produced no output (administrator privileges may be required to read the security policy).' }
+            $d = @{ Type='UserRight'; Privilege='SeBackupPrivilege'; Operator='setequals'; Expected=@('Administrators') }
+            $r = Test-Descriptor -Descriptor $d
+            $r.Result   | Should -Be 'Error'
+            $r.Observed | Should -BeLike '*administrator privileges may be required*'
+        }
+    }
 }

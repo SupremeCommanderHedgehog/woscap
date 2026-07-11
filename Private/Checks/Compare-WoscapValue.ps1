@@ -2,7 +2,7 @@ function Compare-WoscapValue {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('eq','ne','ge','le','in','includes','regex','exists')]
+        [ValidateSet('eq','ne','ge','le','in','includes','regex','exists','setequals')]
         [string] $Operator,
         [AllowNull()] [object] $Observed,
         [AllowNull()] [object] $Expected
@@ -18,6 +18,13 @@ function Compare-WoscapValue {
         'exists'   {
             $present = $null -ne $Observed
             if ($Expected) { $present } else { -not $present }
+        }
+        'setequals' {
+            $o = @($Observed | Where-Object { $null -ne $_ } | Sort-Object -Unique)
+            $e = @($Expected | Where-Object { $null -ne $_ } | Sort-Object -Unique)
+            if ($o.Count -ne $e.Count) { $false }
+            elseif ($o.Count -eq 0) { $true }
+            else { -not (Compare-Object -ReferenceObject $o -DifferenceObject $e) }
         }
     }
 }

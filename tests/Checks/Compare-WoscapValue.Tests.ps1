@@ -26,6 +26,12 @@ Describe 'Compare-WoscapValue' {
         @{ Op = 'exists';   Observed = 'anything';      Expected = $true;         Result = $true }
         @{ Op = 'exists';   Observed = $null;           Expected = $true;         Result = $false }
         @{ Op = 'exists';   Observed = $null;           Expected = $false;        Result = $true }
+        @{ Op = 'setequals'; Observed = @('S-1-5-32-544');            Expected = @('S-1-5-32-544');            Result = $true }
+        @{ Op = 'setequals'; Observed = @('S-1-5-32-544','S-1-5-19'); Expected = @('S-1-5-19','S-1-5-32-544'); Result = $true }
+        @{ Op = 'setequals'; Observed = @('S-1-5-32-544','S-1-5-19'); Expected = @('S-1-5-32-544');            Result = $false }
+        @{ Op = 'setequals'; Observed = @('S-1-5-32-544');            Expected = @('S-1-5-32-544','S-1-5-19'); Result = $false }
+        @{ Op = 'setequals'; Observed = @();                          Expected = @();                          Result = $true }
+        @{ Op = 'setequals'; Observed = @('S-1-5-32-544');            Expected = @();                          Result = $false }
     ) {
         InModuleScope woscap -Parameters @{ Op=$Op; Observed=$Observed; Expected=$Expected; Result=$Result } {
             Compare-WoscapValue -Operator $Op -Observed $Observed -Expected $Expected | Should -Be $Result

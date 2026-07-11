@@ -14,7 +14,21 @@ function Test-Descriptor {
                 $observed = Get-SecEditSetting -Name $Descriptor.Name -Section $section
             }
             'UserRight' {
-                $observed = Get-UserRight -Privilege $Descriptor.Privilege
+                $observedSids = @(Get-UserRight -Privilege $Descriptor.Privilege | ForEach-Object { $_ -replace '^\*', '' })
+                $expectedSids = @()
+                foreach ($principal in @($expected)) {
+                    $sid = Resolve-PrincipalSid -Name $principal
+                    if ([string]::IsNullOrEmpty($sid)) {
+                        return [pscustomobject]@{ Result = 'Error'; Observed = ($observedSids -join ','); Expected = "unresolved principal: $principal" }
+                    }
+                    $expectedSids += $sid
+                }
+                $pass = Compare-WoscapValue -Operator $Descriptor.Operator -Observed $observedSids -Expected $expectedSids
+                return [pscustomobject]@{
+                    Result   = if ($pass) { 'Pass' } else { 'Fail' }
+                    Observed = ($observedSids -join ',')
+                    Expected = ($expectedSids -join ',')
+                }
             }
             'AuditPolicy' {
                 $observed = Get-AuditPolicy -Subcategory $Descriptor.Subcategory

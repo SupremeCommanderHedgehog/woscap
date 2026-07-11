@@ -53,4 +53,22 @@ Describe 'Windows11 content pack' {
             }
         }
     }
+    It 'includes the user-rights and service rules' {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
+            $p = Import-ContentPack -Path $PackPath
+            $p['WN11-UR-000030']['Type']      | Should -Be 'UserRight'
+            $p['WN11-UR-000030']['Privilege'] | Should -Be 'SeBackupPrivilege'
+            $p['WN11-UR-000030']['Operator']  | Should -Be 'setequals'
+            $p['WN11-UR-000030']['Expected']  | Should -Be @('Administrators')
+            $p['WN11-UR-000005']['Expected']  | Should -BeNullOrEmpty   # empty set
+            $p['WN11-00-000175']['Type']      | Should -Be 'Service'
+            $p['WN11-00-000175']['Operator']  | Should -Be 'eq'
+            $p['WN11-00-000175']['Expected']  | Should -Be 'Disabled'
+        }
+    }
+    It 'now provides broader coverage (>160 declarative descriptors)' {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
+            (Import-ContentPack -Path $PackPath).Keys.Count | Should -BeGreaterThan 160
+        }
+    }
 }

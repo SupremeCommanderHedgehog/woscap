@@ -143,4 +143,26 @@
     'WN11-SO-000270' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name='EnableLUA'; Operator='eq'; Expected=1 }
     'WN11-SO-000275' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name='EnableVirtualization'; Operator='eq'; Expected=1 }
     'WN11-UC-000015' = @{ Type='Registry'; Path='HKCU:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications'; Name='NoToastApplicationNotificationOnLockScreen'; Operator='eq'; Expected=1 }
+    # --- User Rights Assignment (Se* privileges; exact set match) ---
+    'WN11-UR-000005' = @{ Type = 'UserRight'; Privilege = 'SeTrustedCredManAccessPrivilege'; Operator = 'setequals'; Expected = @() }
+    'WN11-UR-000015' = @{ Type = 'UserRight'; Privilege = 'SeTcbPrivilege';                   Operator = 'setequals'; Expected = @() }
+    'WN11-UR-000025' = @{ Type = 'UserRight'; Privilege = 'SeInteractiveLogonRight';          Operator = 'setequals'; Expected = @('Administrators','Users') }
+    'WN11-UR-000030' = @{ Type = 'UserRight'; Privilege = 'SeBackupPrivilege';                Operator = 'setequals'; Expected = @('Administrators') }
+    'WN11-UR-000035' = @{ Type = 'UserRight'; Privilege = 'SeSystemtimePrivilege';            Operator = 'setequals'; Expected = @('Administrators','LOCAL SERVICE') }
+    'WN11-UR-000040' = @{ Type = 'UserRight'; Privilege = 'SeCreatePagefilePrivilege';        Operator = 'setequals'; Expected = @('Administrators') }
+    'WN11-UR-000045' = @{ Type = 'UserRight'; Privilege = 'SeCreateTokenPrivilege';           Operator = 'setequals'; Expected = @() }
+    'WN11-UR-000050' = @{ Type = 'UserRight'; Privilege = 'SeCreateGlobalPrivilege';          Operator = 'setequals'; Expected = @('Administrators','LOCAL SERVICE','NETWORK SERVICE','SERVICE') }
+    'WN11-UR-000055' = @{ Type = 'UserRight'; Privilege = 'SeCreatePermanentPrivilege';       Operator = 'setequals'; Expected = @() }
+    'WN11-UR-000065' = @{ Type = 'UserRight'; Privilege = 'SeDebugPrivilege';                 Operator = 'setequals'; Expected = @('Administrators') }
+    'WN11-UR-000095' = @{ Type = 'UserRight'; Privilege = 'SeEnableDelegationPrivilege';      Operator = 'setequals'; Expected = @() }
+    'WN11-UR-000100' = @{ Type = 'UserRight'; Privilege = 'SeRemoteShutdownPrivilege';        Operator = 'setequals'; Expected = @('Administrators') }
+    'WN11-UR-000120' = @{ Type = 'UserRight'; Privilege = 'SeLoadDriverPrivilege';            Operator = 'setequals'; Expected = @('Administrators') }
+    'WN11-UR-000125' = @{ Type = 'UserRight'; Privilege = 'SeLockMemoryPrivilege';            Operator = 'setequals'; Expected = @() }
+    'WN11-UR-000140' = @{ Type = 'UserRight'; Privilege = 'SeSystemEnvironmentPrivilege';     Operator = 'setequals'; Expected = @('Administrators') }
+    'WN11-UR-000145' = @{ Type = 'UserRight'; Privilege = 'SeManageVolumePrivilege';          Operator = 'setequals'; Expected = @('Administrators') }
+    'WN11-UR-000150' = @{ Type = 'UserRight'; Privilege = 'SeProfileSingleProcessPrivilege';  Operator = 'setequals'; Expected = @('Administrators') }
+    'WN11-UR-000160' = @{ Type = 'UserRight'; Privilege = 'SeRestorePrivilege';               Operator = 'setequals'; Expected = @('Administrators') }
+    'WN11-UR-000165' = @{ Type = 'UserRight'; Privilege = 'SeTakeOwnershipPrivilege';         Operator = 'setequals'; Expected = @('Administrators') }
+    # --- Service ---
+    'WN11-00-000175' = @{ Type = 'Service'; Name = 'seclogon'; Operator = 'eq'; Expected = 'Disabled' }
 }
