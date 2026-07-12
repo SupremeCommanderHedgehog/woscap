@@ -6,6 +6,9 @@ function Invoke-WoscapScan {
         [string] $Benchmark = 'Windows11',
         [string] $ContentPath,
         [string[]] $ProfilePath,
+        [string[]] $ComputerName,
+        [pscredential] $Credential,
+        [int] $ThrottleLimit = 8,
         [string] $JsonPath,
         [switch] $Quiet
     )
@@ -13,12 +16,31 @@ function Invoke-WoscapScan {
     if (-not $ContentPath) {
         $ContentPath = Join-Path $script:WoscapModuleRoot (Join-Path 'Content' $Benchmark)
     }
+    if (-not (Test-Path -LiteralPath $ContentPath)) {
+        throw "woscap: content pack path not found: $ContentPath"
+    }
 
     $rules = @(Import-Xccdf -Path $XccdfPath)
-    $pack  = Import-ContentPack -Path $ContentPath
     $exceptions = @{}
     if ($ProfilePath) { $exceptions = Import-ExceptionProfile -Path $ProfilePath }
-    $results = @(Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $exceptions)
+
+    # Partition targets: local (in-process) vs remote (WinRM). localhost/self run
+    # in-process; a mixed list scans BOTH. Omitted -ComputerName = local only.
+    $localAliases = @('localhost', '.', '127.0.0.1', '::1', $env:COMPUTERNAME)
+    $requested    = @($ComputerName | Where-Object { $_ } | Select-Object -Unique)
+    $remoteHosts  = @($requested | Where-Object { $_ -notin $localAliases })
+    $wantLocal    = ($requested.Count -eq 0) -or (@($requested | Where-Object { $_ -in $localAliases }).Count -gt 0)
+
+    $collected = [System.Collections.Generic.List[object]]::new()
+    if ($wantLocal) {
+        $pack = Import-ContentPack -Path $ContentPath
+        foreach ($r in @(Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $exceptions)) { $collected.Add($r) }
+    }
+    if ($remoteHosts.Count -gt 0) {
+        foreach ($r in @(Invoke-WoscapRemoteScan -ComputerName $remoteHosts -Credential $Credential -ThrottleLimit $ThrottleLimit `
+            -Rules $rules -ExceptionProfile $exceptions -ModuleRoot $script:WoscapModuleRoot -Benchmark $Benchmark -ContentPath $ContentPath)) { $collected.Add($r) }
+    }
+    $results = @($collected.ToArray())
 
     if ($JsonPath) {
         Write-WoscapText -Text (ConvertTo-Json -InputObject $results -Depth 6) -Path $JsonPath

@@ -23,6 +23,10 @@ Describe 'Audit path is read-only' {
                 if ($text -match $p) {
                     # Allow ONLY Invoke-SecEditExport.ps1's Remove-Item on the temp file it creates.
                     if ($f.Name -eq 'Invoke-SecEditExport.ps1' -and $p -eq 'Remove-Item') { continue }
+                    # Allow Invoke-WoscapSessionScan.ps1's New-Item/Remove-Item: these run inside
+                    # remote scriptblocks against a target-side temp dir (module staging + cleanup),
+                    # not the local audit host, so they don't mutate the machine under audit.
+                    if ($f.Name -eq 'Invoke-WoscapSessionScan.ps1' -and $p -in @('New-Item','Remove-Item')) { continue }
                     # Reporter helpers (Private/Report/) legitimately write output files.
                     if ($f.DirectoryName -match '\\Report$' -and $p -in @('Set-Content','Add-Content','Out-File','Export-Csv')) { continue }
                     # Write-WoscapText is the reporters' single BOM-less output-writer; allow ONLY

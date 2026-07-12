@@ -57,4 +57,39 @@ Describe 'Invoke-WoscapScan' {
             ($res | Where-Object StigId -eq 'WNTEST-00-000030').Status | Should -Be 'Not_Applicable'
         } finally { Remove-Item $prof -Force -ErrorAction SilentlyContinue }
     }
+
+    It 'runs in-process (no remoting) when -ComputerName is localhost' {
+        Mock -ModuleName woscap Get-RegValue { 1 }
+        Mock -ModuleName woscap Invoke-WoscapRemoteScan { throw 'remote path should not be taken' }
+        $res = Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -ComputerName 'localhost' -Quiet
+        @($res).Count | Should -Be 3
+        Should -Not -Invoke Invoke-WoscapRemoteScan -ModuleName woscap -Scope It
+    }
+
+    It 'delegates to Invoke-WoscapRemoteScan when a remote host is given' {
+        Mock -ModuleName woscap Invoke-WoscapRemoteScan { @([pscustomobject]@{ Host = 'SRV01'; StigId = 'S1'; Status = 'Open'; Severity = 'high'; Exception = $null }) }
+        Mock -ModuleName woscap Invoke-CheckEval { throw 'local path should not be taken' }
+        $res = Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -ComputerName 'SRV01' -Quiet
+        Should -Invoke Invoke-WoscapRemoteScan -ModuleName woscap -Times 1 -Scope It
+        $res.Host | Should -Be 'SRV01'
+    }
+
+    It 'scans localhost in-process AND remote hosts when the list mixes both' {
+        Mock -ModuleName woscap Get-RegValue { 1 }
+        Mock -ModuleName woscap Invoke-WoscapRemoteScan { @([pscustomobject]@{ Host = 'SRV01'; StigId = 'S9'; Status = 'Open'; Severity = 'high'; Exception = $null }) }
+        $res = Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -ComputerName 'localhost','SRV01' -Quiet
+        Should -Invoke Invoke-WoscapRemoteScan -ModuleName woscap -Times 1 -Scope It
+        @($res | Where-Object Host -eq 'SRV01').Count | Should -Be 1
+        @($res).Count | Should -Be 4   # 3 local fixture rules + 1 remote
+    }
+
+    It 'deduplicates repeated remote hosts before fanning out' {
+        Mock -ModuleName woscap Invoke-WoscapRemoteScan { @($ComputerName | ForEach-Object { [pscustomobject]@{ Host = $_; StigId = 'S1'; Status = 'Open'; Severity = 'high'; Exception = $null } }) }
+        Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -ComputerName 'SRV01','SRV01' -Quiet | Out-Null
+        Should -Invoke Invoke-WoscapRemoteScan -ModuleName woscap -ParameterFilter { @($ComputerName).Count -eq 1 } -Times 1 -Scope It
+    }
+
+    It 'fails fast when the content-pack path does not exist' {
+        { Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath 'C:\woscap-nope-does-not-exist' -Quiet } | Should -Throw
+    }
 }

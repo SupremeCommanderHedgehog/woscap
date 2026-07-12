@@ -163,6 +163,9 @@ Invoke-WoscapScan
     [-Benchmark  <string>]     # content-pack name; default 'Windows11'
     [-ContentPath <string>]    # override content-pack dir; default Content/<Benchmark>
     [-ProfilePath <string[]>]  # one or more exception profiles (layered, last wins)
+    [-ComputerName <string[]>] # remote hosts to scan over WinRM; omit/localhost = local
+    [-Credential <pscredential>] # auth for remote hosts (default Negotiate/Kerberos)
+    [-ThrottleLimit <int>]     # max concurrent remote sessions (default 8)
     [-JsonPath   <string>]     # also write raw RuleResult[] JSON to this path
     [-Quiet]                   # suppress the console summary
 ```
@@ -179,8 +182,28 @@ Behaviour:
    the risk-accepted subset.
 7. `RuleResult[]` is emitted to the pipeline.
 
-> **Note:** the scan currently runs against the **local host only**. There is no
-> `-ComputerName`/remote parameter yet — see [Roadmap](#12-roadmap--not-yet-implemented).
+#### Remote fleet scanning
+
+Pass `-ComputerName` to scan one or more remote hosts over PowerShell
+Remoting/WinRM. The XCCDF is parsed once on the control host; the module and
+bundled content are shipped into each session with `Copy-Item -ToSession`, and
+the engine runs on the target. Results aggregate into one `RuleResult[]` across
+the fleet, each stamped with its `Host`.
+
+```powershell
+$results = Invoke-WoscapScan -XccdfPath .\...xccdf.xml `
+    -ComputerName 'SRV01','SRV02' -Credential (Get-Credential)
+```
+
+- **Per-host isolation / fail-closed:** an unreachable or WinRM-disabled host
+  yields a single `Not_Reviewed` result for that host (with the reason in
+  `FindingDetails`) and never aborts the batch.
+- **`-ThrottleLimit`** (default 8) caps how many sessions are opened at once.
+  Sessions are established with native throttling; per-host scans then run
+  sequentially. `localhost`, `.`, `127.0.0.1`, and the machine's own name are
+  treated as the local (in-process) case — no remoting.
+- **Prerequisite:** WinRM must be enabled on the targets (`Enable-PSRemoting`);
+  woscap does not configure it.
 
 ### `Export-WoscapResult`
 
@@ -415,6 +438,7 @@ survives PSRemoting serialization). Fields:
 | `Host` | runtime | defaults to `$env:COMPUTERNAME` |
 | `Benchmark`, `BenchmarkVersion` | XCCDF | scan context |
 | `StigId`, `GroupId` (V-…), `RuleId` (SV-…), `Cci[]` | XCCDF | identity / traceability |
+| `GroupTitle` | XCCDF | SRG / group title (`<Group><title>`); maps to CKLB `group_title` / CKL `Group_Title` |
 | `Severity` (`high`/`medium`/`low` ↔ CAT I/II/III) | XCCDF | may be overridden by profile |
 | `Title`, `Discussion`, `CheckText`, `FixText` | XCCDF | carried into reports |
 | `CheckType` | content pack | Registry/SecEdit/AuditPolicy/UserRight/Service/ScriptBlock |
@@ -512,7 +536,6 @@ today**. Do not assume they work:
 
 | Area | Status |
 |---|---|
-| **Remote fleet scanning** (`-ComputerName`, PSRemoting/`Copy-Item -ToSession`, throttled fan-out) | **Not implemented.** `Invoke-WoscapScan` runs against the local host only. |
 | **WinForms GUI** (`Show-WoscapGui`) | **Not implemented.** No `UI/` directory exists. CLI is the only interface. |
 | **Integrations** (OpenVAS / Ansible / Zabbix, `Import-/Export-WoscapIntegration`) | **Not implemented.** No `Integrations/` directory exists. |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Not implemented** (Phase 4). |
