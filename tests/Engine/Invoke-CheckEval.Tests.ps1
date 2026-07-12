@@ -44,6 +44,13 @@ Describe 'Invoke-CheckEval' {
             (Invoke-CheckEval -Rules $Rules -ContentPack @{}).Count | Should -Be 2
         }
     }
+    It 'propagates the Group title (SRG) from the rule metadata into the result' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ GroupId='V-1'; GroupTitle='SRG-OS-000480'; RuleId='SV-1r1_rule'; StigId='WNTEST-00-000010'; Severity='medium'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
+            $res = Invoke-CheckEval -Rules $rules -ContentPack @{}
+            $res.GroupTitle | Should -Be 'SRG-OS-000480'
+        }
+    }
     It 'propagates CheckText/FixText/Discussion from the rule metadata' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='WNTEST-00-000010'; Severity='medium'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1'; CheckText='CC'; FixText='FF'; Discussion='DD' })

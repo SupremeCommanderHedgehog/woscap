@@ -11,6 +11,7 @@ function Invoke-CheckEval {
         $common = @{
             StigId           = $rule.StigId
             GroupId          = $rule.GroupId
+            GroupTitle       = if ($rule.PSObject.Properties['GroupTitle']) { $rule.GroupTitle } else { $null }
             RuleId           = $rule.RuleId
             Cci              = $rule.Cci
             Title            = $rule.Title

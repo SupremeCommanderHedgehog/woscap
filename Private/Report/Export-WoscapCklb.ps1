@@ -14,7 +14,7 @@ function Export-WoscapCklb {
             group_id        = [string]$r.GroupId
             rule_id         = [string]$r.RuleId
             rule_version    = [string]$r.StigId
-            group_title     = [string]$r.Title
+            group_title     = [string]$r.GroupTitle   # SRG (XCCDF Group title); empty when the group has none
             rule_title      = [string]$r.Title
             severity        = [string]$r.Severity
             weight          = '10.0'

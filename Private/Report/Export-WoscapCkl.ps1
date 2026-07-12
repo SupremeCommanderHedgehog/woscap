@@ -45,6 +45,8 @@ function Export-WoscapCkl {
         [void]$sb.AppendLine('      <VULN>')
         [void]$sb.AppendLine((StigData 'Vuln_Num'     $r.GroupId))
         [void]$sb.AppendLine((StigData 'Severity'     $r.Severity))
+        # Group_Title is the SRG (XCCDF Group title); empty when the group has none.
+        [void]$sb.AppendLine((StigData 'Group_Title'  $r.GroupTitle))
         [void]$sb.AppendLine((StigData 'Rule_ID'      $r.RuleId))
         [void]$sb.AppendLine((StigData 'Rule_Ver'     $r.StigId))
         [void]$sb.AppendLine((StigData 'Rule_Title'   $r.Title))

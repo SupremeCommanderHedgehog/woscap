@@ -18,6 +18,14 @@ Describe 'New-WoscapResult' {
             $r.PSObject.Properties.Name | Should -Contain 'Cci'
         }
     }
+    It 'carries a GroupTitle (SRG) field distinct from Title' {
+        InModuleScope woscap {
+            $r = New-WoscapResult -StigId 'X' -Result 'Pass' -ComputerName 'PC1' `
+                -Title 'Rule title' -GroupTitle 'SRG-OS-000001'
+            $r.GroupTitle | Should -Be 'SRG-OS-000001'
+            $r.Title      | Should -Be 'Rule title'
+        }
+    }
     It 'carries CheckText, FixText, and Discussion' {
         InModuleScope woscap {
             $r = New-WoscapResult -StigId 'X' -Result 'Pass' -ComputerName 'PC1' `

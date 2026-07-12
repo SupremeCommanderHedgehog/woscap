@@ -8,6 +8,7 @@ function New-WoscapResult {
         [ValidateSet('high', 'medium', 'low')]
         [string] $Severity = 'medium',
         [string] $Title,
+        [string] $GroupTitle,
         [string] $CheckText,
         [string] $FixText,
         [string] $Discussion,
@@ -30,6 +31,7 @@ function New-WoscapResult {
         BenchmarkVersion = $BenchmarkVersion
         StigId           = $StigId
         GroupId          = $GroupId
+        GroupTitle       = $GroupTitle
         RuleId           = $RuleId
         Cci              = $Cci
         Severity         = $Severity

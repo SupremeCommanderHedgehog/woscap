@@ -27,6 +27,7 @@ function Import-Xccdf {
         $rule = $group.SelectSingleNode('c:Rule', $nsm)
         if (-not $rule) { continue }
 
+        $groupTitleNode = $group.SelectSingleNode('c:title', $nsm)
         $versionNode = $rule.SelectSingleNode('c:version', $nsm)
         $titleNode   = $rule.SelectSingleNode('c:title', $nsm)
         $descNode    = $rule.SelectSingleNode('c:description', $nsm)
@@ -36,6 +37,7 @@ function Import-Xccdf {
 
         [pscustomobject]@{
             GroupId          = $group.id
+            GroupTitle       = if ($groupTitleNode) { $groupTitleNode.InnerText } else { '' }
             RuleId           = $rule.id
             StigId           = if ($versionNode) { $versionNode.InnerText } else { $null }
             Severity         = $rule.severity

@@ -21,6 +21,13 @@ Describe 'Import-Xccdf' {
             $r.Benchmark | Should -Be 'Test Windows STIG'
         }
     }
+    It 'extracts the Group title (SRG) distinctly from the Rule title' {
+        InModuleScope woscap -Parameters @{ Fixture = $script:Fixture } {
+            $r = Import-Xccdf -Path $Fixture | Where-Object StigId -eq 'WNTEST-00-000010'
+            $r.GroupTitle | Should -Be 'SRG-OS-000001'
+            $r.GroupTitle | Should -Not -Be $r.Title
+        }
+    }
     It 'throws on a non-XCCDF document' {
         InModuleScope woscap {
             $tmp = [System.IO.Path]::GetTempFileName()
