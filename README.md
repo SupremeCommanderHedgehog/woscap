@@ -52,4 +52,4 @@ supply** — the "manual" `*_xccdf.xml` from the DISA STIG download.
 
 ## License
 
-[MIT](LICENSE).
+[Apache-2.0](LICENSE).
