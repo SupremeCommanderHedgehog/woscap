@@ -18,6 +18,15 @@ Describe 'New-WoscapResult' {
             $r.PSObject.Properties.Name | Should -Contain 'Cci'
         }
     }
+    It 'carries CheckText, FixText, and Discussion' {
+        InModuleScope woscap {
+            $r = New-WoscapResult -StigId 'X' -Result 'Pass' -ComputerName 'PC1' `
+                -CheckText 'check here' -FixText 'fix here' -Discussion 'why here'
+            $r.CheckText  | Should -Be 'check here'
+            $r.FixText    | Should -Be 'fix here'
+            $r.Discussion | Should -Be 'why here'
+        }
+    }
     It 'survives Clixml serialization unchanged (plain data)' {
         InModuleScope woscap {
             $r = New-WoscapResult -StigId 'X' -Result 'Pass' -ComputerName 'PC1'

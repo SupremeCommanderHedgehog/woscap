@@ -13,6 +13,9 @@ function Invoke-CheckEval {
             Cci              = $rule.Cci
             Severity         = $rule.Severity
             Title            = $rule.Title
+            CheckText        = if ($rule.PSObject.Properties['CheckText'])  { $rule.CheckText }  else { $null }
+            FixText          = if ($rule.PSObject.Properties['FixText'])     { $rule.FixText }    else { $null }
+            Discussion       = if ($rule.PSObject.Properties['Discussion'])  { $rule.Discussion } else { $null }
             ComputerName     = $ComputerName
             Benchmark        = $rule.Benchmark
             BenchmarkVersion = $rule.BenchmarkVersion

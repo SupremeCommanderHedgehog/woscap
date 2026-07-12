@@ -18,7 +18,7 @@ function Invoke-WoscapScan {
     $results = @(Invoke-CheckEval -Rules $rules -ContentPack $pack)
 
     if ($JsonPath) {
-        ConvertTo-Json -InputObject $results -Depth 6 | Set-Content -LiteralPath $JsonPath -Encoding UTF8
+        Write-WoscapText -Text (ConvertTo-Json -InputObject $results -Depth 6) -Path $JsonPath
     }
 
     if (-not $Quiet) {

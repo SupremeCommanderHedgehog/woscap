@@ -44,6 +44,15 @@ Describe 'Invoke-CheckEval' {
             (Invoke-CheckEval -Rules $Rules -ContentPack @{}).Count | Should -Be 2
         }
     }
+    It 'propagates CheckText/FixText/Discussion from the rule metadata' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='WNTEST-00-000010'; Severity='medium'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1'; CheckText='CC'; FixText='FF'; Discussion='DD' })
+            $res = Invoke-CheckEval -Rules $rules -ContentPack @{}
+            $res.CheckText  | Should -Be 'CC'
+            $res.FixText    | Should -Be 'FF'
+            $res.Discussion | Should -Be 'DD'
+        }
+    }
     It 'treats a rule with a null StigId as Not_Reviewed (fail closed)' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ GroupId='V-9'; RuleId='SV-9r1_rule'; StigId=$null; Severity='low'; Title='No version'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })

@@ -8,6 +8,9 @@ function New-WoscapResult {
         [ValidateSet('high', 'medium', 'low')]
         [string] $Severity = 'medium',
         [string] $Title,
+        [string] $CheckText,
+        [string] $FixText,
+        [string] $Discussion,
         [string] $CheckType,
         [Parameter(Mandatory)]
         [ValidateSet('Pass', 'Fail', 'NA', 'NotReviewed', 'Error')]
@@ -30,6 +33,9 @@ function New-WoscapResult {
         Cci              = $Cci
         Severity         = $Severity
         Title            = $Title
+        CheckText        = $CheckText
+        FixText          = $FixText
+        Discussion       = $Discussion
         CheckType        = $CheckType
         Expected         = $Expected
         Observed         = $Observed
