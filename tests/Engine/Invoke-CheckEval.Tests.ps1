@@ -141,6 +141,14 @@ Describe 'Invoke-CheckEval' {
             (Invoke-CheckEval -Rules $rules -ContentPack $pack).Status | Should -Be 'NotAFinding'
         }
     }
+    It 'emits a Write-Progress record per rule while evaluating' {
+        InModuleScope woscap -Parameters @{ Rules = $script:Rules } {
+            Mock Write-Progress { }
+            Invoke-CheckEval -Rules $Rules -ContentPack @{} | Out-Null
+            # One per rule (2 rules), plus is allowed to emit a final -Completed record.
+            Should -Invoke Write-Progress -Times 2 -Scope It -ParameterFilter { -not $Completed }
+        }
+    }
     It 'ignores an invalid Override Severity (keeps rule severity, does not abort)' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='high'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })

@@ -13,6 +13,6 @@ Describe 'woscap module' {
         [version]$manifest.PowerShellVersion | Should -Be ([version]'5.1')
     }
     It 'exports only the intended public commands' {
-        (Get-Command -Module woscap).Name | Sort-Object | Should -Be @('Export-WoscapResult','Invoke-WoscapScan')
+        (Get-Command -Module woscap).Name | Sort-Object | Should -Be @('Export-WoscapResult','Invoke-WoscapScan','Show-WoscapGui')
     }
 }

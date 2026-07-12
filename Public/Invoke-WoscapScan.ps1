@@ -13,6 +13,11 @@ function Invoke-WoscapScan {
         [switch] $Quiet
     )
 
+    # -Quiet means fully silent: suppress the engine's per-rule Write-Progress bar too,
+    # not just the console summary. The GUI does NOT pass -Quiet, so its background
+    # runspace still receives determinate progress records.
+    if ($Quiet) { $ProgressPreference = 'SilentlyContinue' }
+
     if (-not $ContentPath) {
         $ContentPath = Join-Path $script:WoscapModuleRoot (Join-Path 'Content' $Benchmark)
     }

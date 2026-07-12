@@ -7,7 +7,12 @@ function Invoke-CheckEval {
         [string] $ComputerName = $env:COMPUTERNAME,
         [datetime] $ReferenceDate = (Get-Date)
     )
+    $total = @($Rules).Count
+    $index = 0
     foreach ($rule in $Rules) {
+        $index++
+        Write-Progress -Activity 'Evaluating STIG rules' -Status "$index of $total" `
+            -PercentComplete ([int](($index / $total) * 100))
         $common = @{
             StigId           = $rule.StigId
             GroupId          = $rule.GroupId
@@ -70,4 +75,5 @@ function Invoke-CheckEval {
         New-WoscapResult @common -Severity $severity -Result $eval.Result -CheckType $checkType `
             -Expected $eval.Expected -Observed $eval.Observed -Exception $exRecord -Comments $exJust -FindingDetails $details
     }
+    Write-Progress -Activity 'Evaluating STIG rules' -Completed
 }

@@ -220,6 +220,34 @@ Export-WoscapResult
 Buffers all piped results, then dispatches to the matching reporter. Each format
 is an isolated reporter reading the same `RuleResult[]`.
 
+### `Show-WoscapGui`
+
+Launches the interactive **Windows Forms** front-end. Takes no parameters — it
+is a thin launcher over the cmdlets.
+
+```powershell
+Show-WoscapGui
+```
+
+The window lets an operator pick a benchmark + XCCDF, set targets (blank =
+local; comma-separated hosts = remote over WinRM) and an optional exception
+profile, tick **Use alternate credential** to prompt for credentials, then
+**Run** a scan with a live progress bar. Results land in a grid filterable by
+severity / status / free-text find, and **Export…** writes any supported format
+via `Export-WoscapResult`. Each result row is **color-coded by status** (Open =
+red, NotAFinding = green, Not_Applicable = gray, Not_Reviewed = amber) so
+findings stand out at a glance, and the grid **resizes with the window** — drag
+the frame larger to see more of the table. The GUI holds **no** evaluation,
+exception, or export logic of its own — every action calls the corresponding
+cmdlet, so it can never diverge from the CLI.
+
+**Requirements & boundaries:** needs an interactive desktop session (STA); it is
+**not** available on Server Core / headless hosts. For unattended, headless, or
+CI use, call `Invoke-WoscapScan` / `Export-WoscapResult` directly. Internally
+the scan runs in a background runspace so the window stays responsive; the UI
+layer lives in `Private/UI/` (builder `New-WoscapMainForm`, handler logic in
+`WoscapGuiHandlers.ps1`) plus the public `Show-WoscapGui` launcher.
+
 ---
 
 ## 7. Output formats
@@ -536,15 +564,16 @@ today**. Do not assume they work:
 
 | Area | Status |
 |---|---|
-| **WinForms GUI** (`Show-WoscapGui`) | **Not implemented.** No `UI/` directory exists. CLI is the only interface. |
 | **Integrations** (OpenVAS / Ansible / Zabbix, `Import-/Export-WoscapIntegration`) | **Not implemented.** No `Integrations/` directory exists. |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Not implemented** (Phase 4). |
 | **`Get-WoscapBenchmark`** (list installed content packs) | **Not implemented.** |
 | **Additional content packs** (Server 2019/2022 MS+DC, MS/third-party apps) | **Not implemented.** Windows 11 only. |
 
-Per the roadmap, Phases 0–1 (skeleton, engine, first benchmark, local scan) and
-much of Phase 2 (all five reporters + the exception/profile system) are done;
-Phase 2's remote execution and GUI, plus Phases 3–4, remain.
+Per the roadmap, **Phase 2 is complete**: all five reporters, the
+exception/profile system, remote fleet execution over WinRM
+(`-ComputerName`), and the WinForms GUI (`Show-WoscapGui`) are all shipped,
+on top of the Phase 0–1 skeleton/engine/first-benchmark/local-scan work.
+Phases 3–4 (integrations, remediation) remain.
 
 ---
 
