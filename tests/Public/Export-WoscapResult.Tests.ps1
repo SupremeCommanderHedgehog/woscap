@@ -27,7 +27,21 @@ Describe 'Export-WoscapResult' {
             @(Import-Csv -LiteralPath $out).Count | Should -Be @($script:Results).Count
         } finally { Remove-Item $out -Force -ErrorAction SilentlyContinue }
     }
+    It 'writes an html file' {
+        $out = Join-Path ([System.IO.Path]::GetTempPath()) ("woscap-" + [System.Guid]::NewGuid() + ".html")
+        try {
+            Export-WoscapResult -Result $script:Results -Format html -Path $out
+            (Get-Content $out -Raw) | Should -BeLike '*<!DOCTYPE html>*'
+        } finally { Remove-Item $out -Force -ErrorAction SilentlyContinue }
+    }
+    It 'writes a ckl file' {
+        $out = Join-Path ([System.IO.Path]::GetTempPath()) ("woscap-" + [System.Guid]::NewGuid() + ".ckl")
+        try {
+            Export-WoscapResult -Result $script:Results -Format ckl -Path $out
+            ([xml](Get-Content $out -Raw)).CHECKLIST | Should -Not -BeNullOrEmpty
+        } finally { Remove-Item $out -Force -ErrorAction SilentlyContinue }
+    }
     It 'rejects an unknown format' {
-        { Export-WoscapResult -Result $script:Results -Format html -Path 'x' } | Should -Throw
+        { Export-WoscapResult -Result $script:Results -Format xlsx -Path 'x' } | Should -Throw
     }
 }
