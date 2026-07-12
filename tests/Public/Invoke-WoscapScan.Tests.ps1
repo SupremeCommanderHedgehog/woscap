@@ -48,4 +48,13 @@ Describe 'Invoke-WoscapScan' {
             Where-Object Status -eq 'Not_Reviewed'
         @($nr).Count | Should -Be 1   # only WNTEST-00-000030 has no authored check
     }
+    It 'applies an exception profile via -ProfilePath' {
+        $prof = Join-Path ([System.IO.Path]::GetTempPath()) ("prof-" + [System.Guid]::NewGuid() + ".psd1")
+        Set-Content -LiteralPath $prof -Value "@{ 'WNTEST-00-000030' = @{ Type = 'NotApplicable'; Justification = 'n/a' } }"
+        try {
+            Mock -ModuleName woscap Get-RegValue { 1 }
+            $res = Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -ProfilePath $prof -Quiet
+            ($res | Where-Object StigId -eq 'WNTEST-00-000030').Status | Should -Be 'Not_Applicable'
+        } finally { Remove-Item $prof -Force -ErrorAction SilentlyContinue }
+    }
 }

@@ -3,7 +3,9 @@ function Invoke-CheckEval {
     param(
         [Parameter(Mandatory)] [object[]] $Rules,
         [Parameter(Mandatory)] [hashtable] $ContentPack,
-        [string] $ComputerName = $env:COMPUTERNAME
+        [hashtable] $ExceptionProfile = @{},
+        [string] $ComputerName = $env:COMPUTERNAME,
+        [datetime] $ReferenceDate = (Get-Date)
     )
     foreach ($rule in $Rules) {
         $common = @{
@@ -11,7 +13,6 @@ function Invoke-CheckEval {
             GroupId          = $rule.GroupId
             RuleId           = $rule.RuleId
             Cci              = $rule.Cci
-            Severity         = $rule.Severity
             Title            = $rule.Title
             CheckText        = if ($rule.PSObject.Properties['CheckText'])  { $rule.CheckText }  else { $null }
             FixText          = if ($rule.PSObject.Properties['FixText'])     { $rule.FixText }    else { $null }
@@ -21,18 +22,51 @@ function Invoke-CheckEval {
             BenchmarkVersion = $rule.BenchmarkVersion
         }
 
+        $exception = if ([string]::IsNullOrEmpty($rule.StigId)) { $null } else {
+            Resolve-WoscapException -StigId $rule.StigId -ExceptionProfile $ExceptionProfile -ReferenceDate $ReferenceDate
+        }
+        $exType    = if ($exception) { [string]$exception['Type'] } else { '' }
+        $exRecord  = if ($exception) { New-WoscapExceptionRecord -Exception $exception } else { $null }
+        $exJust    = if ($exception -and $exception.ContainsKey('Justification')) { [string]$exception['Justification'] } else { '' }
+        $severity  = $rule.Severity
+        if ($exType -eq 'Override' -and $exception.ContainsKey('Severity')) {
+            $sev = [string]$exception['Severity']
+            if ($sev -in 'high','medium','low') {
+                $severity = $sev
+            } else {
+                Write-Warning "woscap: exception for $($rule.StigId) has invalid Severity '$sev'; keeping the rule's severity."
+            }
+        }
+
+        if ($exType -eq 'NotApplicable') {
+            New-WoscapResult @common -Severity $severity -Result 'NA' -Exception $exRecord -Comments $exJust `
+                -FindingDetails 'Marked Not Applicable by exception profile.'
+            continue
+        }
+        if ($exType -eq 'Exclude') {
+            New-WoscapResult @common -Severity $severity -Result 'NotReviewed' -Exception $exRecord -Comments $exJust `
+                -FindingDetails 'Excluded from evaluation by exception profile.'
+            continue
+        }
+
         if ([string]::IsNullOrEmpty($rule.StigId) -or -not $ContentPack.ContainsKey($rule.StigId)) {
-            New-WoscapResult @common -Result 'NotReviewed' `
+            New-WoscapResult @common -Severity $severity -Result 'NotReviewed' -Exception $exRecord -Comments $exJust `
                 -FindingDetails 'No automated check authored for this rule.'
             continue
         }
 
         $descriptor = $ContentPack[$rule.StigId]
-        $eval = Test-Descriptor -Descriptor $descriptor
-        $checkType = if ($descriptor.ContainsKey('Type')) { $descriptor.Type } else { $null }
-        $details = "Expected [$($eval.Expected)]; observed [$($eval.Observed)]."
+        if ($exType -eq 'Override') {
+            $descriptor = $descriptor.Clone()
+            if ($exception.ContainsKey('Expected')) { $descriptor['Expected'] = $exception['Expected'] }
+            if ($exception.ContainsKey('Operator')) { $descriptor['Operator'] = $exception['Operator'] }
+        }
 
-        New-WoscapResult @common -Result $eval.Result -CheckType $checkType `
-            -Expected $eval.Expected -Observed $eval.Observed -FindingDetails $details
+        $eval      = Test-Descriptor -Descriptor $descriptor
+        $checkType = if ($descriptor.ContainsKey('Type')) { $descriptor['Type'] } else { $null }
+        $details   = "Expected [$($eval.Expected)]; observed [$($eval.Observed)]."
+
+        New-WoscapResult @common -Severity $severity -Result $eval.Result -CheckType $checkType `
+            -Expected $eval.Expected -Observed $eval.Observed -Exception $exRecord -Comments $exJust -FindingDetails $details
     }
 }

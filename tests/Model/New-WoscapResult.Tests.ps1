@@ -38,4 +38,17 @@ Describe 'New-WoscapResult' {
             $back.Status | Should -Be 'NotAFinding'
         }
     }
+    It 'carries a supplied Exception record' {
+        InModuleScope woscap {
+            $ex = [pscustomobject]@{ Type = 'AcceptedRisk'; Justification = 'risk accepted' }
+            $r = New-WoscapResult -StigId 'X' -Result 'Fail' -ComputerName 'PC1' -Exception $ex
+            $r.Exception.Type          | Should -Be 'AcceptedRisk'
+            $r.Exception.Justification | Should -Be 'risk accepted'
+        }
+    }
+    It 'defaults Exception to $null when not supplied' {
+        InModuleScope woscap {
+            (New-WoscapResult -StigId 'X' -Result 'Pass' -ComputerName 'PC1').Exception | Should -BeNullOrEmpty
+        }
+    }
 }

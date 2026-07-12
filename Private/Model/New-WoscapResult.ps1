@@ -19,6 +19,7 @@ function New-WoscapResult {
         [object] $Observed,
         [string] $FindingDetails,
         [string] $Comments,
+        [object] $Exception,
         [string] $ComputerName = $env:COMPUTERNAME,
         [string] $Benchmark,
         [string] $BenchmarkVersion
@@ -43,6 +44,6 @@ function New-WoscapResult {
         Status           = ConvertTo-WoscapStatus -Result $Result
         FindingDetails   = $FindingDetails
         Comments         = $Comments
-        Exception        = $null
+        Exception        = $Exception
     }
 }

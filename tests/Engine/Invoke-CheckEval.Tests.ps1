@@ -61,4 +61,88 @@ Describe 'Invoke-CheckEval' {
             $res.Status   | Should -Be 'Not_Reviewed'
         }
     }
+    It 'NotApplicable exception -> Not_Applicable, no check run' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='medium'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
+            $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
+            Mock Get-RegValue { throw 'should not be called' }
+            $prof = @{ 'S1' = @{ Type='NotApplicable'; Justification='n/a here'; Author='jd' } }
+            $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof
+            $r.Status         | Should -Be 'Not_Applicable'
+            $r.Exception.Type | Should -Be 'NotApplicable'
+            $r.Comments       | Should -Be 'n/a here'
+        }
+    }
+    It 'Exclude exception -> Not_Reviewed, no check run' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='medium'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
+            $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
+            $prof = @{ 'S1' = @{ Type='Exclude'; Justification='out of band' } }
+            $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof
+            $r.Status         | Should -Be 'Not_Reviewed'
+            $r.Exception.Type | Should -Be 'Exclude'
+        }
+    }
+    It 'AcceptedRisk keeps a failing rule Open (never a pass) and tags it' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='high'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
+            $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
+            Mock Get-RegValue { 0 }
+            $prof = @{ 'S1' = @{ Type='AcceptedRisk'; Justification='comp control' } }
+            $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof
+            $r.Status         | Should -Be 'Open'
+            $r.Exception.Type | Should -Be 'AcceptedRisk'
+        }
+    }
+    It 'Override changes Expected and re-evaluates' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='medium'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
+            $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
+            Mock Get-RegValue { 5 }
+            $prof = @{ 'S1' = @{ Type='Override'; Justification='org value'; Expected=5 } }
+            $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof
+            $r.Status         | Should -Be 'NotAFinding'
+            $r.Exception.Type | Should -Be 'Override'
+        }
+    }
+    It 'Override can lower Severity' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='high'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
+            $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
+            Mock Get-RegValue { 1 }
+            $prof = @{ 'S1' = @{ Type='Override'; Justification='downgrade'; Severity='low' } }
+            $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof
+            $r.Severity | Should -Be 'low'
+        }
+    }
+    It 'an expired exception is ignored — rule evaluated normally (fail closed)' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='medium'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
+            $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
+            Mock Get-RegValue { 0 }
+            $prof = @{ 'S1' = @{ Type='NotApplicable'; Justification='x'; Expires='2000-01-01' } }
+            $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof -ReferenceDate ([datetime]'2026-07-11') -WarningAction SilentlyContinue
+            $r.Status    | Should -Be 'Open'
+            $r.Exception | Should -BeNullOrEmpty
+        }
+    }
+    It 'still works with no exception profile (backward compatible)' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='medium'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
+            Mock Get-RegValue { 1 }
+            $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
+            (Invoke-CheckEval -Rules $rules -ContentPack $pack).Status | Should -Be 'NotAFinding'
+        }
+    }
+    It 'ignores an invalid Override Severity (keeps rule severity, does not abort)' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='high'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
+            $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
+            Mock Get-RegValue { 1 }
+            $prof = @{ 'S1' = @{ Type='Override'; Justification='bad sev'; Severity='CAT-I' } }
+            $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof -WarningAction SilentlyContinue
+            $r.Severity | Should -Be 'high'      # invalid override ignored -> rule severity kept
+            $r.Status   | Should -Be 'NotAFinding'
+        }
+    }
 }
