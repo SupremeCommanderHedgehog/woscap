@@ -18,6 +18,10 @@ function New-WoscapMainForm {
     $form.MinimumSize = New-Object System.Drawing.Size(760, 520)
     $form.StartPosition = 'CenterScreen'
 
+    # Dropdown vocabularies are DERIVED from their canonical owners (engine ValidateSets /
+    # status map) so they can never drift from what the engine emits or accepts (#47).
+    $vocab = Get-WoscapGuiVocabulary
+
     # --- Input row: benchmark + XCCDF ---
     $benchmarkLabel = New-Object System.Windows.Forms.Label
     $benchmarkLabel.Text = 'Benchmark:'; $benchmarkLabel.Location = '12,15'; $benchmarkLabel.AutoSize = $true
@@ -62,19 +66,21 @@ function New-WoscapMainForm {
     $progress.Location = '12,108'; $progress.Width = 620; $progress.Style = 'Continuous'
     $status = New-Object System.Windows.Forms.Label
     $status.Text = ''; $status.Location = '640,110'; $status.AutoSize = $true
+    # Non-modal channel for partial-scan warning detail (see the OnWarning handler).
+    $statusTip = New-Object System.Windows.Forms.ToolTip
 
     # --- Filter row ---
     $filterSeverityLabel = New-Object System.Windows.Forms.Label
     $filterSeverityLabel.Text = 'Severity:'; $filterSeverityLabel.Location = '12,142'; $filterSeverityLabel.AutoSize = $true
     $filterSeverity = New-Object System.Windows.Forms.ComboBox
     $filterSeverity.DropDownStyle = 'DropDownList'; $filterSeverity.Location = '70,139'; $filterSeverity.Width = 90
-    [void]$filterSeverity.Items.AddRange(@('All','high','medium','low')); $filterSeverity.SelectedIndex = 0
+    [void]$filterSeverity.Items.AddRange(@('All') + $vocab.Severity); $filterSeverity.SelectedIndex = 0
 
     $filterStatusLabel = New-Object System.Windows.Forms.Label
     $filterStatusLabel.Text = 'Status:'; $filterStatusLabel.Location = '175,142'; $filterStatusLabel.AutoSize = $true
     $filterStatus = New-Object System.Windows.Forms.ComboBox
     $filterStatus.DropDownStyle = 'DropDownList'; $filterStatus.Location = '225,139'; $filterStatus.Width = 130
-    [void]$filterStatus.Items.AddRange(@('All','Open','NotAFinding','Not_Applicable','Not_Reviewed')); $filterStatus.SelectedIndex = 0
+    [void]$filterStatus.Items.AddRange(@('All') + $vocab.Status); $filterStatus.SelectedIndex = 0
 
     $findLabel = New-Object System.Windows.Forms.Label
     $findLabel.Text = 'Find:'; $findLabel.Location = '370,142'; $findLabel.AutoSize = $true
@@ -93,7 +99,8 @@ function New-WoscapMainForm {
     # --- Export row ---
     $format = New-Object System.Windows.Forms.ComboBox
     $format.DropDownStyle = 'DropDownList'; $format.Location = '12,562'; $format.Width = 90
-    [void]$format.Items.AddRange(@('cklb','ckl','csv','html','json')); $format.SelectedIndex = 0
+    [void]$format.Items.AddRange($vocab.Format)
+    if ($format.Items.Count -gt 0) { $format.SelectedIndex = 0 }   # derived list is never empty in practice; guard the edge
     $export = New-Object System.Windows.Forms.Button
     $export.Text = 'Export...'; $export.Location = '110,560'; $export.Width = 90; $export.Enabled = $false
     $countLabel = New-Object System.Windows.Forms.Label
@@ -126,7 +133,7 @@ function New-WoscapMainForm {
     # Full (unfiltered) result set + control refs, exposed for handlers and tests.
     $form.Tag = @{
         Benchmark = $benchmark; Xccdf = $xccdf; Targets = $targets; Profile = $profile
-        UseCred = $useCred; Run = $run; Progress = $progress; Status = $status; Grid = $grid
+        UseCred = $useCred; Run = $run; Progress = $progress; Status = $status; StatusTip = $statusTip; Grid = $grid
         FilterSeverity = $filterSeverity; FilterStatus = $filterStatus; Find = $find
         Format = $format; Export = $export; Count = $countLabel
         Results = [System.Collections.Generic.List[object]]::new()

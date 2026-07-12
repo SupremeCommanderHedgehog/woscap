@@ -37,6 +37,19 @@ Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
         }
     }
 
+    It 'derives the severity/status/format dropdowns from the canonical vocabularies' {
+        InModuleScope woscap {
+            $vocab = Get-WoscapGuiVocabulary
+            $form = New-WoscapMainForm
+            try {
+                # 'All' is a GUI-only filter prefix; the rest must match the canonical lists.
+                @($form.Tag['FilterSeverity'].Items) | Should -Be (@('All') + $vocab.Severity)
+                @($form.Tag['FilterStatus'].Items)   | Should -Be (@('All') + $vocab.Status)
+                @($form.Tag['Format'].Items)         | Should -Be $vocab.Format
+            } finally { $form.Dispose() }
+        }
+    }
+
     It 'populates the grid and enables Export when a scan completes' {
         InModuleScope woscap {
             Mock Invoke-WoscapGuiScan {
@@ -168,6 +181,111 @@ Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
                 # A minimum size keeps the layout from collapsing onto itself.
                 $form.MinimumSize.Width  | Should -BeGreaterThan 0
                 $form.MinimumSize.Height | Should -BeGreaterThan 0
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'reports a partial scan (results + errors) as a non-modal warning, not a failure' {
+        InModuleScope woscap {
+            Mock Invoke-WoscapGuiScan {
+                & $OnComplete -Results @([pscustomobject]@{ Host='H1'; StigId='V-1'; Severity='high'; Status='Open'; Title='T1'; Exception=$null })
+                & $OnWarning -Message 'SRV03 unreachable' -Count 1
+            }
+            Mock Show-WoscapGuiMessage { }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                $form.Tag['Grid'].Rows.Count | Should -Be 1
+                $form.Tag['Export'].Enabled  | Should -BeTrue
+                $form.Tag['Status'].Text     | Should -Be 'Done (1 warning).'
+                # The warning detail is preserved non-modally (tooltip), NOT a dialog.
+                $form.Tag['StatusTip'].GetToolTip($form.Tag['Status']) | Should -Match 'SRV03 unreachable'
+                Should -Not -Invoke Show-WoscapGuiMessage -Scope It
+                $form.Tag['Run'].Enabled | Should -BeTrue
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'pluralizes the warning count' {
+        InModuleScope woscap {
+            Mock Invoke-WoscapGuiScan {
+                & $OnComplete -Results @([pscustomobject]@{ Host='H1'; StigId='V-1'; Severity='high'; Status='Open'; Title='T1'; Exception=$null })
+                & $OnWarning -Message "a`nb" -Count 2
+            }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                $form.Tag['Status'].Text | Should -Be 'Done (2 warnings).'
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'still shows a modal and sets Failed. on a hard error (no results)' {
+        InModuleScope woscap {
+            Mock Invoke-WoscapGuiScan {
+                & $OnComplete -Results @()
+                & $OnError -Message 'everything failed'
+            }
+            Mock Show-WoscapGuiMessage { }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                $form.Tag['Status'].Text | Should -Be 'Failed.'
+                Should -Invoke Show-WoscapGuiMessage -Times 1 -Scope It
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'clears the stale grid and resets the progress bar when a later scan hard-fails' {
+        InModuleScope woscap {
+            $script:runCount = 0
+            Mock Invoke-WoscapGuiScan {
+                $script:runCount++
+                if ($script:runCount -eq 1) {
+                    & $OnComplete -Results @(
+                        [pscustomobject]@{ Host='H1'; StigId='V-1'; Severity='high';   Status='Open';        Title='T1'; Exception=$null }
+                        [pscustomobject]@{ Host='H1'; StigId='V-2'; Severity='medium'; Status='NotAFinding'; Title='T2'; Exception=$null }
+                    )
+                } else {
+                    # Terminating path: only OnError fires (OnComplete is skipped).
+                    & $OnError -Message 'boom'
+                }
+            }
+            Mock Show-WoscapGuiMessage { }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                Invoke-WoscapGuiRun -Tag $form.Tag        # populate
+                $form.Tag['Grid'].Rows.Count | Should -Be 2
+                Invoke-WoscapGuiRun -Tag $form.Tag        # hard-fail
+                $form.Tag['Grid'].Rows.Count | Should -Be 0 -Because 'a failed scan must not leave stale rows'
+                $form.Tag['Export'].Enabled  | Should -BeFalse
+                $form.Tag['Progress'].Value  | Should -Be 0
+                $form.Tag['Status'].Text     | Should -Be 'Failed.'
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'clears a stale warning tooltip on a subsequent clean scan' {
+        InModuleScope woscap {
+            $script:runCount = 0
+            Mock Invoke-WoscapGuiScan {
+                $script:runCount++
+                $row = @([pscustomobject]@{ Host='H1'; StigId='V-1'; Severity='high'; Status='Open'; Title='T1'; Exception=$null })
+                & $OnComplete -Results $row
+                if ($script:runCount -eq 1) { & $OnWarning -Message 'SRV03 unreachable' -Count 1 }
+            }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                Invoke-WoscapGuiRun -Tag $form.Tag        # scan 1: warning sets tooltip
+                $form.Tag['StatusTip'].GetToolTip($form.Tag['Status']) | Should -Match 'SRV03'
+                Invoke-WoscapGuiRun -Tag $form.Tag        # scan 2: clean
+                $form.Tag['StatusTip'].GetToolTip($form.Tag['Status']) | Should -BeNullOrEmpty
+                $form.Tag['Status'].Text | Should -Be 'Done.'
             } finally { $form.Dispose() }
         }
     }

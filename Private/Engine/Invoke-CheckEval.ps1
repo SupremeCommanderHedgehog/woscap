@@ -1,7 +1,7 @@
 function Invoke-CheckEval {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [object[]] $Rules,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Rules,
         [Parameter(Mandatory)] [hashtable] $ContentPack,
         [hashtable] $ExceptionProfile = @{},
         [string] $ComputerName = $env:COMPUTERNAME,

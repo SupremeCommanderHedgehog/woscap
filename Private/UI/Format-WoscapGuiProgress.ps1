@@ -10,6 +10,11 @@ function Format-WoscapGuiProgress {
     param(
         [Parameter(Mandatory)] [System.Management.Automation.ProgressRecord] $Record
     )
+    # A -Completed record carries PercentComplete=-1; rendering it would flash the bar to
+    # Marquee for one poll before OnComplete resets it. Emit nothing so the tick skips it.
+    if ($Record.RecordType -eq [System.Management.Automation.ProgressRecordType]::Completed) {
+        return
+    }
     $pct = [int]$Record.PercentComplete
     $indeterminate = ($pct -lt 0)
     if ($indeterminate) { $pct = 0 }

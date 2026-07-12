@@ -149,6 +149,14 @@ Describe 'Invoke-CheckEval' {
             Should -Invoke Write-Progress -Times 2 -Scope It -ParameterFilter { -not $Completed }
         }
     }
+    It 'accepts an empty rule set and returns nothing (no binding error)' {
+        InModuleScope woscap {
+            # A rule-less / malformed XCCDF parses to @(); the scan must return an
+            # empty result set, not die on a mandatory [object[]] binding error (#44).
+            $res = Invoke-CheckEval -Rules @() -ContentPack @{}
+            @($res).Count | Should -Be 0
+        }
+    }
     It 'ignores an invalid Override Severity (keeps rule severity, does not abort)' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='high'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })

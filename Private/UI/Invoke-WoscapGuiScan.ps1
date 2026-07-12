@@ -8,17 +8,21 @@ function Invoke-WoscapGuiScan {
         Callbacks:
           OnProgress  & $OnProgress -Percent <int> -Status <string> -Indeterminate <bool>
           OnComplete  & $OnComplete -Results <object[]>
+          OnWarning   & $OnWarning -Message <string> -Count <int>
           OnError     & $OnError -Message <string>
 
-        Note: OnComplete fires first (results always delivered), THEN OnError fires if the
-        scan reported errors -- so the final UI state reflects the failure, not a false
-        'done', while any partial results are still shown.
+        Completion is classified by Resolve-WoscapGuiCompletion: OnComplete always fires
+        first (results are always delivered). Then, if the scan ALSO reported errors, the
+        outcome is a WARNING when results came back (e.g. one host down among several) or
+        an ERROR when nothing came back or the scan terminated -- so a partial success is
+        never presented as a total failure, and accumulated error detail is not lost.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [hashtable] $ScanParameters,
         [scriptblock] $OnProgress,
         [scriptblock] $OnComplete,
+        [scriptblock] $OnWarning,
         [scriptblock] $OnError,
         [int] $PollIntervalMs = 150
     )
@@ -47,7 +51,8 @@ function Invoke-WoscapGuiScan {
     # NOT resolve by bare name inside it (it would throw 'not recognized' every tick).
     # Capture the function's module-bound scriptblock now, while we ARE in module scope,
     # and invoke it with '&' so it still runs in woscap's session state.
-    $formatProgress = ${function:Format-WoscapGuiProgress}
+    $formatProgress    = ${function:Format-WoscapGuiProgress}
+    $resolveCompletion = ${function:Resolve-WoscapGuiCompletion}
 
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = $PollIntervalMs
@@ -59,8 +64,9 @@ function Invoke-WoscapGuiScan {
                 $rec = $ps.Streams.Progress[$state.ProgressIndex]
                 $state.ProgressIndex++
                 if ($OnProgress) {
+                    # $null => a record the formatter drops (e.g. the final -Completed frame).
                     $f = & $formatProgress -Record $rec
-                    & $OnProgress -Percent $f.Percent -Status $f.Text -Indeterminate $f.Indeterminate
+                    if ($f) { & $OnProgress -Percent $f.Percent -Status $f.Text -Indeterminate $f.Indeterminate }
                 }
             }
 
@@ -68,15 +74,22 @@ function Invoke-WoscapGuiScan {
                 $timer.Stop()
                 try {
                     $results = @($ps.EndInvoke($async))
-                    # Deliver results first so the grid populates, THEN surface any error so
-                    # the final status reflects the failure instead of a false 'Done.'.
+                    # Deliver results first so the grid populates, THEN classify the outcome:
+                    # clean (None), partial success (Warning), or failure (Error).
                     if ($OnComplete) { & $OnComplete -Results $results }
-                    if ($ps.HadErrors -and $ps.Streams.Error.Count -gt 0 -and $OnError) {
-                        $errText = ($ps.Streams.Error | ForEach-Object { $_.ToString() }) -join "`n"
-                        & $OnError -Message $errText
+                    $outcome = & $resolveCompletion -Results $results `
+                        -ErrorRecords @($ps.Streams.Error) -WarningRecords @($ps.Streams.Warning)
+                    switch ($outcome.Kind) {
+                        'Warning' { if ($OnWarning) { & $OnWarning -Message $outcome.Message -Count $outcome.Count } }
+                        'Error'   { if ($OnError)   { & $OnError -Message $outcome.Message } }
                     }
                 } catch {
-                    if ($OnError) { & $OnError -Message $_.Exception.Message }
+                    # Terminating error: join any accumulated per-host/per-rule detail so the
+                    # root cause is not lost behind the final exception message.
+                    $outcome = & $resolveCompletion -Results @() `
+                        -ErrorRecords @($ps.Streams.Error) -WarningRecords @($ps.Streams.Warning) `
+                        -TerminatingError $_.Exception.Message
+                    if ($OnError) { & $OnError -Message $outcome.Message }
                 } finally {
                     $ps.Dispose()
                     $timer.Dispose()

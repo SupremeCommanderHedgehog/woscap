@@ -5,6 +5,17 @@ function Show-WoscapGuiMessage {
     [void][System.Windows.Forms.MessageBox]::Show($Text, $Caption)
 }
 
+function Set-WoscapGuiStatusTip {
+    <# Sets (or, with an empty string, clears) the hover tooltip on the status label --
+       the non-modal channel for partial-scan warning detail. Tolerates a tag with no
+       StatusTip (older/minimal forms) so callers need no guard. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable] $Tag, [string] $Text = '')
+    if ($Tag.ContainsKey('StatusTip') -and $Tag['StatusTip']) {
+        $Tag['StatusTip'].SetToolTip($Tag['Status'], $Text)
+    }
+}
+
 function Get-WoscapGuiSavePath {
     <# Thin seam over SaveFileDialog so the Export handler is testable. Returns the
        chosen path, or $null if cancelled. #>
@@ -96,12 +107,35 @@ function Invoke-WoscapGuiRun {
         $t['Export'].Enabled = (@($t['Results']).Count -gt 0)
         $t['Progress'].Style = 'Continuous'; $t['Progress'].Value = 0
         $t['Status'].Text = 'Done.'
+        # Clear any tooltip left by a prior partial scan; OnWarning re-sets it if needed.
+        Set-WoscapGuiStatusTip -Tag $t -Text ''
+        $t['Run'].Enabled = $true
+    }
+    $onWarning = {
+        param($Message, $Count)
+        # Partial success: results ARE valid and shown. Surface the errors non-modally
+        # (status + hover tooltip) instead of a 'Scan failed' dialog.
+        # Resolve-WoscapGuiCompletion only classifies Kind='Warning' when Count >= 1.
+        $t = $script:WoscapGuiTag
+        $n = [int]$Count
+        $noun = if ($n -eq 1) { 'warning' } else { 'warnings' }
+        $t['Status'].Text = "Done ($n $noun)."
+        Set-WoscapGuiStatusTip -Tag $t -Text ([string]$Message)
         $t['Run'].Enabled = $true
     }
     $onError = {
         param($Message)
+        # A hard failure produced no valid results. Clear any stale rows/tooltip and reset
+        # the bar so 'Failed.' is never shown next to leftover data from a previous run
+        # (the terminating-error path skips OnComplete, so it never cleaned up).
         $t = $script:WoscapGuiTag
         Show-WoscapGuiMessage -Text "Scan failed: $Message"
+        $t['Results'].Clear()
+        Update-WoscapGuiView -Tag $t
+        $t['Count'].Text = '0 rules'
+        $t['Export'].Enabled = $false
+        $t['Progress'].Style = 'Continuous'; $t['Progress'].Value = 0
+        Set-WoscapGuiStatusTip -Tag $t -Text ''
         $t['Status'].Text = 'Failed.'
         $t['Run'].Enabled = $true
     }
@@ -109,7 +143,8 @@ function Invoke-WoscapGuiRun {
     # Starting the background scan can fail synchronously (runspace BeginInvoke or timer
     # Start). Re-enable the UI on that path so the Run button is never stuck disabled.
     try {
-        Invoke-WoscapGuiScan -ScanParameters $splat -OnProgress $onProgress -OnComplete $onComplete -OnError $onError
+        Invoke-WoscapGuiScan -ScanParameters $splat -OnProgress $onProgress `
+            -OnComplete $onComplete -OnWarning $onWarning -OnError $onError
     } catch {
         Show-WoscapGuiMessage -Text "Could not start scan: $($_.Exception.Message)"
         $Tag['Status'].Text = 'Failed.'

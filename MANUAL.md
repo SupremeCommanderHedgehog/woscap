@@ -237,7 +237,10 @@ severity / status / free-text find, and **Export…** writes any supported forma
 via `Export-WoscapResult`. Each result row is **color-coded by status** (Open =
 red, NotAFinding = green, Not_Applicable = gray, Not_Reviewed = amber) so
 findings stand out at a glance, and the grid **resizes with the window** — drag
-the frame larger to see more of the table. The GUI holds **no** evaluation,
+the frame larger to see more of the table. A **partial scan** (e.g. one
+unreachable host among several) still shows the results that came back and
+reports `Done (N warnings)` with the detail on hover — only a scan that returns
+nothing raises a `Scan failed` dialog. The GUI holds **no** evaluation,
 exception, or export logic of its own — every action calls the corresponding
 cmdlet, so it can never diverge from the CLI.
 

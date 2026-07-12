@@ -49,9 +49,9 @@ function Invoke-WoscapSessionScan {
             Import-Module $manifest -Force
             & (Get-Module woscap) {
                 param($packPath, $rules, $exceptions)
-                # A zero-rule host is a clean no-op: Invoke-CheckEval's -Rules is a
-                # mandatory [object[]] with no [AllowEmptyCollection()], so passing @()
-                # would throw a binding error. Return nothing instead.
+                # A zero-rule host is a clean no-op: skip the content-pack import and the
+                # engine entirely and return nothing. (Invoke-CheckEval also accepts @(),
+                # so this is a fast path, not a correctness workaround.)
                 if (@($rules).Count -eq 0) { return }
                 $pack = Import-ContentPack -Path $packPath
                 Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $exceptions -ComputerName $env:COMPUTERNAME
