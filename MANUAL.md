@@ -165,7 +165,7 @@ Invoke-WoscapScan
     [-ProfilePath <string[]>]  # one or more exception profiles (layered, last wins)
     [-ComputerName <string[]>] # remote hosts to scan over WinRM; omit/localhost = local
     [-Credential <pscredential>] # auth for remote hosts (default Negotiate/Kerberos)
-    [-ThrottleLimit <int>]     # max concurrent remote sessions (default 8)
+    [-ThrottleLimit <int>]     # max hosts scanned in parallel (default 8)
     [-JsonPath   <string>]     # also write raw RuleResult[] JSON to this path
     [-Quiet]                   # suppress the console summary
 ```
@@ -185,10 +185,14 @@ Behaviour:
 #### Remote fleet scanning
 
 Pass `-ComputerName` to scan one or more remote hosts over PowerShell
-Remoting/WinRM. The XCCDF is parsed once on the control host; the module and
-bundled content are shipped into each session with `Copy-Item -ToSession`, and
-the engine runs on the target. Results aggregate into one `RuleResult[]` across
-the fleet, each stamped with its `Host`.
+Remoting/WinRM. The XCCDF is parsed once on the control host; a **curated
+module subset** — the manifest, the root module (`.psm1`), `Private/`,
+`Public/`, and only the single relevant content pack — is shipped into each
+session with `Copy-Item -ToSession` (not the whole module tree), and the engine
+runs on the target. Per-host scan work then fans out **in parallel** through one
+batched `Invoke-Command`, so the fleet is scanned concurrently rather than
+host-by-host. Results aggregate into one `RuleResult[]` across the fleet, each
+stamped with its `Host`.
 
 ```powershell
 $results = Invoke-WoscapScan -XccdfPath .\...xccdf.xml `
@@ -197,11 +201,15 @@ $results = Invoke-WoscapScan -XccdfPath .\...xccdf.xml `
 
 - **Per-host isolation / fail-closed:** an unreachable or WinRM-disabled host
   yields a single `Not_Reviewed` result for that host (with the reason in
-  `FindingDetails`) and never aborts the batch.
-- **`-ThrottleLimit`** (default 8) caps how many sessions are opened at once.
-  Sessions are established with native throttling; per-host scans then run
-  sequentially. `localhost`, `.`, `127.0.0.1`, and the machine's own name are
-  treated as the local (in-process) case — no remoting.
+  `FindingDetails`) and never aborts the batch. Unreachable-host detection
+  matches on the **normalized** host name, so a short-name-vs-FQDN difference
+  (e.g. `SRV01` vs `SRV01.corp.example`) no longer false-flags a host that did
+  in fact respond.
+- **`-ThrottleLimit`** (default 8) bounds the parallel scan fan-out — it caps how
+  many hosts are actively scanned at once through the batched `Invoke-Command`
+  (it now throttles the real scan work, not just session creation).
+  `localhost`, `.`, `127.0.0.1`, and the machine's own name are treated as the
+  local (in-process) case — no remoting.
 - **Prerequisite:** WinRM must be enabled on the targets (`Enable-PSRemoting`);
   woscap does not configure it.
 
@@ -469,7 +477,7 @@ survives PSRemoting serialization). Fields:
 | `Host` | runtime | defaults to `$env:COMPUTERNAME` |
 | `Benchmark`, `BenchmarkVersion` | XCCDF | scan context |
 | `StigId`, `GroupId` (V-…), `RuleId` (SV-…), `Cci[]` | XCCDF | identity / traceability |
-| `GroupTitle` | XCCDF | SRG / group title (`<Group><title>`); maps to CKLB `group_title` / CKL `Group_Title` |
+| `GroupTitle` | XCCDF | XCCDF Group title (the SRG name); threaded into the CKLB/CKL reporters (`group_title` / `Group_Title`) |
 | `Severity` (`high`/`medium`/`low` ↔ CAT I/II/III) | XCCDF | may be overridden by profile |
 | `Title`, `Discussion`, `CheckText`, `FixText` | XCCDF | carried into reports |
 | `CheckType` | content pack | Registry/SecEdit/AuditPolicy/UserRight/Service/ScriptBlock |
