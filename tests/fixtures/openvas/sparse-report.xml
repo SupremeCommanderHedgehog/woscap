@@ -1,0 +1,10 @@
+<report>
+  <results>
+    <result>
+      <host>10.0.0.9</host>
+      <nvt oid="1.3.6.1.4.1.25623.1.0.900003">
+        <name>Sparse finding</name>
+      </nvt>
+    </result>
+  </results>
+</report>

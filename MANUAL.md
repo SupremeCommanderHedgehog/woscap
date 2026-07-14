@@ -261,6 +261,70 @@ layer lives in `Private/UI/` (builder `New-WoscapMainForm`, handler logic in
 
 ---
 
+### `Get-WoscapIntegration`
+
+Enumerates integration plugins (each a folder with a `plugin.psd1` manifest +
+`implementation.ps1`) and reports whether each is `Conformant`. Accepts a
+`-Path` that is either the integrations root or a single plugin folder;
+malformed plugins are listed with `Conformant = $false` rather than hidden.
+
+### `Import-WoscapIntegration`
+
+Pull-side dispatch to a plugin's capability hooks: `-Targets` invokes
+`Get-Targets`, `-Findings -Path <report>` invokes `Import-Findings`. Pass
+`-CorrelateWith <RuleResult[]>` to join imported findings to same-host rule
+results (matching CVE/CCE/CCI against rule CCIs) into a unified
+`{ Results; Findings; Links }` view.
+
+### `Export-WoscapIntegration`
+
+Push-side dispatch: by default sends `-Result <RuleResult[]>` to a plugin's
+`Export-Findings` hook; `-Remediation -Path <file>` invokes `New-Remediation`
+to emit remediation content. Loader/dispatch failures warn and return nothing —
+they never abort a scan.
+
+#### Bundled plugins
+
+Three plugins ship under `Integrations/`. Core scanning never depends on any of
+them, and a plugin failure only warns — it never aborts a scan.
+
+| Plugin | Capabilities | `-Config` keys |
+|---|---|---|
+| **OpenVAS** | `Import-Findings`, `Invoke-ExternalScan` (stub) | — (ingest reads `-Path`; live GMP triggering is Phase 4 / #23) |
+| **Ansible** | `Get-Targets`, `New-Remediation`, `Export-Findings` | `Group` (inventory group filter); `Benchmark` / `ContentPath` (source of fix descriptors); `FactsPath` (facts output) |
+| **Zabbix** | `Export-Findings`, `Get-Targets` | `Server`, `Port` (trapper, default 10051); `ApiUrl`, `Token` (JSON-RPC host inventory) |
+
+- **OpenVAS** ingests a Greenbone/OpenVAS report XML into normalized findings and,
+  with `-CorrelateWith`, cross-links them to STIG results on CVE/CCE/CCI.
+- **Ansible** parses an INI or YAML inventory into a target list, and emits a
+  remediation **playbook** (`win_regedit` / `win_audit_policy_system` / …) derived
+  from the same check descriptors the engine evaluates. Rules with no automatable
+  fix are emitted as `# manual:` comments, never silently dropped.
+- **Zabbix** pushes per-host posture metrics (`woscap.open.cat1/2/3`,
+  `compliance.pct`, exception counts) over the **Zabbix sender protocol** using
+  in-box `System.Net.Sockets` — no `zabbix_sender` binary required.
+
+```powershell
+# Pull targets from an Ansible inventory, scan, push posture to Zabbix
+$hosts = Import-WoscapIntegration -Integration Ansible -Targets `
+    -Source .\inventory.ini -Config @{ Group = 'windows' }
+$r = Invoke-WoscapScan -Benchmark Windows11 `
+    -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml -ComputerName $hosts
+Export-WoscapIntegration -Integration Zabbix -Result $r -Config @{ Server = 'zbx.example.com' }
+
+# Emit an Ansible remediation playbook for the open findings
+Export-WoscapIntegration -Integration Ansible -Result $r -Remediation -Path .\remediate.yml
+```
+
+**Authoring a plugin:** create `Integrations/<Name>/plugin.psd1` (declaring
+`Name`, `Capabilities`, `Implementation`) and an `implementation.ps1` that returns
+a hashtable mapping each declared hook to a scriptblock. The loader validates that
+declared capabilities and implemented hooks agree (and that each is a known hook);
+mismatches are rejected with a warning. `tests/helpers/Assert-WoscapPluginConformance.ps1`
+is the shared conformance check.
+
+---
+
 ## 7. Output formats
 
 All reporters consume the same `RuleResult[]`; none can make posture look cleaner
@@ -575,7 +639,8 @@ today**. Do not assume they work:
 
 | Area | Status |
 |---|---|
-| **Integrations** (OpenVAS / Ansible / Zabbix, `Import-/Export-WoscapIntegration`) | **Not implemented.** No `Integrations/` directory exists. |
+| **Integration plugin layer** (contract + loader/dispatcher + `Get-`/`Import-`/`Export-WoscapIntegration`) | **Shipped** (#16). The capability-hook contract, fail-warn-only loader/dispatcher, and the three cmdlets exist. |
+| **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering remains Phase 4 (#23). |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Not implemented** (Phase 4). |
 | **`Get-WoscapBenchmark`** (list installed content packs) | **Not implemented.** |
 | **Additional content packs** (Server 2019/2022 MS+DC, MS/third-party apps) | **Not implemented.** Windows 11 only. |
@@ -584,7 +649,10 @@ Per the roadmap, **Phase 2 is complete**: all five reporters, the
 exception/profile system, remote fleet execution over WinRM
 (`-ComputerName`), and the WinForms GUI (`Show-WoscapGui`) are all shipped,
 on top of the Phase 0–1 skeleton/engine/first-benchmark/local-scan work.
-Phases 3–4 (integrations, remediation) remain.
+**Phase 3 is complete**: the integration plugin layer — contract, loader/
+dispatcher, and `Get-`/`Import-`/`Export-WoscapIntegration` (#16) — plus the
+bundled OpenVAS (#17), Ansible (#18), and Zabbix (#19) plugins are all shipped.
+Phase 4 (breadth + direct remediation, incl. live OpenVAS GMP triggering) remains.
 
 ---
 

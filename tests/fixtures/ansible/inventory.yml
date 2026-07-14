@@ -1,0 +1,9 @@
+all:
+  children:
+    windows:
+      hosts:
+        win01.example.com:
+        win02.example.com:
+    linux:
+      hosts:
+        lnx01.example.com:

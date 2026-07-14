@@ -1,0 +1,4 @@
+all:
+  hosts:
+    flat01.example.com:
+    flat02.example.com: {ansible_host: 10.0.0.5}
