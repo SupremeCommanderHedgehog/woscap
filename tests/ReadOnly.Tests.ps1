@@ -16,7 +16,11 @@ Describe 'Audit path is read-only' {
             # rather than weakening the .NET/reg/cmdlet patterns above.
             '\b(ni|si|rm|sc|rmdir|mkdir)\b'
         )
-        $files = Get-ChildItem -Path (Join-Path $ModuleRoot 'Private') -Recurse -Filter '*.ps1'
+        # Private/Remediation/ is the deliberate, gated write path (Invoke-WoscapRemediation).
+        # It is EXCLUDED from the audit-path forbidden-cmdlet scan by design; the scan-purity
+        # test below keeps the guarantee that the SCAN path itself references no write helper.
+        $files = Get-ChildItem -Path (Join-Path $ModuleRoot 'Private') -Recurse -Filter '*.ps1' |
+            Where-Object { $_.DirectoryName -notmatch '[\\/]Remediation$' }
         $hits = foreach ($f in $files) {
             $text = Get-Content $f.FullName -Raw
             foreach ($p in $forbidden) {
@@ -41,5 +45,12 @@ Describe 'Audit path is read-only' {
             }
         }
         $hits | Should -BeNullOrEmpty -Because "audit helpers must not mutate the system: $($hits -join '; ')"
+    }
+
+    It 'scan entry point references no remediation write helper' {
+        $scan = Get-Content (Join-Path $ModuleRoot 'Public/Invoke-WoscapScan.ps1') -Raw
+        foreach ($helper in @('Set-WoscapRegValue','Invoke-AuditPolSet','Invoke-AuditPolNative','Get-WoscapRemediationPlan','Invoke-WoscapRemediation')) {
+            $scan | Should -Not -Match ([regex]::Escape($helper)) -Because "a scan must never reference the write path ($helper)"
+        }
     }
 }

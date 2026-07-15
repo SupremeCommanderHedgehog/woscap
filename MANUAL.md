@@ -261,6 +261,58 @@ layer lives in `Private/UI/` (builder `New-WoscapMainForm`, handler logic in
 
 ---
 
+### `Invoke-WoscapRemediation`
+
+Applies fixes for **Open** findings on the **local host**, then re-checks each
+rule to confirm the fix took. This is woscap's only deliberate **write** path —
+opt-in and confirmation-gated; the scan/audit path stays strictly read-only.
+
+**Scope:** only **Registry** and **AuditPolicy** checks are auto-applied (exact
+parity with the Ansible playbook emitter). Every other check type — UserRight,
+Service, SecEdit, ScriptBlock, or a missing/incomplete descriptor — is reported
+`State='Manual'` and never written.
+
+**Gating:** the cmdlet declares `SupportsShouldProcess` with `ConfirmImpact='High'`,
+so it prompts before each write by default.
+
+| Parameter | Effect |
+|---|---|
+| `-Result <RuleResult[]>` | Open findings to remediate (accepts pipeline input from `Invoke-WoscapScan`). |
+| `-Benchmark <name>` | Content pack supplying fix descriptors (default `Windows11`). |
+| `-ContentPath <dir>` | Override the content-pack directory. |
+| `-WhatIf` | Plan only — every automatable rule is reported `State='Planned'`; nothing is written. |
+| `-Force` / `-Confirm:$false` | Apply without prompting (unattended). An explicit `-Confirm` still wins. |
+| `-Quiet` | Suppress the console summary. |
+
+**Auto re-check:** after applying a rule's fix, the same descriptor evaluator
+re-runs and the outcome is reported in `After` — `NotAFinding` (fixed), `Open`
+(still failing), or `Error`.
+
+**Elevation:** writing registry / audit policy requires an elevated session. A
+permission error on a single rule surfaces as `State='Failed'` (with the error in
+`Detail`) and the batch continues — one failure never aborts the run.
+
+```powershell
+# Plan only — show what would change, write nothing:
+Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml |
+    Invoke-WoscapRemediation -WhatIf
+
+# Apply unattended (run from an elevated shell), then review the report:
+$fixes = Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml |
+    Invoke-WoscapRemediation -Force
+$fixes | Format-Table StigId, State, Before, After, Detail
+```
+
+Each result is a `RemediationResult`: `Host`, `StigId`, `Title`, `CheckType`,
+`Action`, `State` (`Planned` / `Applied` / `Failed` / `Skipped` / `Manual`),
+`Before`, `After`, `Detail`.
+
+> **Known limitation (v1):** for an AuditPolicy subcategory with paired
+> Success+Failure rules, the post-apply re-check verifies the subcategory's
+> representative descriptor, not every contributing rule. **Out of scope:** remote
+> fleet remediation, Service/UserRight/SecEdit application, and rollback/backup of
+> prior values.
+
 ### `Get-WoscapIntegration`
 
 Enumerates integration plugins (each a folder with a `plugin.psd1` manifest +
@@ -656,7 +708,7 @@ today**. Do not assume they work:
 |---|---|
 | **Integration plugin layer** (contract + loader/dispatcher + `Get-`/`Import-`/`Export-WoscapIntegration`) | **Shipped** (#16). The capability-hook contract, fail-warn-only loader/dispatcher, and the three cmdlets exist. |
 | **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering remains Phase 4 (#23). |
-| **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Not implemented** (Phase 4). |
+| **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Partially shipped** (#22). `Invoke-WoscapRemediation` applies **Registry + AuditPolicy** fixes on the **local** host, `-WhatIf`/`-Confirm`-gated (`ConfirmImpact='High'`), with auto re-check; other check types report `Manual`. Ansible remediation-as-code (playbook emitter) shipped in #18. Remote fleet remediation, Service/UserRight/SecEdit application, and rollback remain Phase 4. |
 | **`Get-WoscapBenchmark`** (list installed content packs) | **Not implemented.** |
 | **Additional content packs** (Server 2019/2022 MS+DC, MS/third-party apps) | **Not implemented.** Windows 11 only. |
 
@@ -667,7 +719,10 @@ on top of the Phase 0–1 skeleton/engine/first-benchmark/local-scan work.
 **Phase 3 is complete**: the integration plugin layer — contract, loader/
 dispatcher, and `Get-`/`Import-`/`Export-WoscapIntegration` (#16) — plus the
 bundled OpenVAS (#17), Ansible (#18), and Zabbix (#19) plugins are all shipped.
-Phase 4 (breadth + direct remediation, incl. live OpenVAS GMP triggering) remains.
+Phase 4 is underway: gated in-place remediation for Registry/AuditPolicy on the
+local host (`Invoke-WoscapRemediation`, #22) is shipped. Content-pack breadth
+(Server 2019/2022, MS/third-party apps), live OpenVAS GMP triggering, and remote /
+rollback remediation remain.
 
 ---
 
