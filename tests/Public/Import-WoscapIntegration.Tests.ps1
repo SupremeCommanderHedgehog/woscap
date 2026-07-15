@@ -27,4 +27,59 @@ Describe 'Import-WoscapIntegration' {
         $r = Import-WoscapIntegration -Integration 'MissingHook' -PluginPath (Join-Path $script:Plugins 'MissingHook') -Targets -WarningAction SilentlyContinue
         $r | Should -BeNullOrEmpty
     }
+    # $script:Plugins isn't visible inside InModuleScope (module scope), so the fixture path is rebuilt here.
+    It 'forwards Config HostMap/ResolveDns into Join-WoscapFinding' {
+        InModuleScope woscap {
+            Mock Join-WoscapFinding { [pscustomobject]@{ Results = @(); Findings = @(); Links = @() } }
+            $null = Import-WoscapIntegration -Integration 'Good' `
+                -PluginPath (Join-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures') 'plugins/Good') `
+                -Findings -Path 'x' -CorrelateWith @() `
+                -Config @{ HostMap = @{ '10.0.0.5' = 'SRV01' }; ResolveDns = $true }
+            Should -Invoke Join-WoscapFinding -Times 1 -Exactly -ParameterFilter {
+                $HostMap['10.0.0.5'] -eq 'SRV01' -and $ResolveDns
+            }
+        }
+    }
+    It 'accepts an ordered-dictionary HostMap from -Config' {
+        InModuleScope woscap {
+            Mock Join-WoscapFinding { [pscustomobject]@{ Results = @(); Findings = @(); Links = @() } }
+            $null = Import-WoscapIntegration -Integration 'Good' `
+                -PluginPath (Join-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures') 'plugins/Good') `
+                -Findings -Path 'x' -CorrelateWith @() `
+                -Config @{ HostMap = ([ordered]@{ '10.0.0.5' = 'SRV01' }); ResolveDns = $false }
+            Should -Invoke Join-WoscapFinding -Times 1 -Exactly -ParameterFilter {
+                $HostMap['10.0.0.5'] -eq 'SRV01'
+            }
+        }
+    }
+    It 'warns and ignores a non-dictionary HostMap' {
+        InModuleScope woscap {
+            Mock Join-WoscapFinding { [pscustomobject]@{ Results = @(); Findings = @(); Links = @() } }
+            $null = Import-WoscapIntegration -Integration 'Good' `
+                -PluginPath (Join-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures') 'plugins/Good') `
+                -Findings -Path 'x' -CorrelateWith @() `
+                -Config @{ HostMap = 'not-a-dict' } -WarningAction SilentlyContinue
+            Should -Invoke Join-WoscapFinding -Times 1 -Exactly -ParameterFilter {
+                $HostMap.Count -eq 0
+            }
+        }
+    }
+    It 'treats a string "false" ResolveDns as $false' {
+        InModuleScope woscap {
+            Mock Join-WoscapFinding { [pscustomobject]@{ Results = @(); Findings = @(); Links = @() } }
+            $null = Import-WoscapIntegration -Integration 'Good' `
+                -PluginPath (Join-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures') 'plugins/Good') `
+                -Findings -Path 'x' -CorrelateWith @() -Config @{ ResolveDns = 'false' }
+            Should -Invoke Join-WoscapFinding -Times 1 -Exactly -ParameterFilter { -not $ResolveDns }
+        }
+    }
+    It 'treats a string "true" ResolveDns as $true' {
+        InModuleScope woscap {
+            Mock Join-WoscapFinding { [pscustomobject]@{ Results = @(); Findings = @(); Links = @() } }
+            $null = Import-WoscapIntegration -Integration 'Good' `
+                -PluginPath (Join-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures') 'plugins/Good') `
+                -Findings -Path 'x' -CorrelateWith @() -Config @{ ResolveDns = 'true' }
+            Should -Invoke Join-WoscapFinding -Times 1 -Exactly -ParameterFilter { [bool]$ResolveDns }
+        }
+    }
 }

@@ -276,6 +276,20 @@ Pull-side dispatch to a plugin's capability hooks: `-Targets` invokes
 results (matching CVE/CCE/CCI against rule CCIs) into a unified
 `{ Results; Findings; Links }` view.
 
+Host identity is resolved before correlating, so an OpenVAS finding whose
+`<host>` is an **IP address** links to a STIG result keyed by **computername**.
+Pass resolution hints via `-Config`:
+
+- `HostMap` — an `@{ '<ip-or-alias>' = '<canonical name>' }` table (authoritative;
+  any dictionary, including `[ordered]`, is accepted).
+- `ResolveDns` — `$true` to allow best-effort reverse-DNS for unmapped IP hosts
+  (opt-in; default off, so correlation does zero network I/O by default).
+
+Hosts that resolve to the same identity correlate regardless of IP-vs-name
+representation (matching is case-insensitive and treats a short name and its FQDN
+as equal); an unresolvable host still surfaces its finding, just without a link
+(fail-warn-only).
+
 ### `Export-WoscapIntegration`
 
 Push-side dispatch: by default sends `-Result <RuleResult[]>` to a plugin's
@@ -295,7 +309,8 @@ them, and a plugin failure only warns — it never aborts a scan.
 | **Zabbix** | `Export-Findings`, `Get-Targets` | `Server`, `Port` (trapper, default 10051); `ApiUrl`, `Token` (JSON-RPC host inventory) |
 
 - **OpenVAS** ingests a Greenbone/OpenVAS report XML into normalized findings and,
-  with `-CorrelateWith`, cross-links them to STIG results on CVE/CCE/CCI.
+  with `-CorrelateWith`, cross-links them to STIG results on CVE/CCE/CCI — resolving
+  IP-vs-computername hosts via the `-Config` `HostMap`/`ResolveDns` keys (#52).
 - **Ansible** parses an INI or YAML inventory into a target list, and emits a
   remediation **playbook** (`win_regedit` / `win_audit_policy_system` / …) derived
   from the same check descriptors the engine evaluates. Rules with no automatable

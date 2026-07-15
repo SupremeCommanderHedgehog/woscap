@@ -36,14 +36,8 @@ function Invoke-WoscapRemoteScan {
     #    stricter than comparing bare first-labels, which would wrongly collapse
     #    distinct hosts sharing a leading label (e.g. web.east.corp vs web.west.corp);
     #    it also compares IP-address targets exactly (no dotted-octet collision).
-    $sameHost = {
-        param($a, $b)
-        if ([string]::IsNullOrEmpty($a) -or [string]::IsNullOrEmpty($b)) { return $false }
-        $a = $a.ToLowerInvariant(); $b = $b.ToLowerInvariant()
-        $a -eq $b -or $a.StartsWith($b + '.') -or $b.StartsWith($a + '.')
-    }
     $sessionNames = @($sessions | ForEach-Object { $_.ComputerName })
-    foreach ($bad in @($ComputerName | Where-Object { $req = $_; (@($sessionNames | Where-Object { & $sameHost $req $_ })).Count -eq 0 })) {
+    foreach ($bad in @($ComputerName | Where-Object { $req = $_; (@($sessionNames | Where-Object { Test-WoscapSameHost $req $_ })).Count -eq 0 })) {
         Write-Warning "woscap: host '$bad' unreachable (could not establish a PSSession over WinRM)."
         $results.Add((New-WoscapResult -Result 'Error' -ComputerName $bad -StigId '' -Severity 'medium' `
             -Title 'Host unreachable' -Benchmark $Benchmark `

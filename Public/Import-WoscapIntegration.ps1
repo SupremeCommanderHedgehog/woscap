@@ -21,7 +21,26 @@ function Import-WoscapIntegration {
         'Findings' {
             $imported = Invoke-WoscapHook -Plugin $plugin -Hook 'Import-Findings' -Arguments @{ Path = $Path; Config = $Config }
             if ($PSBoundParameters.ContainsKey('CorrelateWith')) {
-                Join-WoscapFinding -Results @($CorrelateWith) -Findings @($imported)
+                # Normalize HostMap into a fresh (case-insensitive) hashtable; accept any IDictionary
+                # (e.g. [ordered] from Import-PowerShellDataFile / JSON) rather than hard-casting and throwing.
+                $hostMap = @{}
+                if ($Config.ContainsKey('HostMap')) {
+                    $rawMap = $Config['HostMap']
+                    if ($rawMap -is [System.Collections.IDictionary]) {
+                        foreach ($k in $rawMap.Keys) { $hostMap[$k] = $rawMap[$k] }
+                    } else {
+                        Write-Warning "woscap: -Config HostMap is not a dictionary; ignoring it."
+                    }
+                }
+                # ResolveDns may arrive as a bool or (from psd1/JSON config) a string; coerce so that
+                #'false'/'0'/'no'/'off' are honored as false rather than truthy-non-empty strings.
+                $resolveDns = $false
+                if ($Config.ContainsKey('ResolveDns')) {
+                    $rawDns = $Config['ResolveDns']
+                    if ($rawDns -is [string]) { $resolveDns = $rawDns.Trim() -match '^(1|true|yes|on)$' }
+                    else { $resolveDns = [bool] $rawDns }
+                }
+                Join-WoscapFinding -Results @($CorrelateWith) -Findings @($imported) -HostMap $hostMap -ResolveDns:$resolveDns
             } else {
                 $imported
             }
