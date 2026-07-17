@@ -147,6 +147,43 @@ Windows 11 STIG V2R8**. Use a matching XCCDF version for best rule coverage;
 rules present in the XCCDF but without an authored check are reported
 `Not_Reviewed` (never silently passed).
 
+### 5.1 Downloading STIG content (operator-side)
+
+`Save-WoscapStigContent` fetches a DISA STIG archive **from a URL you supply**,
+extracts and validates the manual XCCDF, caches it under
+`%LOCALAPPDATA%\woscap\content\<benchmark>\<revision>\`, and returns a path you
+can hand straight to `Invoke-WoscapScan`.
+
+```powershell
+Invoke-WoscapScan -Benchmark Windows11 -XccdfPath (
+    Save-WoscapStigContent -Benchmark Windows11 `
+        -Url 'https://.../U_MS_Windows_11_STIG_V<n>R<m>.zip' `
+        -AcceptDisaTerms)
+```
+
+Notes:
+
+- **Operator-side only.** This runs on your control workstation, never on an
+  audited endpoint. Scanning still works fully offline with a hand-supplied
+  `-XccdfPath`; auto-download is never triggered implicitly by a scan.
+- **`-AcceptDisaTerms` is required.** woscap does not bundle or redistribute DISA
+  content; it only downloads, on demand, into an operator-local cache. Your use
+  of that content is governed by DISA's own terms (public.cyber.mil).
+- **Cache.** Content is cached per benchmark + revision under
+  `%LOCALAPPDATA%\woscap\content\<benchmark>\<revision>\`. Pass `-Destination` to use a
+  different cache root, or `-Force` to re-download an already-cached revision. The cache is
+  operator-local and never committed to the repo. List what you have cached with
+  `Get-WoscapBenchmark` (optionally `-Benchmark <name>` / `-Destination <root>`).
+- **Resolving the URL.** If you omit `-Url`, woscap consults a small bundled, best-effort
+  benchmark→URL manifest (`Content\stig-sources.psd1`). It is a pointer file, not DISA
+  content, and goes stale as DISA publishes new revisions — an explicit `-Url` always wins.
+  Automatic DISA-page resolution is a planned follow-on.
+- **Remembering the terms.** `-AcceptDisaTerms` accepts DISA's terms for a single call and
+  writes nothing. If you run without it interactively, woscap prompts once; on accept it
+  drops a `.woscap-disa-accepted` marker under the cache root so later runs on that
+  workstation aren't re-prompted. Unattended runs must pass `-AcceptDisaTerms` (there is no
+  silent proceed).
+
 ---
 
 ## 6. Public cmdlets
@@ -709,7 +746,7 @@ today**. Do not assume they work:
 | **Integration plugin layer** (contract + loader/dispatcher + `Get-`/`Import-`/`Export-WoscapIntegration`) | **Shipped** (#16). The capability-hook contract, fail-warn-only loader/dispatcher, and the three cmdlets exist. |
 | **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering remains Phase 4 (#23). |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Partially shipped** (#22). `Invoke-WoscapRemediation` applies **Registry + AuditPolicy** fixes on the **local** host, `-WhatIf`/`-Confirm`-gated (`ConfirmImpact='High'`), with auto re-check; other check types report `Manual`. Ansible remediation-as-code (playbook emitter) shipped in #18. Remote fleet remediation, Service/UserRight/SecEdit application, and rollback remain Phase 4. |
-| **`Get-WoscapBenchmark`** (list installed content packs) | **Not implemented.** |
+| **`Get-WoscapBenchmark`** (list cached downloaded STIG content) | **Shipped** (#53). Lists the operator-local download cache (`Save-WoscapStigContent` output) by benchmark + revision; supports `-Benchmark` / `-Destination` filters. |
 | **Additional content packs** (Server 2019/2022 MS+DC, MS/third-party apps) | **Not implemented.** Windows 11 only. |
 
 Per the roadmap, **Phase 2 is complete**: all five reporters, the
