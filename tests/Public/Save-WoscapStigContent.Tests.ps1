@@ -189,4 +189,24 @@ Describe 'Save-WoscapStigContent' {
             Should -Invoke Invoke-WebRequest -Times 2 -Exactly
         }
     }
+    It 'passes -AllowScrape through to resolution' {
+        InModuleScope woscap -Parameters @{ Zip = $script:GoodZip; Cache = $script:Cache } {
+            Mock Invoke-WebRequest { Copy-Item -LiteralPath $Zip -Destination $OutFile -Force }
+            # Stub the resolver so the assertion is purely "did Save forward -AllowScrape".
+            Mock Resolve-WoscapStigUrl { 'https://disa/U_ScrapeOnly_V1R2_STIG.zip' } -ParameterFilter { $AllowScrape }
+            $p = Save-WoscapStigContent -Benchmark 'ScrapeOnly' -AllowScrape -AcceptDisaTerms -Destination $Cache
+            $p | Should -Exist
+            Should -Invoke Resolve-WoscapStigUrl -Times 1 -Exactly -ParameterFilter { $AllowScrape }
+        }
+    }
+    It 'never scrapes before the terms gate is satisfied' {
+        InModuleScope woscap -Parameters @{ Cache = $script:Cache } {
+            Mock Invoke-WebRequest {}
+            Mock Get-WoscapStigDownloadPage { throw 'scrape must not run before consent' }
+            Mock Get-WoscapDisaConsent { $false }
+            { Save-WoscapStigContent -Benchmark 'Windows11' -AllowScrape -Destination $Cache -WarningAction SilentlyContinue } |
+                Should -Throw -ExpectedMessage '*DISA*'
+            Should -Invoke Get-WoscapStigDownloadPage -Times 0 -Exactly
+        }
+    }
 }

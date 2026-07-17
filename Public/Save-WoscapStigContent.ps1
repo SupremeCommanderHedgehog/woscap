@@ -6,7 +6,8 @@ function Save-WoscapStigContent {
         [string] $Url,
         [switch] $AcceptDisaTerms,
         [string] $Destination,
-        [switch] $Force
+        [switch] $Force,
+        [switch] $AllowScrape
     )
 
     # Path-segment safety: validate the operator-supplied benchmark name early — before any
@@ -37,7 +38,7 @@ this project.
         }
     }
 
-    $sourceUrl = Resolve-WoscapStigUrl -Benchmark $Benchmark -Url $Url
+    $sourceUrl = Resolve-WoscapStigUrl -Benchmark $Benchmark -Url $Url -AllowScrape:$AllowScrape
     # Create directories via [System.IO.Directory]::CreateDirectory (literal-path, recursive,
     # idempotent) — the .NET API takes the path verbatim, avoiding New-Item's glob handling of
     # bracket metacharacters in an operator-supplied -Destination.

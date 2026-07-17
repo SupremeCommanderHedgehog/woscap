@@ -9,5 +9,10 @@
 # dot, dash, underscore) and should match the Content\<benchmark> pack names.
 @{
     # Windows 11 manual STIG. Verified current at V2R8 (released 2026-05-19) on 2026-07-16.
-    Windows11 = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_11_V2R8_STIG.zip'
+    # Hashtable form: pinned Url (best-effort, goes stale) + ScrapePattern used only when the
+    # operator passes -AllowScrape to resolve the newest revision from the DISA downloads page.
+    Windows11 = @{
+        Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_11_V2R8_STIG.zip'
+        ScrapePattern = 'Microsoft Windows 11 STIG'
+    }
 }

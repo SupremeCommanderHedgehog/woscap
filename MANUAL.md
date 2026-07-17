@@ -177,12 +177,56 @@ Notes:
 - **Resolving the URL.** If you omit `-Url`, woscap consults a small bundled, best-effort
   benchmark→URL manifest (`Content\stig-sources.psd1`). It is a pointer file, not DISA
   content, and goes stale as DISA publishes new revisions — an explicit `-Url` always wins.
-  Automatic DISA-page resolution is a planned follow-on.
+  Opt-in DISA-page resolution is available via `-AllowScrape` (see *Keeping content current*
+  below).
 - **Remembering the terms.** `-AcceptDisaTerms` accepts DISA's terms for a single call and
   writes nothing. If you run without it interactively, woscap prompts once; on accept it
   drops a `.woscap-disa-accepted` marker under the cache root so later runs on that
   workstation aren't re-prompted. Unattended runs must pass `-AcceptDisaTerms` (there is no
   silent proceed).
+
+#### Keeping content current (Phase 3)
+
+`Save-WoscapStigContent` can resolve the newest revision from the public DISA
+downloads page when you pass **`-AllowScrape`** and the benchmark has a
+`ScrapePattern` in the bundled manifest (`Content/stig-sources.psd1`). Scraping
+is **opt-in and best-effort**: it parses a public HTML page that has no stable
+API and may break on site changes, so it never runs unless you ask, and it
+falls back to a clear error when it cannot resolve. An explicit `-Url` always wins. With `-AllowScrape`, scraping the DISA page takes precedence over the manifest's pinned `Url` (which becomes the fallback when the scrape finds nothing); without `-AllowScrape`, the pinned `Url` is used directly.
+
+Manifest entries may be either a direct URL string or a hashtable:
+
+```powershell
+@{
+    Windows11 = @{
+        Url           = 'https://.../U_MS_Windows_11_V2R8_STIG.zip'  # pinned, best-effort
+        ScrapePattern = 'Microsoft Windows 11 STIG'                  # used only with -AllowScrape
+    }
+}
+```
+
+**`Update-WoscapBenchmark`** re-resolves and fetches the latest revision. With
+no `-Benchmark` it refreshes every benchmark already in your cache, printing one
+row per benchmark (`Updated` / `AlreadyCurrent` / `Failed` with a reason). A new
+revision lands in a new `<benchmark>\<revision>\` folder; existing revisions are
+untouched.
+
+```powershell
+Update-WoscapBenchmark -AcceptDisaTerms -AllowScrape        # refresh all cached benchmarks
+Update-WoscapBenchmark -Benchmark Windows11 -AcceptDisaTerms
+```
+
+**`Remove-WoscapBenchmark`** prunes the operator-local cache. `-Benchmark` is
+required (there is no whole-cache wipe). Without `-Revision` it removes the whole
+benchmark subtree; with `-Revision` it removes just that revision. It supports
+`-WhatIf`/`-Confirm` and prompts by default (High impact).
+
+```powershell
+Remove-WoscapBenchmark -Benchmark Windows11 -Revision 1 -WhatIf
+Remove-WoscapBenchmark -Benchmark Windows11
+```
+
+Downloaded content is operator-local, uncommitted, and governed by DISA's terms.
 
 ---
 

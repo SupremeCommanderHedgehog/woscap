@@ -9,7 +9,7 @@ Describe 'Get-WoscapStigManifest' {
             $m = Get-WoscapStigManifest
             $m | Should -BeOfType [hashtable]
             $m.ContainsKey('Windows11') | Should -BeTrue
-            $m['Windows11'] | Should -Match 'Windows_11'
+            $m['Windows11']['Url'] | Should -Match 'Windows_11'
         }
     }
     It 'loads an explicit -Path manifest' {
