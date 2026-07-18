@@ -41,7 +41,10 @@ function Update-WoscapBenchmark {
     }
 
     foreach ($b in $targets) {
-        $beforeRevs = @(Get-WoscapBenchmark -Benchmark $b -Destination $Destination | ForEach-Object { $_.Revision })
+        $before      = @(Get-WoscapBenchmark -Benchmark $b -Destination $Destination)
+        $beforeRevs  = @($before | ForEach-Object { $_.Revision })
+        $beforeHash  = @{}
+        foreach ($r in $before) { $beforeHash[$r.Revision] = $r.ContentHash }
         # Report the previously-newest revision. Sort numerically when the revision parses as an
         # integer (so '10' > '2'); fall back to the raw string for non-numeric revisions (e.g. 'unknown').
         $fromRev = if ($beforeRevs.Count -gt 0) {
@@ -79,8 +82,20 @@ function Update-WoscapBenchmark {
             $path = Save-WoscapStigContent @saveArgs
             $toRev = Split-Path (Split-Path $path -Parent) -Leaf
 
-            # Authoritative "did anything change": was this revision folder already present?
-            $status = if ($beforeRevs -contains $toRev) { 'AlreadyCurrent' } else { 'Updated' }
+            # "Did anything change": a new revision folder, OR the same revision label whose
+            # content hash changed under it (a same-revision DISA re-release Save re-promoted).
+            # Get-WoscapBenchmark's ContentHash is always populated (it falls back to hashing the
+            # XCCDF for a legacy sidecar), so before/after hashes are directly comparable even on a
+            # cache that predates content hashing.
+            $afterHash = (Get-WoscapBenchmark -Benchmark $b -Destination $Destination |
+                Where-Object Revision -eq $toRev | Select-Object -First 1).ContentHash
+            $status = if ($beforeRevs -notcontains $toRev) {
+                'Updated'
+            } elseif ($beforeHash[$toRev] -ne $afterHash) {
+                'Updated'
+            } else {
+                'AlreadyCurrent'
+            }
 
             [pscustomobject]@{
                 Benchmark    = $b

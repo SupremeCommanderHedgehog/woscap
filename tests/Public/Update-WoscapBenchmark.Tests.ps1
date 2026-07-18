@@ -55,10 +55,16 @@ Describe 'Update-WoscapBenchmark' {
         InModuleScope woscap -Parameters @{ V1 = $script:ZipV1; V2 = $script:ZipV2 } {
             $cache = Join-Path ([System.IO.Path]::GetTempPath()) ('woscap-updc-' + [guid]::NewGuid().ToString('N'))
             try {
-                Mock Invoke-WebRequest { Copy-Item -LiteralPath $V1 -Destination $OutFile -Force }
+                Mock Invoke-WebRequest {
+                    if ($Method -eq 'Head') { [pscustomobject]@{ Headers = @{ ETag = '"u1"' } } }
+                    else { Copy-Item -LiteralPath $V1 -Destination $OutFile -Force }
+                }
                 $null = Save-WoscapStigContent -Benchmark 'Windows11' -Url 'https://disa/v1.zip' -AcceptDisaTerms -Destination $cache
 
-                Mock Invoke-WebRequest { Copy-Item -LiteralPath $V2 -Destination $OutFile -Force }
+                Mock Invoke-WebRequest {
+                    if ($Method -eq 'Head') { [pscustomobject]@{ Headers = @{ ETag = '"u1"' } } }
+                    else { Copy-Item -LiteralPath $V2 -Destination $OutFile -Force }
+                }
                 $row = Update-WoscapBenchmark -Benchmark 'Windows11' -Url 'https://disa/v2.zip' -AcceptDisaTerms -Destination $cache -Confirm:$false
                 $row.Status       | Should -Be 'Updated'
                 $row.FromRevision | Should -Be '1'
@@ -71,13 +77,49 @@ Describe 'Update-WoscapBenchmark' {
         InModuleScope woscap -Parameters @{ V1 = $script:ZipV1 } {
             $cache = Join-Path ([System.IO.Path]::GetTempPath()) ('woscap-updc-' + [guid]::NewGuid().ToString('N'))
             try {
-                Mock Invoke-WebRequest { Copy-Item -LiteralPath $V1 -Destination $OutFile -Force }
+                Mock Invoke-WebRequest {
+                    if ($Method -eq 'Head') { [pscustomobject]@{ Headers = @{ ETag = '"u1"' } } }
+                    else { Copy-Item -LiteralPath $V1 -Destination $OutFile -Force }
+                }
                 $p = Save-WoscapStigContent -Benchmark 'Windows11' -Url 'https://disa/v1.zip' -AcceptDisaTerms -Destination $cache
                 Set-Content -Path (Join-Path (Split-Path $p -Parent) 'sentinel.txt') -Value 'keep'
 
                 $row = Update-WoscapBenchmark -Benchmark 'Windows11' -Url 'https://disa/v1.zip' -AcceptDisaTerms -Destination $cache -Confirm:$false
                 $row.Status | Should -Be 'AlreadyCurrent'
                 (Join-Path (Split-Path $p -Parent) 'sentinel.txt') | Should -Exist
+            } finally { Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+
+    It 'reports Updated when the same revision is re-released with different content' {
+        InModuleScope woscap -Parameters @{ Fixtures = $script:Fixtures; Tmp = $script:Tmp } {
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $mk = {
+                param($marker, $zipPath)
+                $src = Join-Path $Tmp ('urel-' + [guid]::NewGuid().ToString('N'))
+                New-Item -ItemType Directory -Path $src | Out-Null
+                $xml = (Get-Content (Join-Path $Fixtures 'sample-xccdf.xml') -Raw) + "<!-- $marker -->"
+                Set-Content -Path (Join-Path $src 'U_MS_Windows_11_STIG_V1R1_Manual-xccdf.xml') -Value $xml -Encoding UTF8
+                [System.IO.Compression.ZipFile]::CreateFromDirectory($src, $zipPath)
+            }
+            $zipA = Join-Path $Tmp ('uA-' + [guid]::NewGuid().ToString('N') + '.zip'); & $mk 'A' $zipA
+            $zipB = Join-Path $Tmp ('uB-' + [guid]::NewGuid().ToString('N') + '.zip'); & $mk 'B' $zipB
+            $cache = Join-Path ([System.IO.Path]::GetTempPath()) ('woscap-urel-' + [guid]::NewGuid().ToString('N'))
+            try {
+                Mock Invoke-WebRequest {
+                    if ($Method -eq 'Head') { [pscustomobject]@{ Headers = @{ ETag = '"old"' } } }
+                    else { Copy-Item -LiteralPath $zipA -Destination $OutFile -Force }
+                }
+                $null = Save-WoscapStigContent -Benchmark 'URel' -Url 'https://disa/x.zip' -AcceptDisaTerms -Destination $cache
+
+                # Re-release: same revision '1', different bytes, new ETag (so no short-circuit).
+                Mock Invoke-WebRequest {
+                    if ($Method -eq 'Head') { [pscustomobject]@{ Headers = @{ ETag = '"new"' } } }
+                    else { Copy-Item -LiteralPath $zipB -Destination $OutFile -Force }
+                }
+                $row = Update-WoscapBenchmark -Benchmark 'URel' -Url 'https://disa/x.zip' -AcceptDisaTerms -Destination $cache -Confirm:$false
+                $row.Status     | Should -Be 'Updated'
+                $row.ToRevision | Should -Be '1'
             } finally { Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue }
         }
     }
@@ -99,7 +141,10 @@ Describe 'Update-WoscapBenchmark' {
         InModuleScope woscap -Parameters @{ V1 = $script:ZipV1 } {
             $cache = Join-Path ([System.IO.Path]::GetTempPath()) ('woscap-updc-' + [guid]::NewGuid().ToString('N'))
             try {
-                Mock Invoke-WebRequest { Copy-Item -LiteralPath $V1 -Destination $OutFile -Force }
+                Mock Invoke-WebRequest {
+                    if ($Method -eq 'Head') { [pscustomobject]@{ Headers = @{ ETag = '"u1"' } } }
+                    else { Copy-Item -LiteralPath $V1 -Destination $OutFile -Force }
+                }
                 $null = Save-WoscapStigContent -Benchmark 'Windows11' -Url 'https://disa/v1.zip' -AcceptDisaTerms -Destination $cache
                 New-Item -ItemType Directory -Path (Join-Path $cache 'Orphan') | Out-Null
 
@@ -177,6 +222,74 @@ Describe 'Update-WoscapBenchmark' {
                 # No -Url/manifest/scrape for NumBench -> Save throws -> Failed, but FromRevision is computed BEFORE the save.
                 $row = Update-WoscapBenchmark -Benchmark 'NumBench' -Destination $cache -Confirm:$false -WarningAction SilentlyContinue
                 $row.FromRevision | Should -Be '10'
+            } finally { Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+
+    It 'reports AlreadyCurrent (not Updated) when a legacy sidecar is merely backfilled with identical content' {
+        InModuleScope woscap -Parameters @{ V1 = $script:ZipV1 } {
+            $cache = Join-Path ([System.IO.Path]::GetTempPath()) ('woscap-leg-' + [guid]::NewGuid().ToString('N'))
+            try {
+                Mock Invoke-WebRequest {
+                    if ($Method -eq 'Head') { [pscustomobject]@{ Headers = @{ ETag = '"e1"' } } }
+                    else { Copy-Item -LiteralPath $V1 -Destination $OutFile -Force }
+                }
+                # Cache the benchmark, then downgrade its sidecar to a legacy shape (no etag/hash),
+                # exactly as a cache created before this feature would look.
+                $p = Save-WoscapStigContent -Benchmark 'Windows11' -Url 'https://disa/v1.zip' -AcceptDisaTerms -Destination $cache
+                $sidecar = Join-Path (Split-Path $p -Parent) '.woscap-content.json'
+                Set-Content -LiteralPath $sidecar -Value (@{
+                    benchmark = 'Windows11'; revision = '1'; sourceUrl = 'https://disa/v1.zip'
+                } | ConvertTo-Json)
+
+                # Refresh with byte-identical content under a new etag: Save backfills the legacy
+                # sidecar (empty -> hash) but the content did not change -> must be AlreadyCurrent.
+                Mock Invoke-WebRequest {
+                    if ($Method -eq 'Head') { [pscustomobject]@{ Headers = @{ ETag = '"e2"' } } }
+                    else { Copy-Item -LiteralPath $V1 -Destination $OutFile -Force }
+                }
+                $row = Update-WoscapBenchmark -Benchmark 'Windows11' -Url 'https://disa/v1.zip' -AcceptDisaTerms -Destination $cache -Confirm:$false
+                $row.Status     | Should -Be 'AlreadyCurrent'
+                $row.ToRevision | Should -Be '1'
+            } finally { Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+
+    It 'reports Updated when a legacy sidecar sees a genuine same-revision re-release' {
+        InModuleScope woscap -Parameters @{ Fixtures = $script:Fixtures; Tmp = $script:Tmp } {
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            # Two revision-'1' archives with different XCCDF content (marker A vs B).
+            $mk = {
+                param($marker, $zipPath)
+                $src = Join-Path $Tmp ('lupd-' + [guid]::NewGuid().ToString('N'))
+                New-Item -ItemType Directory -Path $src | Out-Null
+                $xml = (Get-Content (Join-Path $Fixtures 'sample-xccdf.xml') -Raw) + "<!-- $marker -->"
+                Set-Content -Path (Join-Path $src 'U_MS_Windows_11_STIG_V1R1_Manual-xccdf.xml') -Value $xml -Encoding UTF8
+                [System.IO.Compression.ZipFile]::CreateFromDirectory($src, $zipPath)
+            }
+            $zipA = Join-Path $Tmp ('luA-' + [guid]::NewGuid().ToString('N') + '.zip'); & $mk 'A' $zipA
+            $zipB = Join-Path $Tmp ('luB-' + [guid]::NewGuid().ToString('N') + '.zip'); & $mk 'B' $zipB
+            $cache = Join-Path ([System.IO.Path]::GetTempPath()) ('woscap-lupd-' + [guid]::NewGuid().ToString('N'))
+            try {
+                Mock Invoke-WebRequest {
+                    if ($Method -eq 'Head') { [pscustomobject]@{ Headers = @{ ETag = '"e1"' } } }
+                    else { Copy-Item -LiteralPath $zipA -Destination $OutFile -Force }
+                }
+                $p = Save-WoscapStigContent -Benchmark 'LUpd' -Url 'https://disa/x.zip' -AcceptDisaTerms -Destination $cache
+                # Downgrade the sidecar to a legacy (pre-content-hash) shape.
+                Set-Content -LiteralPath (Join-Path (Split-Path $p -Parent) '.woscap-content.json') -Value (@{
+                    benchmark = 'LUpd'; revision = '1'; sourceUrl = 'https://disa/x.zip'
+                } | ConvertTo-Json)
+
+                # Genuine re-release: same revision '1', DIFFERENT content -> must report Updated even
+                # though the pre-hash (legacy) before-hash comes from the file fallback.
+                Mock Invoke-WebRequest {
+                    if ($Method -eq 'Head') { [pscustomobject]@{ Headers = @{ ETag = '"e2"' } } }
+                    else { Copy-Item -LiteralPath $zipB -Destination $OutFile -Force }
+                }
+                $row = Update-WoscapBenchmark -Benchmark 'LUpd' -Url 'https://disa/x.zip' -AcceptDisaTerms -Destination $cache -Confirm:$false
+                $row.Status     | Should -Be 'Updated'
+                $row.ToRevision | Should -Be '1'
             } finally { Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue }
         }
     }

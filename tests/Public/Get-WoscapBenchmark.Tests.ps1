@@ -51,6 +51,42 @@ Describe 'Get-WoscapBenchmark' {
         $only.Count            | Should -Be 1
         $only[0].Benchmark     | Should -Be 'OtherBench'
     }
+    It 'emits ContentHash from the sidecar contentSha256' {
+        InModuleScope woscap {
+            $cache = Join-Path ([System.IO.Path]::GetTempPath()) ('woscap-ch-' + [guid]::NewGuid().ToString('N'))
+            try {
+                # Get-WoscapBenchmark only requires a *_Manual-xccdf.xml to exist (it never parses
+                # it), so a dummy file is enough — no fixture needed.
+                $rd = Join-Path (Join-Path $cache 'HashBench') '1'
+                New-Item -ItemType Directory -Path $rd -Force | Out-Null
+                Set-Content -Path (Join-Path $rd 'U_x_Manual-xccdf.xml') -Value '<Benchmark/>'
+                Set-Content -LiteralPath (Get-WoscapContentSidecarPath -RevisionDir $rd) -Value (@{
+                    benchmark = 'HashBench'; revision = '1'; contentSha256 = 'DEADBEEF'
+                } | ConvertTo-Json)
+
+                $row = Get-WoscapBenchmark -Benchmark 'HashBench' -Destination $cache
+                $row.ContentHash | Should -Be 'DEADBEEF'
+            } finally { Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+    It 'falls back to hashing the XCCDF when a legacy sidecar has no contentSha256' {
+        InModuleScope woscap {
+            $cache = Join-Path ([System.IO.Path]::GetTempPath()) ('woscap-chf-' + [guid]::NewGuid().ToString('N'))
+            try {
+                $rd = Join-Path (Join-Path $cache 'LegacyHash') '1'
+                New-Item -ItemType Directory -Path $rd -Force | Out-Null
+                $xccdf = Join-Path $rd 'U_x_Manual-xccdf.xml'
+                Set-Content -Path $xccdf -Value '<Benchmark/>'
+                # Legacy sidecar: no contentSha256 -> ContentHash must be the file's hash, not ''.
+                Set-Content -LiteralPath (Get-WoscapContentSidecarPath -RevisionDir $rd) -Value (@{
+                    benchmark = 'LegacyHash'; revision = '1'
+                } | ConvertTo-Json)
+
+                $row = Get-WoscapBenchmark -Benchmark 'LegacyHash' -Destination $cache
+                $row.ContentHash | Should -Be (Get-FileHash -LiteralPath $xccdf -Algorithm SHA256).Hash
+            } finally { Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
     It 'skips a revision directory that has a sidecar but no XCCDF' {
         $c   = Join-Path $script:Tmp ('partial-' + [guid]::NewGuid().ToString('N'))
         $rev = Join-Path (Join-Path $c 'PartialBench') '9'

@@ -224,6 +224,17 @@ Update-WoscapBenchmark -AcceptDisaTerms -AllowScrape -Confirm:$false  # refresh 
 Update-WoscapBenchmark -Benchmark Windows11 -AcceptDisaTerms          # prompts before download
 ```
 
+Downloads are cheap on an unchanged cache: `Save-WoscapStigContent` issues a HEAD
+`ETag` pre-check and, when the cached revision's stored ETag matches, returns the cached
+XCCDF without re-downloading, unzipping, or re-parsing. Each revision's XCCDF content
+SHA-256 is recorded in its `.woscap-content.json` sidecar (and surfaced as `ContentHash`
+on `Get-WoscapBenchmark`), so a same-revision re-release — DISA re-publishing different
+content under the same revision label — is detected by the changed content hash, the cache
+is refreshed with the new bytes, and `Update-WoscapBenchmark` reports it as `Updated`.
+Hashing the XCCDF (not the archive) keeps this stable across benign re-zips whose bytes
+differ but whose content is identical. `-Force` bypasses the ETag short-circuit and always
+re-downloads.
+
 **`Remove-WoscapBenchmark`** prunes the operator-local cache. `-Benchmark` is
 required (there is no whole-cache wipe). Without `-Revision` it removes the whole
 benchmark subtree; with `-Revision` it removes just that revision. It supports

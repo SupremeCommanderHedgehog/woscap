@@ -3,3 +3,9 @@
 
 # DISA STIG content (licensed — never commit)
 STIG/
+
+# Stray test-fixture zips that Pester's cross-container $script: scope bleed can
+# occasionally drop in the repo root (real fixtures build under the system temp dir).
+/good.zip
+/v1.zip
+/v2.zip

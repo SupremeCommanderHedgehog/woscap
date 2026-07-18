@@ -40,12 +40,24 @@ function Get-WoscapBenchmark {
                 try { Get-Content -LiteralPath $sidecar -Raw | ConvertFrom-Json } catch { $null }
             } else { $null }
 
+            # ContentHash is the XCCDF content hash. Fall back to hashing the XCCDF on disk when the
+            # sidecar has no stored contentSha256 (a legacy cache written before content hashing), so
+            # a same-revision content change is still detectable by Update-WoscapBenchmark on such a
+            # cache. Once the revision is refreshed the sidecar carries the hash and no rehash occurs.
+            # The hash is best-effort ('' on any read failure): this reader must never throw — it is a
+            # read-only inventory, and its caller reads the before-snapshot outside a try/catch.
+            $contentHash = Get-WoscapObjectProperty -InputObject $meta -Name 'contentSha256' -Default ''
+            if (-not $contentHash) {
+                $contentHash = try { (Get-FileHash -LiteralPath $xccdf[0].FullName -Algorithm SHA256).Hash } catch { '' }
+            }
+
             [pscustomobject]@{
-                Benchmark = $bd.Name
-                Revision  = $rd.Name
-                Title     = Get-WoscapObjectProperty -InputObject $meta -Name 'title'     -Default ''
-                SourceUrl = Get-WoscapObjectProperty -InputObject $meta -Name 'sourceUrl' -Default ''
-                Path      = $xccdf[0].FullName
+                Benchmark   = $bd.Name
+                Revision    = $rd.Name
+                Title       = Get-WoscapObjectProperty -InputObject $meta -Name 'title'     -Default ''
+                SourceUrl   = Get-WoscapObjectProperty -InputObject $meta -Name 'sourceUrl' -Default ''
+                ContentHash = $contentHash
+                Path        = $xccdf[0].FullName
             }
         }
     }
