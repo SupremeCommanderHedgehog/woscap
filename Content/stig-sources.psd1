@@ -15,4 +15,16 @@
         Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_11_V2R8_STIG.zip'
         ScrapePattern = 'Microsoft Windows 11 STIG'
     }
+
+    # Microsoft Edge application STIG. Verified current at V2R5 on 2026-07-18. Pack: Content\Edge.
+    Edge = @{
+        Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Edge_V2R5_STIG.zip'
+        ScrapePattern = 'Microsoft Edge STIG'
+    }
+
+    # Google Chrome application STIG. Verified current at V2R11 on 2026-07-18. Pack: Content\Chrome.
+    Chrome = @{
+        Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_Google_Chrome_V2R11_STIG.zip'
+        ScrapePattern = 'Google Chrome'
+    }
 }

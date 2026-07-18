@@ -28,11 +28,14 @@ Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
         }
     }
 
-    It 'populates the benchmark dropdown from the Content directory' {
+    It 'populates the benchmark dropdown from the Content directory and defaults to Windows11' {
         InModuleScope woscap {
             $form = New-WoscapMainForm
             try {
                 @($form.Tag['Benchmark'].Items) | Should -Contain 'Windows11'
+                @($form.Tag['Benchmark'].Items) | Should -Contain 'Edge'
+                # Default must be Windows11 even though Chrome/Edge sort ahead of it alphabetically.
+                $form.Tag['Benchmark'].SelectedItem | Should -Be 'Windows11'
             } finally { $form.Dispose() }
         }
     }
@@ -79,6 +82,9 @@ Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
             try {
                 $form.Tag['Xccdf'].Text   = (Get-Module woscap).Path
                 $form.Tag['Targets'].Text = 'SRV01, SRV02'
+                # Do NOT touch the dropdown: the splat must carry the DEFAULT benchmark. With Edge and
+                # Chrome packs present it must still default to Windows11, not the alphabetically-first
+                # pack (that would silently scan a Windows XCCDF against an app pack).
                 Invoke-WoscapGuiRun -Tag $form.Tag
                 $script:captured['Benchmark']    | Should -Be 'Windows11'
                 $script:captured['ComputerName'] | Should -Be @('SRV01','SRV02')

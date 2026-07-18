@@ -33,7 +33,14 @@ function New-WoscapMainForm {
             [void]$benchmark.Items.Add($d.Name)
         }
     }
-    if ($benchmark.Items.Count -gt 0) { $benchmark.SelectedIndex = 0 }
+    # Default to Windows11 when present rather than the alphabetically-first pack (Chrome/Edge
+    # sort ahead of it): silently defaulting to an app pack would run a Windows XCCDF against the
+    # wrong descriptors and report everything Not_Reviewed with no error. Fall back to the first
+    # item only when Windows11 is absent.
+    if ($benchmark.Items.Count -gt 0) {
+        $win = $benchmark.Items.IndexOf('Windows11')
+        $benchmark.SelectedIndex = if ($win -ge 0) { $win } else { 0 }
+    }
 
     $xccdfLabel = New-Object System.Windows.Forms.Label
     $xccdfLabel.Text = 'XCCDF:'; $xccdfLabel.Location = '250,15'; $xccdfLabel.AutoSize = $true
