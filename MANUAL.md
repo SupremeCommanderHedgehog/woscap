@@ -211,9 +211,17 @@ row per benchmark (`Updated` / `AlreadyCurrent` / `Failed` with a reason). A new
 revision lands in a new `<benchmark>\<revision>\` folder; existing revisions are
 untouched.
 
+Because a bulk refresh fans out a live DISA scrape plus a download per cached
+benchmark, each per-benchmark refresh is gated by `ShouldProcess` (High impact):
+it prompts per benchmark by default — suppress with `-Confirm:$false`. Use
+`-WhatIf` to preview which benchmarks would be re-resolved (one `WhatIf` row each)
+without any network I/O; a benchmark you decline at the prompt is reported
+`Skipped`.
+
 ```powershell
-Update-WoscapBenchmark -AcceptDisaTerms -AllowScrape        # refresh all cached benchmarks
-Update-WoscapBenchmark -Benchmark Windows11 -AcceptDisaTerms
+Update-WoscapBenchmark -AcceptDisaTerms -AllowScrape -WhatIf          # preview only — no downloads
+Update-WoscapBenchmark -AcceptDisaTerms -AllowScrape -Confirm:$false  # refresh all, no prompts
+Update-WoscapBenchmark -Benchmark Windows11 -AcceptDisaTerms          # prompts before download
 ```
 
 **`Remove-WoscapBenchmark`** prunes the operator-local cache. `-Benchmark` is

@@ -1,5 +1,18 @@
 function Update-WoscapBenchmark {
-    [CmdletBinding()]
+    <#
+    .SYNOPSIS
+        Re-resolves and fetches the latest revision of cached STIG benchmarks.
+    .DESCRIPTION
+        With -Benchmark, refreshes just that benchmark; without it, every benchmark
+        already in the cache. Emits one row per benchmark
+        (Updated / AlreadyCurrent / Failed). Because a bulk refresh fans out a live
+        DISA scrape plus a download per cached benchmark, each per-benchmark refresh
+        is gated by ShouldProcess (ConfirmImpact High) — it prompts per benchmark by
+        default; suppress with -Confirm:$false. Use -WhatIf to preview which benchmarks
+        would be re-resolved (Status='WhatIf') without performing any network I/O; a
+        prompt declined at the confirmation gate is reported Status='Skipped'.
+    #>
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     [OutputType([pscustomobject])]
     param(
         [string] $Benchmark,
@@ -37,6 +50,21 @@ function Update-WoscapBenchmark {
                 if ([int]::TryParse($_, [ref] $n)) { '{0:D10}' -f $n } else { $_ }
             })[-1]
         } else { '' }
+
+        # Gate the network fan-out (scrape + per-benchmark download inside Save). ShouldProcess
+        # returns $false for both -WhatIf and a declined confirmation prompt; neither performs any
+        # network I/O. Distinguish them the way Invoke-WoscapRemediation does: -WhatIf is a dry-run
+        # preview ('WhatIf'), an explicit decline is an operator choice ('Skipped').
+        if (-not $PSCmdlet.ShouldProcess($b, 'Refresh from DISA')) {
+            [pscustomobject]@{
+                Benchmark    = $b
+                Status       = if ($WhatIfPreference) { 'WhatIf' } else { 'Skipped' }
+                FromRevision = $fromRev
+                ToRevision   = ''
+                Reason       = if ($WhatIfPreference) { 'Would refresh from DISA' } else { 'Declined at confirmation prompt' }
+            }
+            continue
+        }
 
         try {
             $saveArgs = @{
