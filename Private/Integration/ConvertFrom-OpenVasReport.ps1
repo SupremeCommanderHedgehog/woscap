@@ -1,16 +1,24 @@
 function ConvertFrom-OpenVasReport {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)] [string] $Path)
+    [CmdletBinding(DefaultParameterSetName = 'Path')]
+    param(
+        [Parameter(Mandatory, ParameterSetName = 'Path')] [string] $Path,
+        [Parameter(Mandatory, ParameterSetName = 'Xml')]  [string] $Xml
+    )
 
+    $src = if ($PSCmdlet.ParameterSetName -eq 'Path') { "'$Path'" } else { 'in-memory report' }
     try {
-        [xml] $doc = Get-Content -LiteralPath $Path -Raw
+        if ($PSCmdlet.ParameterSetName -eq 'Path') {
+            [xml] $doc = Get-Content -LiteralPath $Path -Raw
+        } else {
+            [xml] $doc = $Xml
+        }
     } catch {
-        Write-Warning "woscap: could not parse OpenVAS report '$Path': $_"; return @()
+        Write-Warning "woscap: could not parse OpenVAS report ${src}: $_"; return @()
     }
 
     $results = $doc.SelectNodes('//result')
     if (-not $results -or $results.Count -eq 0) {
-        Write-Warning "woscap: OpenVAS report '$Path' contained no <result> nodes."; return @()
+        Write-Warning "woscap: OpenVAS report ${src} contained no <result> nodes."; return @()
     }
 
     # Node access is via XPath (SelectSingleNode / SelectNodes) rather than the

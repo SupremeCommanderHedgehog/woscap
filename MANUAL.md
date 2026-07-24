@@ -449,6 +449,14 @@ Push-side dispatch: by default sends `-Result <RuleResult[]>` to a plugin's
 to emit remediation content. Loader/dispatch failures warn and return nothing —
 they never abort a scan.
 
+### `Invoke-WoscapIntegration`
+
+Trigger-side dispatch: invokes a plugin's `Invoke-ExternalScan` hook with the
+supplied `-Config` hashtable, returning normalized findings. Currently the
+OpenVAS plugin implements it — a live Greenbone/OpenVAS scan over GMP (see
+[Live OpenVAS triggering (GMP)](#live-openvas-triggering-gmp)). An unresolved
+integration or any hook failure warns and returns nothing — it never throws.
+
 #### Bundled plugins
 
 Three plugins ship under `Integrations/`. Core scanning never depends on any of
@@ -456,13 +464,14 @@ them, and a plugin failure only warns — it never aborts a scan.
 
 | Plugin | Capabilities | `-Config` keys |
 |---|---|---|
-| **OpenVAS** | `Import-Findings`, `Invoke-ExternalScan` (stub) | — (ingest reads `-Path`; live GMP triggering is Phase 4 / #23) |
+| **OpenVAS** | `Import-Findings`, `Invoke-ExternalScan` | ingest reads `-Path`; live GMP triggering reads `Server`, `Port` (default 9390), `Credential` (PSCredential), `Targets`, `ScanConfigId`, `ScannerId`, `PortListId` **or** `PortRange` (gvmd requires a port spec; default `PortRange` = `T:1-65535`), `SmbCredentialId` / `SshCredentialId` / `SshCredentialPort` (default 22) + `AliveTest` (for authenticated scans — e.g. a real Windows/SMB compliance scan), `PollSeconds` (default 15, clamped to ≥1), `TimeoutMinutes` (default 60), `SkipCertificateCheck`, `RequestTimeoutMs` (default 30000), `ReportTimeoutMs` (default 300000, for the possibly-large report fetch) |
 | **Ansible** | `Get-Targets`, `New-Remediation`, `Export-Findings` | `Group` (inventory group filter); `Benchmark` / `ContentPath` (source of fix descriptors); `FactsPath` (facts output) |
 | **Zabbix** | `Export-Findings`, `Get-Targets` | `Server`, `Port` (trapper, default 10051); `ApiUrl`, `Token` (JSON-RPC host inventory) |
 
 - **OpenVAS** ingests a Greenbone/OpenVAS report XML into normalized findings and,
   with `-CorrelateWith`, cross-links them to STIG results on CVE/CCE/CCI — resolving
-  IP-vs-computername hosts via the `-Config` `HostMap`/`ResolveDns` keys (#52).
+  IP-vs-computername hosts via the `-Config` `HostMap`/`ResolveDns` keys (#52). It can
+  also **trigger a live scan over GMP** (`Invoke-WoscapIntegration`, #23) — see below.
 - **Ansible** parses an INI or YAML inventory into a target list, and emits a
   remediation **playbook** (`win_regedit` / `win_audit_policy_system` / …) derived
   from the same check descriptors the engine evaluates. Rules with no automatable
@@ -481,6 +490,54 @@ Export-WoscapIntegration -Integration Zabbix -Result $r -Config @{ Server = 'zbx
 
 # Emit an Ansible remediation playbook for the open findings
 Export-WoscapIntegration -Integration Ansible -Result $r -Remediation -Path .\remediate.yml
+```
+
+#### Live OpenVAS triggering (GMP)
+
+Trigger a Greenbone/OpenVAS scan directly over **GMP** (Greenbone Management
+Protocol — XML over a TLS socket, default port 9390) and get normalized findings
+back, without a manual report export:
+
+```powershell
+$cred = Get-Credential            # gvmd username + password
+Invoke-WoscapIntegration -Integration OpenVAS -Config @{
+    Server               = 'gvm.example.local'
+    Port                 = 9390            # optional (default 9390)
+    Credential           = $cred
+    Targets              = @('10.0.0.5', '10.0.0.6')
+    ScanConfigId         = '<scan-config-uuid>'   # e.g. "Full and fast"
+    ScannerId            = '<scanner-uuid>'        # e.g. the default OpenVAS scanner
+    PortRange            = 'T:22,80,443'           # or PortListId = '<port-list-uuid>'; gvmd requires one
+    PollSeconds          = 15              # optional (default 15, clamped to >= 1)
+    TimeoutMinutes       = 60              # optional (default 60)
+    SkipCertificateCheck = $true           # optional; accept a self-signed gvmd cert
+    ReportTimeoutMs      = 300000          # optional; raise for very large reports
+}
+```
+
+The call authenticates, creates a fresh target + task, starts the scan, polls
+`get_tasks` until it completes (or reaches a terminal failure state, or
+`TimeoutMinutes` elapses), fetches the full report (`details='1'`, all pages),
+deletes the target + task it created, and returns findings in the **same shape as
+file ingest** — so `-CorrelateWith` and the reporters work unchanged. Every
+failure mode (unreachable host, rejected auth, GMP error status, terminal scan
+state, poll timeout) emits a warning and returns no findings; it never throws or
+aborts a surrounding scan. Transport uses in-box `System.Net.Sockets` / `SslStream`
+only — no `gvm-tools` required.
+
+For an **authenticated** scan (deep local checks — the usual case for a Windows
+host), attach gvmd credential UUIDs and, for firewalled hosts that drop pings, a
+permissive alive test:
+
+```powershell
+Invoke-WoscapIntegration -Integration OpenVAS -Config @{
+    Server = 'gvm.example.local'; Credential = $cred; SkipCertificateCheck = $true
+    Targets = @('10.0.0.20'); ScanConfigId = '<uuid>'; ScannerId = '<uuid>'
+    PortRange       = 'T:135,139,445'          # SMB ports
+    SmbCredentialId = '<gvmd-smb-credential-uuid>'
+    SshCredentialId = '<gvmd-ssh-credential-uuid>'   # optional; SshCredentialPort defaults to 22
+    AliveTest       = 'Consider Alive'         # host drops ICMP (e.g. Windows firewall)
+}
 ```
 
 **Authoring a plugin:** create `Integrations/<Name>/plugin.psd1` (declaring
@@ -829,7 +886,7 @@ today**. Do not assume they work:
 | Area | Status |
 |---|---|
 | **Integration plugin layer** (contract + loader/dispatcher + `Get-`/`Import-`/`Export-WoscapIntegration`) | **Shipped** (#16). The capability-hook contract, fail-warn-only loader/dispatcher, and the three cmdlets exist. |
-| **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering remains Phase 4 (#23). |
+| **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering (`Invoke-WoscapIntegration`) shipped (#23). |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Partially shipped** (#22). `Invoke-WoscapRemediation` applies **Registry + AuditPolicy** fixes on the **local** host, `-WhatIf`/`-Confirm`-gated (`ConfirmImpact='High'`), with auto re-check; other check types report `Manual`. Ansible remediation-as-code (playbook emitter) shipped in #18. Remote fleet remediation, Service/UserRight/SecEdit application, and rollback remain Phase 4. |
 | **`Get-WoscapBenchmark`** (list cached downloaded STIG content) | **Shipped** (#53). Lists the operator-local download cache (`Save-WoscapStigContent` output) by benchmark + revision; supports `-Benchmark` / `-Destination` filters. |
 | **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 + application packs for **Edge** and **Chrome** (#21) ship; Windows Server MS/DC packs remain. |
@@ -842,9 +899,9 @@ on top of the Phase 0–1 skeleton/engine/first-benchmark/local-scan work.
 dispatcher, and `Get-`/`Import-`/`Export-WoscapIntegration` (#16) — plus the
 bundled OpenVAS (#17), Ansible (#18), and Zabbix (#19) plugins are all shipped.
 Phase 4 is underway: gated in-place remediation for Registry/AuditPolicy on the
-local host (`Invoke-WoscapRemediation`, #22) is shipped. Content-pack breadth
-(Server 2019/2022, MS/third-party apps), live OpenVAS GMP triggering, and remote /
-rollback remediation remain.
+local host (`Invoke-WoscapRemediation`, #22) and live OpenVAS GMP triggering
+(`Invoke-WoscapIntegration`, #23) are shipped. Content-pack breadth
+(Server 2019/2022, MS/third-party apps) and remote / rollback remediation remain.
 
 ---
 

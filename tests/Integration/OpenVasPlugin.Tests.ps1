@@ -25,11 +25,49 @@ Describe 'OpenVAS plugin' {
         @($view.Links).Count | Should -Be 1
         $view.Links[0].MatchedOn | Should -Be 'CCE-24913-4'
     }
-    It 'stubs Invoke-ExternalScan with a warning and null (no throw)' {
+    It 'Invoke-ExternalScan runs a live scan and normalizes the report' {
         InModuleScope woscap -Parameters @{ Dir = $script:PluginDir } {
             $p = Import-WoscapPlugin -Path $Dir
-            { Invoke-WoscapHook -Plugin $p -Hook 'Invoke-ExternalScan' -Arguments @{ Config = @{} } -WarningAction SilentlyContinue } | Should -Not -Throw
-            Invoke-WoscapHook -Plugin $p -Hook 'Invoke-ExternalScan' -Arguments @{ Config = @{} } -WarningAction SilentlyContinue | Should -BeNullOrEmpty
+            Mock Invoke-WoscapOpenVasScan { '<get_reports_response><report><results><result><host>10.0.0.5</host><threat>High</threat><nvt oid="1.2.3"><name>x</name></nvt></result></results></report></get_reports_response>' }
+            $cred = [pscredential]::new('admin', (ConvertTo-SecureString 'pw' -AsPlainText -Force))
+            $findings = @(Invoke-WoscapHook -Plugin $p -Hook 'Invoke-ExternalScan' -Arguments @{ Config = @{
+                Server = 'gvm'; Credential = $cred; Targets = @('10.0.0.5'); ScanConfigId = 'c'; ScannerId = 's' } })
+            $findings.Count | Should -Be 1
+            $findings[0].Source | Should -Be 'OpenVAS'
+            $findings[0].Host   | Should -Be '10.0.0.5'
+        }
+    }
+    It 'Invoke-ExternalScan coerces string config and forwards optional params' {
+        InModuleScope woscap -Parameters @{ Dir = $script:PluginDir } {
+            $p = Import-WoscapPlugin -Path $Dir
+            Mock Invoke-WoscapOpenVasScan {
+                '<get_reports_response><report><results><result><host>h</host><threat>Low</threat><nvt oid="1"><name>n</name></nvt></result></results></report></get_reports_response>'
+            } -ParameterFilter {
+                $Port -eq 9391 -and $PollSeconds -eq 5 -and $SkipCertificateCheck -eq $false -and $RequestTimeoutMs -eq 45000
+            }
+            $cred = [pscredential]::new('admin', (ConvertTo-SecureString 'pw' -AsPlainText -Force))
+            $out = @(Invoke-WoscapHook -Plugin $p -Hook 'Invoke-ExternalScan' -Arguments @{ Config = @{
+                Server = 'gvm'; Credential = $cred; Targets = @('h'); ScanConfigId = 'c'; ScannerId = 's'
+                Port = '9391'; PollSeconds = '5'; SkipCertificateCheck = 'false'; RequestTimeoutMs = '45000' } })
+            $out.Count | Should -Be 1
+            Should -Invoke Invoke-WoscapOpenVasScan -Times 1 -Exactly
+        }
+    }
+    It 'Invoke-ExternalScan warns and returns empty when required config is missing' {
+        InModuleScope woscap -Parameters @{ Dir = $script:PluginDir } {
+            $p = Import-WoscapPlugin -Path $Dir
+            $out = @(Invoke-WoscapHook -Plugin $p -Hook 'Invoke-ExternalScan' -Arguments @{ Config = @{ Server = 'gvm' } } -WarningAction SilentlyContinue)
+            $out.Count | Should -Be 0
+        }
+    }
+    It 'Invoke-ExternalScan returns empty (no throw) when the scan yields no report' {
+        InModuleScope woscap -Parameters @{ Dir = $script:PluginDir } {
+            $p = Import-WoscapPlugin -Path $Dir
+            Mock Invoke-WoscapOpenVasScan { $null }
+            $cred = [pscredential]::new('admin', (ConvertTo-SecureString 'pw' -AsPlainText -Force))
+            $out = @(Invoke-WoscapHook -Plugin $p -Hook 'Invoke-ExternalScan' -Arguments @{ Config = @{
+                Server = 'gvm'; Credential = $cred; Targets = @('h'); ScanConfigId = 'c'; ScannerId = 's' } } -WarningAction SilentlyContinue)
+            $out.Count | Should -Be 0
         }
     }
 }

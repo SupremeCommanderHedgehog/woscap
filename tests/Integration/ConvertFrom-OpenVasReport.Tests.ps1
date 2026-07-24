@@ -32,6 +32,22 @@ Describe 'ConvertFrom-OpenVasReport' {
             finally { Remove-Item $bad -Force }
         }
     }
+    It 'parses an in-memory report string via -Xml with the same shape as -Path' {
+        InModuleScope woscap -Parameters @{ Report = $script:Report } {
+            $xml = Get-Content -LiteralPath $Report -Raw
+            $f = @(ConvertFrom-OpenVasReport -Xml $xml)
+            $f.Count | Should -Be 2
+            $f[0].Source | Should -Be 'OpenVAS'
+            $f[0].Id | Should -Be '1.3.6.1.4.1.25623.1.0.900001'
+            $f[0].Severity | Should -Be 'high'
+        }
+    }
+    It 'warns and returns empty when -Xml is not well-formed' {
+        InModuleScope woscap {
+            $f = @(ConvertFrom-OpenVasReport -Xml '<not-a-report' -WarningAction SilentlyContinue)
+            $f.Count | Should -Be 0
+        }
+    }
     It 'parses a sparse result (missing optional nodes) without throwing under StrictMode' {
         InModuleScope woscap -Parameters @{ Sparse = $script:Sparse } {
             { $null = @(ConvertFrom-OpenVasReport -Path $Sparse) } | Should -Not -Throw
