@@ -217,4 +217,166 @@ Describe 'Send-WoscapGmpRequest' {
             } finally { $listener.Stop() }
         }
     }
+    It 'completes a self-closing root whose start tag is split across reads' {
+        InModuleScope woscap {
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+            try {
+                $accept = $listener.AcceptTcpClientAsync()
+                $ps = [powershell]::Create()
+                [void]$ps.AddScript({
+                    param($accept)
+                    $accept.Wait(5000) | Out-Null
+                    $stream = $accept.Result.GetStream()
+                    $buf = New-Object byte[] 4096; $stream.Read($buf, 0, $buf.Length) | Out-Null
+                    # Name + attrs first, the trailing '/>' only in the second write.
+                    $p1 = [System.Text.Encoding]::UTF8.GetBytes('<authenticate_response status="200" status_text="OK"')
+                    $p2 = [System.Text.Encoding]::UTF8.GetBytes('/>')
+                    $stream.Write($p1, 0, $p1.Length); $stream.Flush(); Start-Sleep -Milliseconds 60
+                    $stream.Write($p2, 0, $p2.Length); $stream.Flush()
+                }).AddArgument($accept)
+                $handle = $ps.BeginInvoke()
+                $client = [System.Net.Sockets.TcpClient]::new(); $client.Connect('127.0.0.1', $port)
+                $resp = Send-WoscapGmpRequest -Stream $client.GetStream() -Request '<authenticate/>' -TimeoutMs 4000
+                $resp.DocumentElement.GetAttribute('status') | Should -Be '200'
+                $ps.EndInvoke($handle) | Out-Null; $ps.Dispose(); $client.Close()
+            } finally { $listener.Stop() }
+        }
+    }
+    It 'completes a self-closing root longer than the old 4096-char detection window' {
+        InModuleScope woscap {
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+            try {
+                $accept = $listener.AcceptTcpClientAsync()
+                $ps = [powershell]::Create()
+                [void]$ps.AddScript({
+                    param($accept)
+                    $accept.Wait(5000) | Out-Null
+                    $stream = $accept.Result.GetStream()
+                    $buf = New-Object byte[] 4096; $stream.Read($buf, 0, $buf.Length) | Out-Null
+                    # A gvmd error reply with a long status_text: single self-closing element > 4096 chars.
+                    $long = '<create_target_response status="400" status_text="' + ('x' * 5000) + '"/>'
+                    $b = [System.Text.Encoding]::UTF8.GetBytes($long)
+                    $stream.Write($b, 0, $b.Length); $stream.Flush()
+                }).AddArgument($accept)
+                $handle = $ps.BeginInvoke()
+                $client = [System.Net.Sockets.TcpClient]::new(); $client.Connect('127.0.0.1', $port)
+                $resp = Send-WoscapGmpRequest -Stream $client.GetStream() -Request '<create_target/>' -TimeoutMs 4000
+                $resp.DocumentElement.GetAttribute('status') | Should -Be '400'
+                $resp.DocumentElement.GetAttribute('status_text').Length | Should -Be 5000
+                $ps.EndInvoke($handle) | Out-Null; $ps.Dispose(); $client.Close()
+            } finally { $listener.Stop() }
+        }
+    }
+    It 'learns the correct root name when the start tag name is split across reads' {
+        InModuleScope woscap {
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+            try {
+                $accept = $listener.AcceptTcpClientAsync()
+                $ps = [powershell]::Create()
+                [void]$ps.AddScript({
+                    param($accept)
+                    $accept.Wait(5000) | Out-Null
+                    $stream = $accept.Result.GetStream()
+                    $buf = New-Object byte[] 4096; $stream.Read($buf, 0, $buf.Length) | Out-Null
+                    $p1 = [System.Text.Encoding]::UTF8.GetBytes('<get_tasks_respo')      # name split here
+                    $p2 = [System.Text.Encoding]::UTF8.GetBytes('nse status="200"><task><status>Done</status></task></get_tasks_response>')
+                    $stream.Write($p1, 0, $p1.Length); $stream.Flush(); Start-Sleep -Milliseconds 60
+                    $stream.Write($p2, 0, $p2.Length); $stream.Flush()
+                }).AddArgument($accept)
+                $handle = $ps.BeginInvoke()
+                $client = [System.Net.Sockets.TcpClient]::new(); $client.Connect('127.0.0.1', $port)
+                $resp = Send-WoscapGmpRequest -Stream $client.GetStream() -Request '<get_tasks/>' -TimeoutMs 4000
+                $resp.DocumentElement.Name | Should -Be 'get_tasks_response'
+                $resp.SelectSingleNode('//status').InnerText | Should -Be 'Done'
+                $ps.EndInvoke($handle) | Out-Null; $ps.Dispose(); $client.Close()
+            } finally { $listener.Stop() }
+        }
+    }
+    It 'completes when there is trailing whitespace after the root closing tag' {
+        InModuleScope woscap {
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+            try {
+                $accept = $listener.AcceptTcpClientAsync()
+                $ps = [powershell]::Create()
+                [void]$ps.AddScript({
+                    param($accept)
+                    $accept.Wait(5000) | Out-Null
+                    $stream = $accept.Result.GetStream()
+                    $buf = New-Object byte[] 4096; $stream.Read($buf, 0, $buf.Length) | Out-Null
+                    $body = '<get_reports_response status="200"><report><results/></report></get_reports_response>' + ("`n" + (' ' * 40))
+                    $b = [System.Text.Encoding]::UTF8.GetBytes($body)
+                    $stream.Write($b, 0, $b.Length); $stream.Flush()
+                }).AddArgument($accept)
+                $handle = $ps.BeginInvoke()
+                $client = [System.Net.Sockets.TcpClient]::new(); $client.Connect('127.0.0.1', $port)
+                $resp = Send-WoscapGmpRequest -Stream $client.GetStream() -Request '<get_reports/>' -TimeoutMs 4000
+                $resp.DocumentElement.GetAttribute('status') | Should -Be '200'
+                $ps.EndInvoke($handle) | Out-Null; $ps.Dispose(); $client.Close()
+            } finally { $listener.Stop() }
+        }
+    }
+    It 'detects a self-closing root even when an attribute value contains a raw > character' {
+        InModuleScope woscap {
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+            try {
+                $accept = $listener.AcceptTcpClientAsync()
+                $ps = [powershell]::Create()
+                [void]$ps.AddScript({
+                    param($accept)
+                    $accept.Wait(5000) | Out-Null
+                    $stream = $accept.Result.GetStream()
+                    $buf = New-Object byte[] 4096; $stream.Read($buf, 0, $buf.Length) | Out-Null
+                    # Raw '>' inside status_text: the first '>' is NOT the tag end.
+                    $b = [System.Text.Encoding]::UTF8.GetBytes('<create_target_response status="400" status_text="need port > 1024"/>')
+                    $stream.Write($b, 0, $b.Length); $stream.Flush()
+                }).AddArgument($accept)
+                $handle = $ps.BeginInvoke()
+                $client = [System.Net.Sockets.TcpClient]::new(); $client.Connect('127.0.0.1', $port)
+                $resp = Send-WoscapGmpRequest -Stream $client.GetStream() -Request '<create_target/>' -TimeoutMs 4000
+                $resp.DocumentElement.GetAttribute('status') | Should -Be '400'
+                $resp.DocumentElement.GetAttribute('status_text') | Should -Be 'need port > 1024'
+                $ps.EndInvoke($handle) | Out-Null; $ps.Dispose(); $client.Close()
+            } finally { $listener.Stop() }
+        }
+    }
+    It 'does not complete early on a root close tag echoed inside content' {
+        InModuleScope woscap {
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+            try {
+                $accept = $listener.AcceptTcpClientAsync()
+                $ps = [powershell]::Create()
+                [void]$ps.AddScript({
+                    param($accept)
+                    $accept.Wait(5000) | Out-Null
+                    $stream = $accept.Result.GetStream()
+                    $buf = New-Object byte[] 4096; $stream.Read($buf, 0, $buf.Length) | Out-Null
+                    # First write ENDS with an echoed (CDATA-embedded) close tag so the tail check
+                    # matches it; the buffer can't parse yet (CDATA unclosed), so the reader must
+                    # keep reading to the real end in the second write.
+                    $p1 = [System.Text.Encoding]::UTF8.GetBytes('<get_reports_response status="200"><report><![CDATA[oops</get_reports_response>')
+                    $p2 = [System.Text.Encoding]::UTF8.GetBytes('still going]]></report></get_reports_response>')
+                    $stream.Write($p1, 0, $p1.Length); $stream.Flush(); Start-Sleep -Milliseconds 60
+                    $stream.Write($p2, 0, $p2.Length); $stream.Flush()
+                }).AddArgument($accept)
+                $handle = $ps.BeginInvoke()
+                $client = [System.Net.Sockets.TcpClient]::new(); $client.Connect('127.0.0.1', $port)
+                $resp = Send-WoscapGmpRequest -Stream $client.GetStream() -Request '<get_reports/>' -TimeoutMs 4000
+                $resp.DocumentElement.GetAttribute('status') | Should -Be '200'
+                $resp.SelectSingleNode('//report').InnerText | Should -Match 'still going'
+                $ps.EndInvoke($handle) | Out-Null; $ps.Dispose(); $client.Close()
+            } finally { $listener.Stop() }
+        }
+    }
 }

@@ -23,6 +23,7 @@ Describe 'Invoke-WoscapOpenVasScan' {
                     return [xml]'<get_tasks_response status="200"><task id="task-1"><status>Running</status><progress>40</progress></task></get_tasks_response>'
                 }
                 if ($Request -like '*<get_reports*') { return [xml]'<get_reports_response status="200"><report id="rep-1"><results><result><name>x</name></result></results></report></get_reports_response>' }
+                if ($Request -like '*<stop_task*')     { return [xml]'<stop_task_response status="202"/>' }
                 if ($Request -like '*<delete_task*')   { return [xml]'<delete_task_response status="200"/>' }
                 if ($Request -like '*<delete_target*') { return [xml]'<delete_target_response status="200"/>' }
                 throw "unexpected request: $Request"
@@ -39,10 +40,12 @@ Describe 'Invoke-WoscapOpenVasScan' {
             ($script:calls | Where-Object { $_ -like '*<start_task*' })    | Should -Match "task_id='task-1'"
             ($script:calls | Where-Object { $_ -like '*<get_reports*' })   | Should -Match "details='1'"
             ($script:calls | Where-Object { $_ -like '*<get_reports*' })   | Should -Match "ignore_pagination='1'"
+            # cleanup stops the task (no-op if finished) before deleting it, then the target
+            ($script:calls | Where-Object { $_ -like '*<stop_task*' })     | Should -Match "task_id='task-1'"
             ($script:calls | Where-Object { $_ -like '*<delete_task*' })   | Should -Match "task_id='task-1'"
             ($script:calls | Where-Object { $_ -like '*<delete_target*' }) | Should -Match "target_id='tgt-1'"
-            # authenticate, create_target, create_task, start_task, get_tasks x2, get_reports, delete_task, delete_target
-            Should -Invoke Send-WoscapGmpRequest -Times 9 -Exactly
+            # authenticate, create_target, create_task, start_task, get_tasks x2, get_reports, stop_task, delete_task, delete_target
+            Should -Invoke Send-WoscapGmpRequest -Times 10 -Exactly
             # PollSeconds 0 must be clamped to a real sleep, not a busy-loop
             Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -ge 1 }
         }
@@ -120,6 +123,7 @@ Describe 'Invoke-WoscapOpenVasScan' {
                 if ($Request -like '*<create_task>*')   { return [xml]'<create_task_response status="201" id="k"/>' }
                 if ($Request -like '*<start_task*')      { return [xml]'<start_task_response status="202"><report_id>r</report_id></start_task_response>' }
                 if ($Request -like '*<get_tasks*')       { return [xml]'<get_tasks_response status="200"><task id="k"><status>Stopped</status><progress>30</progress></task></get_tasks_response>' }
+                if ($Request -like '*<stop_task*')       { return [xml]'<stop_task_response status="202"/>' }
                 if ($Request -like '*<delete_task*')     { return [xml]'<delete_task_response status="200"/>' }
                 if ($Request -like '*<delete_target*')   { return [xml]'<delete_target_response status="200"/>' }
                 throw "should not fetch report: $Request"
@@ -139,6 +143,7 @@ Describe 'Invoke-WoscapOpenVasScan' {
                 if ($Request -like '*<create_task>*')   { return [xml]'<create_task_response status="201" id="k"/>' }
                 if ($Request -like '*<start_task*')      { return [xml]'<start_task_response status="202"><report_id>r</report_id></start_task_response>' }
                 if ($Request -like '*<get_tasks*')       { return [xml]'<get_tasks_response status="200"><task id="k"><status>Running</status><progress>10</progress></task></get_tasks_response>' }
+                if ($Request -like '*<stop_task*')       { return [xml]'<stop_task_response status="202"/>' }
                 if ($Request -like '*<delete_task*')     { return [xml]'<delete_task_response status="200"/>' }
                 if ($Request -like '*<delete_target*')   { return [xml]'<delete_target_response status="200"/>' }
                 throw "should not fetch report: $Request"
@@ -146,6 +151,29 @@ Describe 'Invoke-WoscapOpenVasScan' {
             $r = Invoke-WoscapOpenVasScan -Server 'gvm' -Credential $Cred -Targets @('h') -ScanConfigId 'c' -ScannerId 's' `
                     -PollSeconds 0 -TimeoutMinutes 0 -WarningAction SilentlyContinue
             $r | Should -BeNullOrEmpty
+            # A timed-out scan's task is still Running; cleanup must stop it so delete_task can succeed.
+            Should -Invoke Send-WoscapGmpRequest -Times 1 -Exactly -ParameterFilter { $Request -like "*<stop_task task_id='k'/>*" }
+        }
+    }
+    It 'skips server-side teardown reads when a request threw mid-exchange (dirty stream)' {
+        InModuleScope woscap -Parameters @{ Cred = $script:Cred } {
+            Mock Connect-WoscapGmpStream { [pscustomobject]@{ Client = $null; Stream = [System.IO.MemoryStream]::new() } }
+            Mock Start-Sleep {}
+            Mock Send-WoscapGmpRequest {
+                if ($Request -like '*<authenticate>*') { return [xml]'<authenticate_response status="200"/>' }
+                if ($Request -like '*<create_target>*') { return [xml]'<create_target_response status="201" id="t"/>' }
+                if ($Request -like '*<create_task>*')   { return [xml]'<create_task_response status="201" id="k"/>' }
+                if ($Request -like '*<start_task*')      { return [xml]'<start_task_response status="202"><report_id>r</report_id></start_task_response>' }
+                if ($Request -like '*<get_tasks*')       { return [xml]'<get_tasks_response status="200"><task id="k"><status>Done</status></task></get_tasks_response>' }
+                if ($Request -like '*<get_reports*')     { throw 'connection reset' }   # transport failure -> stream desynced
+                return [xml]'<ok status="200"/>'
+            }
+            $r = Invoke-WoscapOpenVasScan -Server 'gvm' -Credential $Cred -Targets @('h') -ScanConfigId 'c' -ScannerId 's' -PollSeconds 0 -WarningAction SilentlyContinue
+            $r | Should -BeNullOrEmpty
+            # A desynced socket must not be read for teardown responses.
+            Should -Invoke Send-WoscapGmpRequest -Times 0 -Exactly -ParameterFilter { $Request -like '*<stop_task*' }
+            Should -Invoke Send-WoscapGmpRequest -Times 0 -Exactly -ParameterFilter { $Request -like '*<delete_task*' }
+            Should -Invoke Send-WoscapGmpRequest -Times 0 -Exactly -ParameterFilter { $Request -like '*<delete_target*' }
         }
     }
     It 'returns $null without sending when the connection fails' {

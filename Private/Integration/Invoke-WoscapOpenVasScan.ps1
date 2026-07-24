@@ -29,29 +29,40 @@ function Invoke-WoscapOpenVasScan {
     $conn = Connect-WoscapGmpStream -Server $Server -Port $Port -TimeoutMs $RequestTimeoutMs -SkipCertificateCheck:$SkipCertificateCheck
     if (-not $conn) { return $null }   # Connect already warned
 
-    # Shared mutable flag: a hashtable is one object, so a nested scriptblock can set
-    # .Failed and the caller sees it (a plain $var assignment would stay scope-local).
-    $state = @{ Failed = $false }
+    # Shared mutable flags: a hashtable is one object, so a nested scriptblock can set
+    # .Failed / .Dirty and the caller sees it (a plain $var assignment would stay scope-local).
+    # Dirty means a request threw mid-exchange, so the socket may hold an unread partial reply
+    # and can no longer be trusted for a clean request/response (used to gate teardown below).
+    $state = @{ Failed = $false; Dirty = $false }
+    # Single source of truth for "is this GMP response a 2xx success" — used by both the
+    # request path and the teardown path so they can't drift.
+    $is2xx = {
+        param($resp)
+        if (-not ($resp -and $resp.DocumentElement)) { return $false }
+        $st = 0
+        if (-not [int]::TryParse($resp.DocumentElement.GetAttribute('status'), [ref]$st)) { return $false }
+        ($st -ge 200 -and $st -lt 300)
+    }
     $send = {
         param([string] $Step, [string] $Request, [int] $Timeout = 0)
         $useTimeout = if ($Timeout -gt 0) { $Timeout } else { $RequestTimeoutMs }
         try {
             $resp = Send-WoscapGmpRequest -Stream $conn.Stream -Request $Request -TimeoutMs $useTimeout
         } catch {
-            Write-Warning "woscap: OpenVAS GMP $Step failed: $_"; $state.Failed = $true; return $null
+            Write-Warning "woscap: OpenVAS GMP $Step failed: $_"
+            $state.Failed = $true; $state.Dirty = $true   # partial reply may be left unread on the socket
+            return $null
         }
-        $statusRaw = $resp.DocumentElement.GetAttribute('status')
-        $status = 0
-        if (-not [int]::TryParse($statusRaw, [ref]$status)) {
+        if (& $is2xx $resp) { return $resp }
+        # Not a success: give a specific message for a missing/non-numeric status vs a real error code.
+        $raw = $resp.DocumentElement.GetAttribute('status')
+        $st = 0
+        if (-not [int]::TryParse($raw, [ref]$st)) {
             Write-Warning "woscap: OpenVAS GMP $Step returned a response with no valid status attribute."
-            $state.Failed = $true; return $null
+        } else {
+            Write-Warning "woscap: OpenVAS GMP $Step returned status $st ($($resp.DocumentElement.GetAttribute('status_text')))."
         }
-        if ($status -lt 200 -or $status -ge 300) {
-            $text = $resp.DocumentElement.GetAttribute('status_text')
-            Write-Warning "woscap: OpenVAS GMP $Step returned status $status ($text)."
-            $state.Failed = $true; return $null
-        }
-        $resp
+        $state.Failed = $true; return $null
     }
 
     # Declared before the try so the finally can tear down whatever was created.
@@ -127,10 +138,34 @@ function Invoke-WoscapOpenVasScan {
     } finally {
         # Best-effort teardown of the target+task this run created, so repeated scans don't
         # accumulate orphaned woscap-* objects on gvmd. Deletes need the still-open stream,
-        # so run them before disposing it; ignore failures. Task first (it references target).
+        # so run them before disposing it. A TIMED-OUT scan leaves the task 'Running', and
+        # gvmd rejects delete_task on an active task — so stop it first (a no-op if already
+        # finished), then delete. If a delete still doesn't succeed the object is surfaced
+        # via a warning rather than left silently behind. Task first (it references target).
         if ($conn.Stream) {
-            if ($taskId)   { try { Send-WoscapGmpRequest -Stream $conn.Stream -Request "<delete_task task_id='$taskId' ultimate='1'/>" -TimeoutMs $RequestTimeoutMs | Out-Null } catch { } }
-            if ($targetId) { try { Send-WoscapGmpRequest -Stream $conn.Stream -Request "<delete_target target_id='$targetId'/>" -TimeoutMs $RequestTimeoutMs | Out-Null } catch { } }
+            # Only drive request/response teardown on a stream that's still in sync. If a
+            # request threw mid-exchange ($state.Dirty), the socket may hold an unread partial
+            # reply, so a stop/delete "response" would actually be misaligned leftover bytes —
+            # surface the leak instead of reading garbage.
+            if (-not $state.Dirty) {
+                $sendQuiet = {
+                    param([string] $Request)
+                    try { Send-WoscapGmpRequest -Stream $conn.Stream -Request $Request -TimeoutMs $RequestTimeoutMs } catch { $null }
+                }
+                $warnIfLeft = {
+                    param([string] $Step, $resp)
+                    if (-not (& $is2xx $resp)) { Write-Warning "woscap: OpenVAS GMP $Step did not succeed; a woscap-* object may remain on '$Server'." }
+                }
+                if ($taskId) {
+                    $null = & $sendQuiet "<stop_task task_id='$taskId'/>"   # no-op if the task already finished
+                    & $warnIfLeft 'delete_task' (& $sendQuiet "<delete_task task_id='$taskId' ultimate='1'/>")
+                }
+                if ($targetId) {
+                    & $warnIfLeft 'delete_target' (& $sendQuiet "<delete_target target_id='$targetId'/>")
+                }
+            } elseif ($taskId -or $targetId) {
+                Write-Warning "woscap: OpenVAS GMP connection to '$Server' was lost mid-request; a woscap-* target/task may remain (clean up manually)."
+            }
             $conn.Stream.Dispose()
         }
         if ($conn.Client) { $conn.Client.Close() }
