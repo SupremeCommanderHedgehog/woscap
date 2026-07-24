@@ -36,8 +36,17 @@ function ConvertFrom-OpenVasReport {
         $cce = @($refs | Where-Object { $_.GetAttribute('type') -eq 'cce' } | ForEach-Object { $_.GetAttribute('id') })
         $cci = @($refs | Where-Object { $_.GetAttribute('type') -eq 'cci' } | ForEach-Object { $_.GetAttribute('id') })
 
+        # A real gvmd <host> is "<host>IP<asset/><hostname>NAME</hostname></host>": the
+        # scanned IP is the element's FIRST text node. Using InnerText would concatenate
+        # the IP with the nested <hostname> text (e.g. "10.0.0.5host.example"), which
+        # mangles Host and breaks host correlation. Take the leading text node for the IP
+        # and expose the hostname as its own field.
+        $hostTextNode = $r.SelectSingleNode('host/text()')
+        $hostIp       = if ($hostTextNode) { $hostTextNode.Value.Trim() } else { $null }
+
         [pscustomobject]@{
-            Host        = (& $getText $r 'host')
+            Host        = $hostIp
+            Hostname    = (& $getText $r 'host/hostname')
             Source      = 'OpenVAS'
             Id          = if ($nvt) { $nvt.GetAttribute('oid') } else { $null }
             Name        = if ($nvt) { (& $getText $nvt 'name') } else { $null }

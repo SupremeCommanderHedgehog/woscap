@@ -48,6 +48,33 @@ Describe 'ConvertFrom-OpenVasReport' {
             $f.Count | Should -Be 0
         }
     }
+    It 'extracts only the IP for Host and the hostname separately when the host element nests hostname/asset children' {
+        InModuleScope woscap {
+            # Real gvmd report shape: the IP is the <host> element's first text node,
+            # followed by nested <asset>/<hostname> children.
+            $xml = @'
+<report><results>
+  <result>
+    <host>10.0.0.11<asset asset_id="a1"/><hostname>win-host.example.com</hostname></host>
+    <threat>Low</threat>
+    <nvt oid="1.2.3"><name>Auth check</name></nvt>
+  </result>
+</results></report>
+'@
+            $f = @(ConvertFrom-OpenVasReport -Xml $xml)
+            $f.Count | Should -Be 1
+            $f[0].Host | Should -Be '10.0.0.11'
+            $f[0].Hostname | Should -Be 'win-host.example.com'
+        }
+    }
+    It 'leaves Hostname empty for a bare host element with no nested hostname' {
+        InModuleScope woscap {
+            $xml = '<report><results><result><host>10.0.0.5</host><threat>Low</threat><nvt oid="9"><name>n</name></nvt></result></results></report>'
+            $f = @(ConvertFrom-OpenVasReport -Xml $xml)
+            $f[0].Host | Should -Be '10.0.0.5'
+            [string]$f[0].Hostname | Should -BeNullOrEmpty
+        }
+    }
     It 'parses a sparse result (missing optional nodes) without throwing under StrictMode' {
         InModuleScope woscap -Parameters @{ Sparse = $script:Sparse } {
             { $null = @(ConvertFrom-OpenVasReport -Path $Sparse) } | Should -Not -Throw
