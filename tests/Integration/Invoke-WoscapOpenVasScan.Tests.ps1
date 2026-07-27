@@ -176,6 +176,24 @@ Describe 'Invoke-WoscapOpenVasScan' {
             Should -Invoke Send-WoscapGmpRequest -Times 0 -Exactly -ParameterFilter { $Request -like '*<delete_target*' }
         }
     }
+    It 'stops the flow at the step that threw mid-exchange (no later step is attempted)' {
+        InModuleScope woscap -Parameters @{ Cred = $script:Cred } {
+            Mock Connect-WoscapGmpStream { [pscustomobject]@{ Client = $null; Stream = [System.IO.MemoryStream]::new() } }
+            Mock Start-Sleep {}
+            Mock Send-WoscapGmpRequest {
+                if ($Request -like '*<authenticate>*')  { return [xml]'<authenticate_response status="200"/>' }
+                if ($Request -like '*<create_target>*') { return [xml]'<create_target_response status="201" id="t"/>' }
+                if ($Request -like '*<create_task>*')   { throw 'connection reset' }   # mid-flow transport failure
+                throw "should not reach: $Request"
+            }
+            $r = Invoke-WoscapOpenVasScan -Server 'gvm' -Credential $Cred -Targets @('h') -ScanConfigId 'c' -ScannerId 's' `
+                    -PollSeconds 0 -WarningAction SilentlyContinue
+            $r | Should -BeNullOrEmpty
+            Should -Invoke Send-WoscapGmpRequest -Times 0 -Exactly -ParameterFilter { $Request -like '*<start_task*' }
+            Should -Invoke Send-WoscapGmpRequest -Times 0 -Exactly -ParameterFilter { $Request -like '*<get_tasks*' }
+            Should -Invoke Send-WoscapGmpRequest -Times 0 -Exactly -ParameterFilter { $Request -like '*<get_reports*' }
+        }
+    }
     It 'returns $null without sending when the connection fails' {
         InModuleScope woscap -Parameters @{ Cred = $script:Cred } {
             Mock Connect-WoscapGmpStream { $null }

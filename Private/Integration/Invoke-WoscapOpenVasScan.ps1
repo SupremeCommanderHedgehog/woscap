@@ -29,11 +29,12 @@ function Invoke-WoscapOpenVasScan {
     $conn = Connect-WoscapGmpStream -Server $Server -Port $Port -TimeoutMs $RequestTimeoutMs -SkipCertificateCheck:$SkipCertificateCheck
     if (-not $conn) { return $null }   # Connect already warned
 
-    # Shared mutable flags: a hashtable is one object, so a nested scriptblock can set
-    # .Failed / .Dirty and the caller sees it (a plain $var assignment would stay scope-local).
+    # Shared mutable flag: a hashtable is one object, so a nested scriptblock can set
+    # .Dirty and the caller sees it (a plain $var assignment would stay scope-local).
     # Dirty means a request threw mid-exchange, so the socket may hold an unread partial reply
     # and can no longer be trusted for a clean request/response (used to gate teardown below).
-    $state = @{ Failed = $false; Dirty = $false }
+    # Step failure needs no flag: $send returns $null on failure, a response on success.
+    $state = @{ Dirty = $false }
     # Single source of truth for "is this GMP response a 2xx success" — used by both the
     # request path and the teardown path so they can't drift.
     $is2xx = {
@@ -50,7 +51,7 @@ function Invoke-WoscapOpenVasScan {
             $resp = Send-WoscapGmpRequest -Stream $conn.Stream -Request $Request -TimeoutMs $useTimeout
         } catch {
             Write-Warning "woscap: OpenVAS GMP $Step failed: $_"
-            $state.Failed = $true; $state.Dirty = $true   # partial reply may be left unread on the socket
+            $state.Dirty = $true   # partial reply may be left unread on the socket
             return $null
         }
         if (& $is2xx $resp) { return $resp }
@@ -62,7 +63,7 @@ function Invoke-WoscapOpenVasScan {
         } else {
             Write-Warning "woscap: OpenVAS GMP $Step returned status $st ($($resp.DocumentElement.GetAttribute('status_text')))."
         }
-        $state.Failed = $true; return $null
+        return $null
     }
 
     # Declared before the try so the finally can tear down whatever was created.
@@ -74,8 +75,9 @@ function Invoke-WoscapOpenVasScan {
         $esc  = { param($s) [System.Security.SecurityElement]::Escape([string]$s) }
         $user = & $esc $Credential.UserName
         $pass = & $esc $Credential.GetNetworkCredential().Password
-        $null = & $send 'authenticate' "<authenticate><credentials><username>$user</username><password>$pass</password></credentials></authenticate>"
-        if ($state.Failed) { return $null }
+        # Every step: $null back from $send means it already warned -> give up.
+        $aResp = & $send 'authenticate' "<authenticate><credentials><username>$user</username><password>$pass</password></credentials></authenticate>"
+        if (-not $aResp) { return $null }
 
         $hosts = & $esc ($Targets -join ', ')
         $name  = 'woscap-' + ([System.Guid]::NewGuid().ToString('N'))
@@ -91,19 +93,19 @@ function Invoke-WoscapOpenVasScan {
         if ($SshCredentialId) { $credXml += "<ssh_credential id='$(& $esc $SshCredentialId)'><port>$([int]$SshCredentialPort)</port></ssh_credential>" }
         $aliveXml = if ($AliveTest) { "<alive_tests>$(& $esc $AliveTest)</alive_tests>" } else { '' }
         $tResp = & $send 'create_target' "<create_target><name>$name</name><hosts>$hosts</hosts>$portXml$credXml$aliveXml</create_target>"
-        if ($state.Failed) { return $null }
+        if (-not $tResp) { return $null }
         $targetId = $tResp.DocumentElement.GetAttribute('id')
         if (-not $targetId) { Write-Warning "woscap: OpenVAS GMP create_target returned no target id."; return $null }
 
         $cfg = & $esc $ScanConfigId
         $scn = & $esc $ScannerId
         $kResp = & $send 'create_task' "<create_task><name>$name</name><config id='$cfg'/><target id='$targetId'/><scanner id='$scn'/></create_task>"
-        if ($state.Failed) { return $null }
+        if (-not $kResp) { return $null }
         $taskId = $kResp.DocumentElement.GetAttribute('id')
         if (-not $taskId) { Write-Warning "woscap: OpenVAS GMP create_task returned no task id."; return $null }
 
         $sResp = & $send 'start_task' "<start_task task_id='$taskId'/>"
-        if ($state.Failed) { return $null }
+        if (-not $sResp) { return $null }
         $ridNode  = $sResp.DocumentElement.SelectSingleNode('report_id')
         $reportId = if ($ridNode) { $ridNode.InnerText } else { $null }
         if (-not $reportId) { Write-Warning "woscap: OpenVAS GMP start_task returned no report id."; return $null }
@@ -112,7 +114,7 @@ function Invoke-WoscapOpenVasScan {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         while ($true) {
             $gResp = & $send 'get_tasks' "<get_tasks task_id='$taskId'/>"
-            if ($state.Failed) { return $null }
+            if (-not $gResp) { return $null }
             $statusNode = $gResp.DocumentElement.SelectSingleNode('task/status')
             $taskStatus = if ($statusNode) { $statusNode.InnerText } else { '' }
             if ($taskStatus -eq 'Done') { break }
@@ -133,7 +135,7 @@ function Invoke-WoscapOpenVasScan {
         # metadata only); ignore_pagination='1' returns the full result set, not just page 1.
         # A real report is large, so use the longer report timeout.
         $rResp = & $send 'get_reports' "<get_reports report_id='$reportId' details='1' ignore_pagination='1'/>" $ReportTimeoutMs
-        if ($state.Failed) { return $null }
+        if (-not $rResp) { return $null }
         return $rResp.OuterXml
     } finally {
         # Best-effort teardown of the target+task this run created, so repeated scans don't

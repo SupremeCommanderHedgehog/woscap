@@ -36,9 +36,7 @@ function Import-WoscapIntegration {
                 #'false'/'0'/'no'/'off' are honored as false rather than truthy-non-empty strings.
                 $resolveDns = $false
                 if ($Config.ContainsKey('ResolveDns')) {
-                    $rawDns = $Config['ResolveDns']
-                    if ($rawDns -is [string]) { $resolveDns = $rawDns.Trim() -match '^(1|true|yes|on)$' }
-                    else { $resolveDns = [bool] $rawDns }
+                    $resolveDns = ConvertTo-WoscapBool $Config['ResolveDns']
                 }
                 Join-WoscapFinding -Results @($CorrelateWith) -Findings @($imported) -HostMap $hostMap -ResolveDns:$resolveDns
             } else {

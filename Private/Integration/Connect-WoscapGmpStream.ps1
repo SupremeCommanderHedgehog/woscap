@@ -7,22 +7,14 @@ function Connect-WoscapGmpStream {
         [switch] $SkipCertificateCheck
     )
 
-    $client = [System.Net.Sockets.TcpClient]::new()
+    # Connect-with-timeout (and its unreachable warning) is shared with the other
+    # socket integrations; $null here means it already warned.
+    $client = Connect-WoscapTcpClient -Server $Server -Port $Port -TimeoutMs $TimeoutMs -Label 'OpenVAS GMP'
+    if (-not $client) { return $null }
+
     $ssl = $null
     $netStream = $null
     try {
-        try {
-            $connect = $client.ConnectAsync($Server, $Port)
-            if (-not $connect.Wait($TimeoutMs) -or -not $client.Connected) {
-                Write-Warning "woscap: OpenVAS GMP ${Server}:${Port} unreachable (connect timed out)."
-                $client.Close(); return $null
-            }
-        } catch {
-            $reason = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
-            Write-Warning "woscap: OpenVAS GMP ${Server}:${Port} unreachable: $reason"
-            $client.Close(); return $null
-        }
-
         # gvmd commonly presents a self-signed cert. With -SkipCertificateCheck we accept
         # any chain; otherwise the default policy applies and an untrusted cert fails the
         # handshake (caught below -> warn + $null).

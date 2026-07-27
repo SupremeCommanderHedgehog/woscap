@@ -42,9 +42,8 @@
             }
         }
         if ($Config.ContainsKey('SkipCertificateCheck')) {
-            $rawSkip = $Config['SkipCertificateCheck']
-            if ($rawSkip -is [string]) { $params['SkipCertificateCheck'] = [bool]($rawSkip.Trim() -match '^(1|true|yes|on)$') }
-            else                       { $params['SkipCertificateCheck'] = [bool]$rawSkip }
+            # Shared coercion: a psd1/JSON 'false'/'0'/'no'/'off' must not read as truthy.
+            $params['SkipCertificateCheck'] = ConvertTo-WoscapBool $Config['SkipCertificateCheck']
         }
 
         $report = Invoke-WoscapOpenVasScan @params

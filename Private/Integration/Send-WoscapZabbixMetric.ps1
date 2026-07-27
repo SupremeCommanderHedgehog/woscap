@@ -20,12 +20,12 @@ function Send-WoscapZabbixMetric {
     $header.AddRange([System.BitConverter]::GetBytes([int64]$payloadBytes.Length))  # little-endian on Windows
     $frame = $header.ToArray() + $payloadBytes
 
-    $client = [System.Net.Sockets.TcpClient]::new()
+    # Connect-with-timeout (and its unreachable warning) is shared with the other
+    # socket integrations; $null here means it already warned.
+    $client = Connect-WoscapTcpClient -Server $Server -Port $Port -TimeoutMs $TimeoutMs -Label 'Zabbix trapper'
+    if (-not $client) { return $false }
+
     try {
-        $connect = $client.ConnectAsync($Server, $Port)
-        if (-not $connect.Wait($TimeoutMs) -or -not $client.Connected) {
-            Write-Warning "woscap: Zabbix trapper ${Server}:${Port} unreachable."; return $false
-        }
         $stream = $client.GetStream()
         # Bound the reply read so a trapper (or proxy) that accepts the connection but
         # never replies can't hang the caller forever; the IOException lands in catch -> $false.
