@@ -18,5 +18,22 @@ function Import-ContentPack {
         }
     }
 
+    # Validate structure at load time. Without this the schema validator was
+    # dead code, and a descriptor with a dropped or misspelled Operator reached
+    # the evaluator to be scored rather than reported as a pack defect. Warn
+    # rather than throw so one bad entry cannot block an entire scan; the
+    # offending rule still surfaces as Error when evaluated.
+    foreach ($key in @($pack.Keys)) {
+        $descriptor = $pack[$key]
+        if ($descriptor -isnot [hashtable]) {
+            Write-Warning "woscap: content entry '$key' is not a hashtable; it will not evaluate."
+            continue
+        }
+        $problems = @(Test-WoscapDescriptorSchema -Descriptor $descriptor -Context $key)
+        foreach ($problem in $problems) {
+            Write-Warning "woscap: content pack defect - $problem"
+        }
+    }
+
     $pack
 }

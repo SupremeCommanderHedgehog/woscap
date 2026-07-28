@@ -647,25 +647,82 @@ Each entry is a hashtable. Keys vary by `Type`; all types compare via an
 ```powershell
 'WN11-AU-000010' = @{ Type='AuditPolicy'; Subcategory='Credential Validation'; Operator='includes'; Expected='Success' }
 'WN11-CC-000005' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\...\Personalization'; Name='NoLockScreenCamera'; Operator='eq'; Expected=1 }
-'WN11-UR-000030' = @{ Type='UserRight'; Privilege='SeBackupPrivilege'; Operator='setequals'; Expected=@('Administrators') }
+'WN11-UR-000030' = @{ Type='UserRight'; Privilege='SeBackupPrivilege'; Operator='subsetof'; Expected=@('Administrators') }
 'WN11-00-000175' = @{ Type='Service'; Name='seclogon'; Operator='eq'; Expected='Disabled' }
+'WN11-CC-000075' = @{ Type='Cim'; Namespace='root\Microsoft\Windows\DeviceGuard'; ClassName='Win32_DeviceGuard'
+                      Property='SecurityServicesRunning'; Operator='includes'; Expected=1 }
+'WN11-00-000240' = @{ Type='Manual'; Question='Does policy prohibit admin web browsing?' }
 ```
 
 #### Check types (`Type`) and their keys
 
 | Type | Read helper | Descriptor keys |
 |---|---|---|
-| `Registry` | `Get-RegValue` | `Path`, `Name` |
+| `Registry` | `Get-RegValue` | `Path`, `Name`; optional `AbsentIsPass` |
 | `SecEdit` | `Get-SecEditSetting` | `Name`, `Section` (default `System Access`) |
 | `UserRight` | `Get-UserRight` | `Privilege` (a `Se*` right); `Expected` is a principal list, compared **as SIDs** via `Resolve-PrincipalSid` |
 | `AuditPolicy` | `Get-AuditPolicy` | `Subcategory` |
 | `Service` | `Get-ServiceState` | `Name`, `Property` (default `StartMode`) |
+| `Cim` | `Get-CimSetting` | `ClassName`, `Property`; optional `Namespace` (default `root\CIMV2`), `Filter` |
+| `Certificate` | `Get-CertificateSetting` | `Store`, `Match` (`Subject`/`Issuer`/`Thumbprint` regexes); optional `RequireUnexpired`. **Observed is a match count**, so use `ge 1` for must-be-present and `eq 0` for must-be-absent |
+| `Acl` | `Test-AclCompliance` | `Path` (one or many; filesystem or `HK*:`), `AllowedPrincipals`, optional `MaxRights` |
+| `OptionalFeature` | `Get-OptionalFeatureState` | `FeatureName` (wildcards allowed); observed is `Enabled`/`Disabled`/`Absent` |
+| `Path` | `Test-PathPresence` | `Path` (environment variables expanded); observed is a boolean |
+| `LocalAccount` | `Get-LocalAccountSetting` | `Scope` (`User`/`Group`), `Property`, optional `Name`, `ThresholdDays` |
+| `All` / `Any` | — | `Checks` — an array of child descriptors, evaluated recursively |
+| `Manual` | — | `Question`, optional `Evidence` (a child descriptor whose reading is reported but never judged) |
 | `ScriptBlock` | — | `Script` — a scriptblock returning one of `Pass`/`Fail`/`NA`/`NotReviewed`/`Error` |
 
-> **ACL note:** a `Get-AclSetting` read helper exists, but `Test-Descriptor`
-> does **not** yet have an `ACL` case — an `ACL`-typed descriptor currently falls
-> to the evaluator's default branch and returns `Error` (→ `Not_Reviewed`). ACL
-> checks are not usable in a content pack yet.
+`LocalAccount` pairs `Scope` with `Property`, and the two are cross-validated:
+`User` accepts `EnabledNames`, `NonExpiringNames`, `StaleNames` and
+`PasswordAgeDays`; `Group` accepts `Members` and requires `Name`.
+
+#### Composites (`All` / `Any`)
+
+`All` passes when every child passes; `Any` when at least one does. They cover
+GPO-or-Intune alternate paths, policies written to several hives, and numeric
+ranges that exclude a sentinel value:
+
+```powershell
+# "60 days or less, and 0 (never expires) is also a finding"
+'WN11-AC-000025' = @{ Type='All'; Checks=@(
+    @{ Type='SecEdit'; Name='MaximumPasswordAge'; Operator='ne'; Expected=0 }
+    @{ Type='SecEdit'; Name='MaximumPasswordAge'; Operator='le'; Expected=60 }
+)}
+```
+
+A child may carry its own `Applicability`. Children that resolve to `NA` or
+`NotReviewed` are **excluded from the verdict** rather than counted as
+non-passing, so an `All` containing a `Manual` child still passes when its
+automated children pass. When every child is `NA` the composite is `NA`; when
+some are `NotReviewed` it is `NotReviewed`. An `Error` in any child fails the
+composite, so a permission failure never reads as a pass.
+
+#### Applicability
+
+An optional `Applicability` hashtable marks a rule Not Applicable from
+**machine-observable facts** before any reading is taken:
+
+| Predicate | Argument |
+|---|---|
+| `DomainJoined`, `TpmPresent`, `CameraPresent`, `BluetoothPresent`, `HypervisorPresent`, `LocalAdminEnabled` | `$true` / `$false` |
+| `OsBuildAtLeast`, `OsBuildBelow` | a build number |
+| `RegistryValueEquals` | `@{ Path; Name; Value }` — a **negative** gate: NA *when* the value matches |
+
+Conditions a machine cannot know — classified network, PAW designation, an
+approved site deviation — belong in an [exception profile](#8-exception--environment-profiles),
+not here. An unknown predicate is an error, never a silent pass, and a predicate
+whose own read fails yields `Error` rather than `NA` (an `NA` would drop the rule
+from scoring entirely, hiding it as effectively as a false pass).
+
+> **Fail-closed invariant.** Every read helper distinguishes *"read failed"* from
+> *"read succeeded and found nothing"*. A failed read returns an internal
+> unreadable sentinel that `Test-Descriptor` renders as `Error`. This matters
+> because several operators treat an empty reading as compliant on purpose
+> (`subsetof`, `setequals @()`, `notin`, `exists:$false`, `AbsentIsPass`) — so
+> collapsing the two would score an unread machine as compliant.
+> `tests/Checks/FailClosed.Tests.ps1` asserts this as a cross-product of every
+> reading type against every such operator.
 
 #### Operators (`Compare-WoscapValue`)
 
@@ -677,7 +734,18 @@ Each entry is a hashtable. Keys vary by `Type`; all types compare via an
 | `includes` | observed collection contains expected (used for `auditpol` `Success`/`Failure`) |
 | `regex` | observed matches the expected pattern |
 | `exists` | value present (or absent, if `Expected` is falsy) |
-| `setequals` | observed set equals expected set (used by `UserRight`, order/dupes ignored) |
+| `notin` | observed is **not** in the expected set |
+| `setequals` | observed set equals expected set (order/dupes ignored) |
+| `subsetof` | every observed member is in `Expected` — *"only assigned to X"*. An empty observed set is compliant |
+| `supersetof` | every expected member is in `Observed` — *"X must be defined"* |
+| `sequence` | ordered equality, for `REG_MULTI_SZ` where the order is the policy |
+
+> **`subsetof` vs `setequals` vs `supersetof`.** DISA user-rights rules read
+> *"if any groups or accounts **other than** the following..."*, which a host
+> satisfies by granting the right to **fewer** principals than listed — that is
+> `subsetof`. Deny-rights rules read *"the following groups **must be defined**"*,
+> which is the opposite test, `supersetof`. `setequals` demands both at once and
+> is wrong for either; it is kept for genuine exact-set comparisons.
 
 ### Scriptblock escape hatch
 
@@ -693,11 +761,31 @@ The scriptblock uses the same read-only helpers and returns a status string.
 
 ### Current Windows 11 coverage
 
-`Content/Windows11/checks.psd1` implements ~163 rules across `Registry`,
-`AuditPolicy`, `UserRight`, and `Service` types (DISA Win11 STIG V2R8). Rules
-requiring check types not yet wired (e.g. ACL/manual rules) are left out and
-surface as `Not_Reviewed`. The full XCCDF carries ~256 rules, so unauthored ones
-are reported `Not_Reviewed` rather than silently passed.
+**All 256 rules of the DISA Win11 STIG V2R8 have a deliberate entry: 248
+automated and 8 explicitly `Manual`.**
+
+The 8 manual rules are the ones whose finding condition cannot be read from the
+machine — whether a camera is physically covered, whether the members of the
+local Administrators group are authorized, an all-drive `.p12` search, and so on.
+Each carries the interview question, and most also carry automated evidence (a
+share list, a group's membership) so the reviewer does not have to go and look
+it up. **A deliberately-manual rule is not the same as an unauthored one**, and
+`Content/Windows11/coverage.psd1` plus
+`tests/Content/Windows11.Coverage.Tests.ps1` enforce that distinction: the pack
+must match the manifest exactly, the two must agree on which rules are manual,
+and every manual entry must carry a question.
+
+The manifest holds rule IDs only — identifiers, not DISA check content — so it
+is committed even though the licensed XCCDF is not. A further test reconciles
+the manifest against the real XCCDF and is skipped where that file is absent, so
+drift is caught on any machine that has the content.
+
+#### Known limitation: `HKCU` rules
+
+`WN11-UC-000020` and `WN11-CC-000390` read `HKCU`, which resolves to the hive of
+the account **running the scan**, not the audited user's. Reading every loaded
+user hive is a separate change; until then, treat those two results as applying
+to the scanning account only.
 
 ### Application packs (Edge, Chrome)
 
@@ -889,7 +977,7 @@ today**. Do not assume they work:
 | **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering (`Invoke-WoscapIntegration`) shipped (#23). |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Partially shipped** (#22). `Invoke-WoscapRemediation` applies **Registry + AuditPolicy** fixes on the **local** host, `-WhatIf`/`-Confirm`-gated (`ConfirmImpact='High'`), with auto re-check; other check types report `Manual`. Ansible remediation-as-code (playbook emitter) shipped in #18. Remote fleet remediation, Service/UserRight/SecEdit application, and rollback remain Phase 4. |
 | **`Get-WoscapBenchmark`** (list cached downloaded STIG content) | **Shipped** (#53). Lists the operator-local download cache (`Save-WoscapStigContent` output) by benchmark + revision; supports `-Benchmark` / `-Destination` filters. |
-| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 + application packs for **Edge** and **Chrome** (#21) ship; Windows Server MS/DC packs remain. |
+| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 256/256 rules** (248 automated, 8 manual, #70), and application packs for **Edge** and **Chrome** (#21) ship; Windows Server MS/DC packs remain. |
 
 Per the roadmap, **Phase 2 is complete**: all five reporters, the
 exception/profile system, remote fleet execution over WinRM
@@ -900,8 +988,9 @@ dispatcher, and `Get-`/`Import-`/`Export-WoscapIntegration` (#16) — plus the
 bundled OpenVAS (#17), Ansible (#18), and Zabbix (#19) plugins are all shipped.
 Phase 4 is underway: gated in-place remediation for Registry/AuditPolicy on the
 local host (`Invoke-WoscapRemediation`, #22) and live OpenVAS GMP triggering
-(`Invoke-WoscapIntegration`, #23) are shipped. Content-pack breadth
-(Server 2019/2022, MS/third-party apps) and remote / rollback remediation remain.
+(`Invoke-WoscapIntegration`, #23) are shipped. Windows 11 content
+coverage is complete (256/256 rules, #70). Remaining Phase 4 work is content-pack
+breadth for Server 2019/2022 and remote / rollback remediation.
 
 ---
 

@@ -7,6 +7,10 @@ function Invoke-CheckEval {
         [string] $ComputerName = $env:COMPUTERNAME,
         [datetime] $ReferenceDate = (Get-Date)
     )
+    # One scan, one set of readings. Cleared here rather than at the end so a
+    # scan that throws part-way cannot leave a poisoned cache for the next one.
+    Clear-WoscapReadCache
+
     $total = @($Rules).Count
     $index = 0
     foreach ($rule in $Rules) {
@@ -70,7 +74,11 @@ function Invoke-CheckEval {
 
         $eval      = Test-Descriptor -Descriptor $descriptor
         $checkType = if ($descriptor.ContainsKey('Type')) { $descriptor['Type'] } else { $null }
-        $details   = "Expected [$($eval.Expected)]; observed [$($eval.Observed)]."
+        $details   = if ($checkType -eq 'Manual') {
+            "Manual review required: $($eval.Expected) Evidence: [$($eval.Observed)]."
+        } else {
+            "Expected [$($eval.Expected)]; observed [$($eval.Observed)]."
+        }
 
         New-WoscapResult @common -Severity $severity -Result $eval.Result -CheckType $checkType `
             -Expected $eval.Expected -Observed $eval.Observed -Exception $exRecord -Comments $exJust -FindingDetails $details

@@ -168,4 +168,40 @@ Describe 'Invoke-CheckEval' {
             $r.Status   | Should -Be 'NotAFinding'
         }
     }
+    It 'clears the read cache at the start of a scan' {
+        InModuleScope woscap {
+            Clear-WoscapReadCache
+            $null = Get-WoscapCachedValue -Key 'stale' -Producer { 'old' }
+            $rules = @([pscustomobject]@{
+                StigId='X-1'; GroupId='V-1'; RuleId='SV-1r1_rule'; Cci=@(); Title='t'
+                Severity='medium'; Benchmark='B'; BenchmarkVersion='1'
+            })
+            $null = Invoke-CheckEval -Rules $rules -ContentPack @{}
+            $script:WoscapReadCache.ContainsKey('stale') | Should -BeFalse
+        }
+    }
+    It 'surfaces a Manual rule as NotReviewed with the question in FindingDetails' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{
+                StigId='WN11-00-000240'; GroupId='V-1'; RuleId='SV-1r1_rule'; Cci=@(); Title='t'
+                Severity='medium'; Benchmark='Windows11'; BenchmarkVersion='V2R8'
+            })
+            $pack = @{ 'WN11-00-000240' = @{ Type='Manual'; Question='Does policy prohibit admin web browsing?' } }
+            $r = @(Invoke-CheckEval -Rules $rules -ContentPack $pack)
+            $r[0].Result         | Should -Be 'NotReviewed'
+            $r[0].CheckType      | Should -Be 'Manual'
+            $r[0].FindingDetails | Should -Match 'Does policy prohibit admin web browsing'
+        }
+    }
+    It 'distinguishes a Manual rule from an unauthored one' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{
+                StigId='WN11-99-999999'; GroupId='V-2'; RuleId='SV-2r1_rule'; Cci=@(); Title='t'
+                Severity='medium'; Benchmark='Windows11'; BenchmarkVersion='V2R8'
+            })
+            $r = @(Invoke-CheckEval -Rules $rules -ContentPack @{})
+            $r[0].Result         | Should -Be 'NotReviewed'
+            $r[0].FindingDetails | Should -Match 'No automated check authored'
+        }
+    }
 }

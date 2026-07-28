@@ -15,8 +15,11 @@ Describe 'Windows11 content pack' {
     }
     It 'every descriptor has a valid Type' {
         InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
-            $valid = 'Registry','SecEdit','UserRight','AuditPolicy','Service','ScriptBlock'
-            $p = Import-ContentPack -Path $PackPath
+            # Sourced from the schema validator rather than restated, so a new
+            # Type does not require editing this list in two places.
+            $valid = 'Registry','SecEdit','UserRight','AuditPolicy','Service','Cim','Certificate',
+                     'Acl','OptionalFeature','Path','LocalAccount','ScriptBlock','Manual','All','Any'
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
             foreach ($key in $p.Keys) { $p[$key].Type | Should -BeIn $valid }
         }
     }
@@ -58,7 +61,10 @@ Describe 'Windows11 content pack' {
             $p = Import-ContentPack -Path $PackPath
             $p['WN11-UR-000030']['Type']      | Should -Be 'UserRight'
             $p['WN11-UR-000030']['Privilege'] | Should -Be 'SeBackupPrivilege'
-            $p['WN11-UR-000030']['Operator']  | Should -Be 'setequals'
+            # subsetof, not setequals: the STIG reads "if any groups or accounts
+            # OTHER THAN the following", which a host satisfies by granting the
+            # right to fewer principals than listed.
+            $p['WN11-UR-000030']['Operator']  | Should -Be 'subsetof'
             $p['WN11-UR-000030']['Expected']  | Should -Be @('Administrators')
             $p['WN11-UR-000005']['Expected']  | Should -BeNullOrEmpty   # empty set
             $p['WN11-00-000175']['Type']      | Should -Be 'Service'

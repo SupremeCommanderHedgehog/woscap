@@ -1,11 +1,8 @@
-function Get-AclSetting {
+function Get-RegistryAclSetting {
     <#
     .SYNOPSIS
-        ACEs on a filesystem path. Returns $null when the path cannot be read.
-    .DESCRIPTION
-        The result is emitted as a protected array so that an ACL with no
-        entries stays distinguishable from an unreadable path. Callers rely on
-        that distinction: an empty ACL is compliant, an unreadable one is not.
+        ACEs on a registry key, in the same shape Get-AclSetting returns for
+        filesystem paths. Returns $null when the key cannot be read.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $Path)
@@ -17,9 +14,11 @@ function Get-AclSetting {
     $entries = foreach ($ace in $acl.Access) {
         [pscustomobject]@{
             Identity = [string]$ace.IdentityReference
-            Rights   = [string]$ace.FileSystemRights
+            Rights   = [string]$ace.RegistryRights
             Type     = [string]$ace.AccessControlType
         }
     }
+    # Protected array, matching Get-AclSetting: an empty ACL must stay
+    # distinguishable from an unreadable key.
     Write-Output -NoEnumerate @($entries | Where-Object { $null -ne $_ })
 }

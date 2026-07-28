@@ -43,4 +43,119 @@ Describe 'Compare-WoscapValue' {
                 Should -Throw -ExpectedMessage '*does not belong to the set*'
         }
     }
+
+    Context 'sequence' {
+        It 'passes on identical order' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator sequence -Observed @('NistP384','NistP256') -Expected @('NistP384','NistP256') | Should -BeTrue
+            }
+        }
+        It 'fails on reversed order' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator sequence -Observed @('NistP256','NistP384') -Expected @('NistP384','NistP256') | Should -BeFalse
+            }
+        }
+        It 'fails on a length mismatch' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator sequence -Observed @('NistP384') -Expected @('NistP384','NistP256') | Should -BeFalse
+            }
+        }
+        It 'fails when observed is null' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator sequence -Observed $null -Expected @('NistP384') | Should -BeFalse
+            }
+        }
+        It 'passes when both sides are empty' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator sequence -Observed @() -Expected @() | Should -BeTrue
+            }
+        }
+    }
+
+    Context 'subsetof' {
+        It 'passes when observed is a proper subset' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator subsetof -Observed @('S-1-5-32-544') -Expected @('S-1-5-32-544','S-1-5-32-555') | Should -BeTrue
+            }
+        }
+        It 'passes when the sets are equal' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator subsetof -Observed @('A','B') -Expected @('B','A') | Should -BeTrue
+            }
+        }
+        It 'fails when observed carries an extra principal' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator subsetof -Observed @('A','Z') -Expected @('A','B') | Should -BeFalse
+            }
+        }
+        It 'passes when observed is empty (nobody holds the right)' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator subsetof -Observed @() -Expected @('A') | Should -BeTrue
+            }
+        }
+        It 'passes when observed is null' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator subsetof -Observed $null -Expected @('A') | Should -BeTrue
+            }
+        }
+    }
+
+    Context 'supersetof' {
+        It 'passes when every required principal is present' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator supersetof -Observed @('A','B','C') -Expected @('A','B') | Should -BeTrue
+            }
+        }
+        It 'fails when a required principal is missing' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator supersetof -Observed @('A') -Expected @('A','B') | Should -BeFalse
+            }
+        }
+        It 'fails when observed is empty and something is required' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator supersetof -Observed @() -Expected @('A') | Should -BeFalse
+            }
+        }
+        It 'passes when nothing is required' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator supersetof -Observed @() -Expected @() | Should -BeTrue
+            }
+        }
+    }
+
+    Context 'exists with collections' {
+        It 'treats an empty collection as absent' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator exists -Observed @() -Expected $true | Should -BeFalse
+            }
+        }
+        It 'treats an empty collection as satisfying a must-not-exist check' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator exists -Observed @() -Expected $false | Should -BeTrue
+            }
+        }
+        It 'treats a populated collection as present' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator exists -Observed @('Defender') -Expected $true | Should -BeTrue
+            }
+        }
+        It 'treats an empty string as present (it is a real reading)' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator exists -Observed '' -Expected $true | Should -BeTrue
+            }
+        }
+    }
+
+    Context 'notin' {
+        It 'passes when observed is outside the set' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator notin -Observed 3 -Expected @(1,2) | Should -BeTrue
+            }
+        }
+        It 'fails when observed is in the set' {
+            InModuleScope woscap {
+                Compare-WoscapValue -Operator notin -Observed 2 -Expected @(1,2) | Should -BeFalse
+            }
+        }
+    }
 }

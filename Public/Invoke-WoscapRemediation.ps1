@@ -74,6 +74,12 @@ function Invoke-WoscapRemediation {
                 }
                 # Re-check the representative descriptor for this action (the subcategory's
                 # first rule for audit; the single rule for registry).
+                #
+                # The read cache MUST be dropped first. secedit and auditpol
+                # output is memoized for the life of a scan, so a re-check that
+                # runs after our own write would otherwise replay the pre-fix
+                # snapshot and report every applied fix as still Open.
+                Clear-WoscapReadCache
                 $descriptor = $pack[$action.StigId]
                 $recheck = Test-Descriptor -Descriptor $descriptor
                 $after = switch ([string]$recheck.Result) {

@@ -134,4 +134,52 @@ Describe 'Invoke-WoscapRemediation' {
             @($out | Where-Object State -eq 'Applied').Count | Should -Be 1
         }
     }
+
+    # These deliberately do NOT mock Test-Descriptor. Every other test here
+    # mocks it wholesale, which is exactly why the read-cache regression below
+    # was invisible: the post-fix re-check never actually re-read anything.
+    Context 'post-fix re-check reads current state, not the cached pre-fix snapshot' {
+        It 'reports an applied audit fix as NotAFinding, not still-Open' {
+            InModuleScope woscap {
+                Clear-WoscapReadCache
+                Mock Import-ContentPack { @{ 'A-1' = @{ Type='AuditPolicy'; Subcategory='Logon'; Operator='includes'; Expected='Success' } } }
+                Mock Test-Path { $true }
+
+                # auditpol reports the pre-fix state until Invoke-AuditPolSet runs.
+                $script:auditFixed = $false
+                Mock Invoke-AuditPolSet { $script:auditFixed = $true }
+                Mock Invoke-AuditPolRaw {
+                    if ($script:auditFixed) { 'fixed' } else { 'unfixed' }
+                }
+                Mock ConvertFrom-AuditPolCsv {
+                    if ($CsvText -eq 'fixed') { @{ 'Logon' = @('Success') } } else { @{ 'Logon' = @('No Auditing') } }
+                }
+
+                # Simulate the documented scan-then-remediate flow: the scan
+                # populates the cache with the pre-fix reading first.
+                $null = Get-AuditPolicy -Subcategory 'Logon'
+
+                $rules = @([pscustomobject]@{ StigId='A-1'; Title='Logon S'; Status='Open' })
+                $out = @($rules | Invoke-WoscapRemediation -ContentPath 'TestDrive:\pack' -Force -Quiet)
+                $out[0].State | Should -Be 'Applied'
+                $out[0].After | Should -Be 'NotAFinding' -Because 'a stale cached auditpol read would report Open for a fix that was applied'
+            }
+        }
+
+        It 'reports an applied registry fix as NotAFinding' {
+            InModuleScope woscap {
+                Clear-WoscapReadCache
+                Mock Import-ContentPack { @{ 'R-1' = @{ Type='Registry'; Path='HKLM:\S'; Name='N'; Operator='eq'; Expected=1 } } }
+                Mock Test-Path { $true }
+                $script:regFixed = $false
+                Mock Set-WoscapRegValue { $script:regFixed = $true }
+                Mock Get-ItemProperty { if ($script:regFixed) { [pscustomobject]@{ N = 1 } } else { [pscustomobject]@{ N = 0 } } }
+
+                $rules = @([pscustomobject]@{ StigId='R-1'; Title='Reg'; Status='Open' })
+                $out = @($rules | Invoke-WoscapRemediation -ContentPath 'TestDrive:\pack' -Force -Quiet)
+                $out[0].State | Should -Be 'Applied'
+                $out[0].After | Should -Be 'NotAFinding'
+            }
+        }
+    }
 }
