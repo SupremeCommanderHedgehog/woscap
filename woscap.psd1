@@ -69,7 +69,21 @@ PowerShellVersion = '5.1'
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = '*'
+# Keep in sync with Public/*.ps1 - tests/ManifestExport.Tests.ps1 enforces this.
+FunctionsToExport = @(
+    'Export-WoscapIntegration'
+    'Export-WoscapResult'
+    'Get-WoscapBenchmark'
+    'Get-WoscapIntegration'
+    'Import-WoscapIntegration'
+    'Invoke-WoscapIntegration'
+    'Invoke-WoscapRemediation'
+    'Invoke-WoscapScan'
+    'Remove-WoscapBenchmark'
+    'Save-WoscapStigContent'
+    'Show-WoscapGui'
+    'Update-WoscapBenchmark'
+)
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()

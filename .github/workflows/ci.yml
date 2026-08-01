@@ -17,8 +17,12 @@ jobs:
   lint:
     name: PSScriptAnalyzer (Windows PowerShell 5.1)
     runs-on: windows-latest
+    permissions:
+      contents: read
+      security-events: write   # upload SARIF to code scanning
+      actions: read            # codeql-action needs this to upload from a private repo
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install PSScriptAnalyzer
         shell: powershell
@@ -30,8 +34,78 @@ jobs:
         shell: powershell
         run: |
           $settings = './PSScriptAnalyzerSettings.psd1'
-          $results = Invoke-ScriptAnalyzer -Path . -Recurse -Settings $settings
+          $results = @(Invoke-ScriptAnalyzer -Path . -Recurse -Settings $settings)
           if ($results) { $results | Format-Table -AutoSize | Out-String | Write-Host }
+
+          # Emit SARIF ourselves rather than depend on a third-party action:
+          # CodeQL has no PowerShell analyzer, and this project keeps its
+          # supply-chain surface minimal on principle.
+          $root = (Get-Location).Path.TrimEnd('\') + '\'
+          $levelMap = @{ 'Error' = 'error'; 'Warning' = 'warning'; 'Information' = 'note' }
+
+          $rules = @()
+          foreach ($name in ($results | Select-Object -ExpandProperty RuleName -Unique | Sort-Object)) {
+            $rules += @{
+              id                   = $name
+              name                 = $name
+              shortDescription     = @{ text = $name }
+              defaultConfiguration = @{ level = 'warning' }
+              helpUri              = "https://learn.microsoft.com/powershell/utility-modules/psscriptanalyzer/rules/$name"
+            }
+          }
+
+          $sarifResults = @()
+          foreach ($r in $results) {
+            $path = [string]$r.ScriptPath
+            if ($path -and $path.StartsWith($root, 'OrdinalIgnoreCase')) { $path = $path.Substring($root.Length) }
+            $uri = ($path -replace '\\', '/')
+            if (-not $uri) { $uri = 'unknown' }
+            $line = [int]$r.Line; if ($line -lt 1) { $line = 1 }
+            $col  = [int]$r.Column; if ($col -lt 1) { $col = 1 }
+            $lvl  = $levelMap[[string]$r.Severity]; if (-not $lvl) { $lvl = 'warning' }
+            $sarifResults += @{
+              ruleId    = [string]$r.RuleName
+              level     = $lvl
+              message   = @{ text = [string]$r.Message }
+              locations = @(@{
+                physicalLocation = @{
+                  artifactLocation = @{ uri = $uri }
+                  region           = @{ startLine = $line; startColumn = $col }
+                }
+              })
+            }
+          }
+
+          $sarif = @{
+            '$schema' = 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json'
+            version   = '2.1.0'
+            runs      = @(@{
+              tool    = @{ driver = @{
+                name           = 'PSScriptAnalyzer'
+                informationUri = 'https://github.com/PowerShell/PSScriptAnalyzer'
+                rules          = $rules
+              } }
+              results = $sarifResults
+            })
+          }
+          # -Depth must cover the nested locations/region graph, else it stringifies.
+          $json = $sarif | ConvertTo-Json -Depth 12
+
+          # MUST be BOM-less. This step runs under Windows PowerShell 5.1, where
+          # 'Set-Content -Encoding utf8' emits a UTF-8 BOM (5.1 has no utf8NoBOM),
+          # and codeql-action reads the file with Node's JSON.parse, which treats
+          # a leading BOM as an unexpected token and throws. Combined with
+          # continue-on-error below that fails silently and uploads nothing.
+          $sarifPath = Join-Path (Get-Location).Path 'psscriptanalyzer.sarif'
+          [System.IO.File]::WriteAllText($sarifPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+
+          $head = [System.IO.File]::ReadAllBytes($sarifPath)[0..2]
+          if ($head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF) {
+            Write-Host '::error::SARIF was written with a UTF-8 BOM; code scanning upload would fail.'
+            exit 1
+          }
+          Write-Host "Wrote SARIF with $($sarifResults.Count) result(s)."
+
           $errors = @($results | Where-Object Severity -eq 'Error')
           if ($errors.Count -gt 0) {
             Write-Host "::error::PSScriptAnalyzer found $($errors.Count) error(s)."
@@ -39,11 +113,39 @@ jobs:
           }
           Write-Host 'PSScriptAnalyzer: no errors.'
 
+      - name: Upload SARIF to code scanning
+        id: sarif_upload
+        # Forks cannot write security events; skip rather than fail the PR.
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        # Code scanning ingest requires a public repo (or GHAS on a private one).
+        # Never let the upload itself turn a green lint run red - the analyzer
+        # step above is the gate that decides pass/fail. Once this repo is public
+        # and uploads are confirmed working, drop continue-on-error so genuine
+        # regressions surface instead of being swallowed.
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@a2983b8bed1923f44751c5c43237f479442827b3 # v3
+        with:
+          sarif_file: psscriptanalyzer.sarif
+          category: psscriptanalyzer
+
+      - name: Report SARIF upload outcome
+        # continue-on-error hides failures from the job status, so state the
+        # outcome explicitly - otherwise a permanently broken upload looks green.
+        if: always() && steps.sarif_upload.conclusion != 'skipped'
+        shell: powershell
+        run: |
+          $outcome = '${{ steps.sarif_upload.outcome }}'
+          if ($outcome -eq 'success') {
+            Write-Host 'SARIF upload: success.'
+          } else {
+            Write-Host "::warning::SARIF upload did not succeed (outcome: $outcome). Code scanning has NOT been updated. Expected while the repository is private; investigate if it persists after going public."
+          }
+
   test:
     name: Pester (Windows PowerShell 5.1)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Pester
         shell: powershell
@@ -69,7 +171,7 @@ jobs:
 
       - name: Upload test results
         if: always() && hashFiles('testResults.xml') != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pester-results
           path: testResults.xml

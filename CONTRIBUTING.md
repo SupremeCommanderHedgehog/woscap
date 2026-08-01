@@ -7,7 +7,7 @@ Thanks for contributing. This project follows a lightweight, issue-driven flow.
 - **Everything is tracked through issues.** Before starting work, make sure an
   issue exists and is assigned to you. Reference it in your branch and PR.
 - **Design first for non-trivial work.** Substantial features get a short design
-  in `docs/superpowers/specs/` before implementation.
+  written up in the tracking issue before implementation.
 - **Zero endpoint dependencies.** Code that runs on an audited host must use only
   in-box Windows PowerShell 5.1. External modules are allowed only as dev/test
   tooling (e.g. Pester, PSScriptAnalyzer) or in operator-side integrations.

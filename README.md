@@ -8,10 +8,14 @@ commercial** environments. It parses DISA's official **XCCDF** benchmark
 metadata and applies hand-coded PowerShell check logic, so it stays aligned with
 the authoritative rule set while remaining maintainable.
 
-> **Status:** Design phase. See the design spec in
-> [`docs/superpowers/specs/2026-07-11-woscap-stig-scanner-design.md`](docs/superpowers/specs/2026-07-11-woscap-stig-scanner-design.md).
-> All work is tracked through [issues](../../issues) and the linked
-> [project board](../../projects).
+> **Status:** Pre-release (`0.1.0`). Phases 0-3 are implemented: the engine,
+> Windows 11 automated coverage (256/256 rules), reporting, exception profiles,
+> remote fleet scanning, the WinForms GUI, and the OpenVAS/Ansible/Zabbix
+> integration layer. Phase 4 (additional benchmarks) is in progress. Interfaces
+> may still change before `1.0.0`.
+>
+> See [`MANUAL.md`](MANUAL.md) for full usage. Work is tracked through
+> [issues](../../issues).
 
 ## Highlights
 
@@ -37,13 +41,13 @@ actually written.
 
 ## Roadmap
 
-| Phase | Scope |
-|---|---|
-| 0 | Module skeleton, `RuleResult` model, read helpers, descriptor evaluator, test/lint harness |
-| 1 | First benchmark end-to-end (Windows 11): XCCDF parser, content pack, engine, local scan |
-| 2 | Reporting (cklb/ckl/HTML/CSV) + exception profiles + remote execution + WinForms GUI |
-| 3 | Integrations: OpenVAS, Ansible, Zabbix |
-| 4 | Breadth (Server 2019/2022, MS/third-party apps) + direct gated remediation |
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Module skeleton, `RuleResult` model, read helpers, descriptor evaluator, test/lint harness | Done |
+| 1 | First benchmark end-to-end (Windows 11): XCCDF parser, content pack, engine, local scan | Done |
+| 2 | Reporting (cklb/ckl/HTML/CSV) + exception profiles + remote execution + WinForms GUI | Done |
+| 3 | Integrations: OpenVAS, Ansible, Zabbix | Done |
+| 4 | Breadth (Server 2019/2022, MS/third-party apps) + direct gated remediation | In progress |
 
 ## Content licensing
 

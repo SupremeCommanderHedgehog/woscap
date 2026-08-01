@@ -55,7 +55,7 @@ Describe 'ConvertFrom-OpenVasReport' {
             $xml = @'
 <report><results>
   <result>
-    <host>10.0.0.11<asset asset_id="a1"/><hostname>win-host.example.com</hostname></host>
+    <host>10.0.0.11<asset asset_id="a1"/><hostname>srv01.example.com</hostname></host>
     <threat>Low</threat>
     <nvt oid="1.2.3"><name>Auth check</name></nvt>
   </result>
@@ -64,7 +64,7 @@ Describe 'ConvertFrom-OpenVasReport' {
             $f = @(ConvertFrom-OpenVasReport -Xml $xml)
             $f.Count | Should -Be 1
             $f[0].Host | Should -Be '10.0.0.11'
-            $f[0].Hostname | Should -Be 'win-host.example.com'
+            $f[0].Hostname | Should -Be 'srv01.example.com'
         }
     }
     It 'leaves Hostname empty for a bare host element with no nested hostname' {

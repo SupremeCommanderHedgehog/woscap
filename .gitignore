@@ -1,6 +1,13 @@
 # Local Claude Code settings (machine-specific)
 .claude/settings.local.json
 
+# Local AI planning/spec scratch work - not part of the published project.
+docs/superpowers/
+
+# CI build outputs
+/psscriptanalyzer.sarif
+/testResults.xml
+
 # DISA STIG content (licensed — never commit)
 STIG/
 

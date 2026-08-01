@@ -7,9 +7,8 @@ how the engine works internally.
 > **Scope of this document.** This manual describes the code **as it exists
 > today** (module version `0.1.0`). Where a capability is part of the approved
 > design but not yet implemented, it is called out explicitly under
-> [Roadmap & not-yet-implemented](#12-roadmap--not-yet-implemented). The
-> authoritative design is
-> [`docs/superpowers/specs/2026-07-11-woscap-stig-scanner-design.md`](docs/superpowers/specs/2026-07-11-woscap-stig-scanner-design.md).
+> [Roadmap & not-yet-implemented](#12-roadmap--not-yet-implemented). This
+> manual is the authoritative description of the engine's behaviour.
 
 ---
 
