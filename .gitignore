@@ -11,6 +11,12 @@ docs/superpowers/
 # DISA STIG content (licensed — never commit)
 STIG/
 
+# Pre-publication archive of the private repo this one replaced: the issue/PR
+# export plus a git bundle of the ORIGINAL history. The bundle still contains
+# docs/superpowers/ and internal lab hostnames that were deliberately purged
+# before this repository was made public. NEVER commit or force-add it.
+/woscap-full-backup/
+
 # Stray test-fixture zips that Pester's cross-container $script: scope bleed can
 # occasionally drop in the repo root (real fixtures build under the system temp dir).
 /good.zip
