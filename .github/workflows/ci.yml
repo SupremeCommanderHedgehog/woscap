@@ -123,7 +123,7 @@ jobs:
         # and uploads are confirmed working, drop continue-on-error so genuine
         # regressions surface instead of being swallowed.
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@a2983b8bed1923f44751c5c43237f479442827b3 # v3
+        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v3
         with:
           sarif_file: psscriptanalyzer.sarif
           category: psscriptanalyzer
