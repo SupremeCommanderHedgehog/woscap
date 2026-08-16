@@ -1,5 +1,5 @@
-# Local Claude Code settings (machine-specific)
-.claude/settings.local.json
+# Local Claude Code state (machine-specific; do not publish)
+.claude/
 
 # Local AI planning/spec scratch work - not part of the published project.
 docs/superpowers/
@@ -22,3 +22,17 @@ STIG/
 /good.zip
 /v1.zip
 /v2.zip
+
+# Secret material — never commit. This repo is public and its integrations
+# (OpenVAS/GMP, Ansible inventories) are the kind that tempt a local creds file.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+id_rsa
+id_ed25519
+secrets.*
+credentials.*
