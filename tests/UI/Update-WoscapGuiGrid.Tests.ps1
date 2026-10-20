@@ -36,4 +36,17 @@ Describe 'Update-WoscapGuiGrid' -Skip:(-not $script:IsSta) {
             } finally { $grid.Dispose() }
         }
     }
+
+    It 'stores each result object on its row Tag so selection maps back by identity' {
+        InModuleScope woscap {
+            $grid = New-Object System.Windows.Forms.DataGridView
+            $grid.AllowUserToAddRows = $false
+            foreach ($col in 'Host','StigId','Severity','Status','Title','Exception') { [void]$grid.Columns.Add($col, $col) }
+            try {
+                $r = [pscustomobject]@{ Host='H'; StigId='V-1'; Severity='high'; Status='Open'; Title='T'; Exception=$null }
+                Update-WoscapGuiGrid -Grid $grid -Rows @($r)
+                [object]::ReferenceEquals($grid.Rows[0].Tag, $r) | Should -BeTrue
+            } finally { $grid.Dispose() }
+        }
+    }
 }
