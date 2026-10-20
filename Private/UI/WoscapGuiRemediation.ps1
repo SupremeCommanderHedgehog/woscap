@@ -213,7 +213,6 @@ function Start-WoscapGuiRemediationApply {
             -OnComplete $onApplied -OnWarning $onWarning -OnError $onError
     } catch {
         Show-WoscapGuiMessage -Text (Get-WoscapGuiRemediationFailureText -Tag $Tag -Message $_.Exception.Message -Default 'Could not start remediation')
-        if ($Tag['RemediationRescan']) { return }
         Set-WoscapGuiRemediationBusy -Tag $Tag -Busy $false
         Set-WoscapGuiRemediationStatus -Tag $Tag -Text 'Failed.'
     }
