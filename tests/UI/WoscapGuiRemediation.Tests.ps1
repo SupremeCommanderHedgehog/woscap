@@ -365,6 +365,25 @@ Describe 'Invoke-WoscapGuiRemediate targeting' -Skip:(-not $script:IsSta) {
         }
     }
 
+    It 'uses a selection the operator made with the mouse' {
+        InModuleScope woscap {
+            $script:form.Show(); [System.Windows.Forms.Application]::DoEvents()
+            Invoke-WoscapGuiRun -Tag $script:form.Tag
+            [System.Windows.Forms.Application]::DoEvents()
+            $grid = $script:form.Tag['Grid']
+            $grid.ClearSelection(); $grid.Rows[1].Selected = $true
+            $click = [System.Windows.Forms.DataGridViewCellMouseEventArgs]::new(0, 1, 1, 1,
+                [System.Windows.Forms.MouseEventArgs]::new([System.Windows.Forms.MouseButtons]::Left, 1, 1, 1, 0))
+            # The protected virtual overload; a private one makes GetMethod ambiguous.
+            $onCellMouseDown = [System.Windows.Forms.DataGridView].GetMethods([System.Reflection.BindingFlags]'NonPublic, Instance') |
+                Where-Object { $_.Name -eq 'OnCellMouseDown' -and $_.IsFamily } | Select-Object -First 1
+            [void]$onCellMouseDown.Invoke($grid, @($click))
+            $script:form.Tag['GridSelectionDeliberate'] | Should -BeTrue
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            @($script:previewParams['Result'] | ForEach-Object StigId) | Should -Be @('R-2')
+        }
+    }
+
     It 'forgets a deliberate selection when a filter rebuilds the grid' {
         InModuleScope woscap {
             Invoke-WoscapGuiRun -Tag $script:form.Tag

@@ -98,13 +98,12 @@ function New-WoscapMainForm {
     $scan.FilterSeverity.Add_SelectedIndexChanged({ Update-WoscapGuiView -Tag $script:WoscapGuiTag })
     $scan.FilterStatus.Add_SelectedIndexChanged({ Update-WoscapGuiView -Tag $script:WoscapGuiTag })
     $scan.Find.Add_TextChanged({ Update-WoscapGuiView -Tag $script:WoscapGuiTag })
+    # $_ is the event args in a WinForms scriptblock handler.
     $scan.Grid.Add_CellMouseDown({
-        param($s, $e)
-        if ($e.RowIndex -ge 0) { $script:WoscapGuiTag['GridSelectionDeliberate'] = $true }
+        if ($_.RowIndex -ge 0) { $script:WoscapGuiTag['GridSelectionDeliberate'] = $true }
     })
     $scan.Grid.Add_KeyDown({
-        param($s, $e)
-        if (Test-WoscapGuiSelectionKey -KeyEvent $e) { $script:WoscapGuiTag['GridSelectionDeliberate'] = $true }
+        if (Test-WoscapGuiSelectionKey -KeyEvent $_) { $script:WoscapGuiTag['GridSelectionDeliberate'] = $true }
     })
 
     $scan.Run.Add_Click({ Invoke-WoscapGuiRun -Tag $script:WoscapGuiTag })
