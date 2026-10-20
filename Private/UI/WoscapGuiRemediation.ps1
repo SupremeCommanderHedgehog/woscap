@@ -59,8 +59,8 @@ function Invoke-WoscapGuiRemediate {
     $selected = @(if ($Tag['GridSelectionDeliberate']) { Get-WoscapGuiSelectedResult -Grid $Tag['Grid'] })
     $target = Select-WoscapGuiRemediationTarget -Result @(Get-WoscapGuiVisibleResult -Grid $Tag['Grid']) -Selected $selected
     if (@($target.Findings).Count -eq 0) {
-        Show-WoscapGuiMessage -Text ("No Open findings for this computer to remediate ({0} remote, {1} not Open)." -f `
-            $target.SkippedRemote, $target.SkippedNotOpen)
+        Show-WoscapGuiMessage -Text ("No Open findings for this computer to remediate ({0} remote, {1} not Open, {2} with an Override exception)." -f `
+            $target.SkippedRemote, $target.SkippedNotOpen, $target.SkippedOverride)
         return
     }
 
@@ -101,6 +101,7 @@ function Invoke-WoscapGuiRemediate {
         $notes = @()
         if ($tg.SkippedRemote -gt 0)  { $notes += "$($tg.SkippedRemote) remote finding(s) skipped." }
         if ($tg.SkippedNotOpen -gt 0) { $notes += "$($tg.SkippedNotOpen) finding(s) not Open skipped." }
+        if ($tg.SkippedOverride -gt 0) { $notes += "$($tg.SkippedOverride) finding(s) with an Override exception skipped." }
         $pw = $t['RemediationPreviewWarning']
         if ($pw) { $notes += "Preview reported $($pw.Count) warning(s): $($pw.Message)" }
         $ids = @(Show-WoscapGuiRemediationDialog -Plan @($Results) -Summary ($notes -join ' ') -Elevated (Test-WoscapGuiElevated))

@@ -41,6 +41,16 @@ Describe 'Select-WoscapGuiRemediationTarget' {
             @($t.Findings).Count | Should -Be 0
         }
     }
+    It 'never targets a finding carrying an Override exception, and counts it' {
+        InModuleScope woscap {
+            $ov  = [pscustomobject]@{ Host = 'PC1'; StigId = 'V-5'; Status = 'Open'; Exception = [pscustomobject]@{ Type = 'Override' } }
+            $ar  = [pscustomobject]@{ Host = 'PC1'; StigId = 'V-6'; Status = 'Open'; Exception = [pscustomobject]@{ Type = 'AcceptedRisk' } }
+            $t = Select-WoscapGuiRemediationTarget -Result @($ov, $ar) -Selected @() -ComputerName 'PC1'
+            @($t.Findings | ForEach-Object StigId) | Should -Be @('V-6')
+            $t.SkippedOverride | Should -Be 1
+            $t.SkippedNotOpen  | Should -Be 0
+        }
+    }
     It 'tolerates rows missing Host/Status under strict mode' {
         InModuleScope woscap {
             $t = Select-WoscapGuiRemediationTarget -Result @([pscustomobject]@{ StigId = 'V-9' }) -Selected @() -ComputerName 'PC1'

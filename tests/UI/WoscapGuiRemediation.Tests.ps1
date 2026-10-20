@@ -133,6 +133,40 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
         }
     }
 
+    It 'never remediates an Override finding and reports how many were skipped' {
+        InModuleScope woscap {
+            $ov = [pscustomobject]@{ Host = $env:COMPUTERNAME; StigId = 'R-5'; Severity = 'high'; Status = 'Open'; Title = 'r5'
+                Exception = [pscustomobject]@{ Type = 'Override'; Justification = 'org value' } }
+            Mock Get-WoscapGuiSelectedResult { @($script:local1, $ov) }
+            $script:form.Tag['GridSelectionDeliberate'] = $true
+            Mock Test-WoscapGuiElevated { $true }
+            $script:dialogSummary = $null
+            Mock Show-WoscapGuiRemediationDialog { $script:dialogSummary = $Summary }
+            Mock Invoke-WoscapGuiScan {
+                $script:previewParams = $ScanParameters
+                & $OnSettled -Results $script:plan -Outcome $script:none
+            } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            @($script:previewParams['Result'] | ForEach-Object StigId) | Should -Be @('R-1')
+            $script:dialogSummary | Should -Match '1 finding\(s\) with an Override exception skipped'
+        }
+    }
+
+    It 'counts Override findings when nothing is left to remediate' {
+        InModuleScope woscap {
+            $ov = [pscustomobject]@{ Host = $env:COMPUTERNAME; StigId = 'R-5'; Severity = 'high'; Status = 'Open'; Title = 'r5'
+                Exception = [pscustomobject]@{ Type = 'Override' } }
+            Mock Get-WoscapGuiSelectedResult { @($ov) }
+            $script:form.Tag['GridSelectionDeliberate'] = $true
+            Mock Invoke-WoscapGuiScan { }
+            $script:shown = @()
+            Mock Show-WoscapGuiMessage { $script:shown += $Text }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            Should -Not -Invoke Invoke-WoscapGuiScan
+            $script:shown[0] | Should -Match '1 with an Override exception'
+        }
+    }
+
     It 'offers the re-scan through the normal Run path' {
         InModuleScope woscap {
             Mock Get-WoscapGuiSelectedResult { @() }

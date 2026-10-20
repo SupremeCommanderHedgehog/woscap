@@ -3,8 +3,9 @@ function Select-WoscapGuiRemediationTarget {
         Pure: picks the findings the GUI may remediate. Base set is the selection when
         there is one, else every result. Invoke-WoscapRemediation only touches the LOCAL
         host, so rows from other hosts are skipped (never "fixed" here on a remote's
-        evidence), as are rows that are not Open. Returns @{ Findings; SkippedRemote;
-        SkippedNotOpen }.
+        evidence), as are rows that are not Open. Rows with an Override exception are
+        skipped too: remediation writes the benchmark value, not the override's. Returns
+        @{ Findings; SkippedRemote; SkippedNotOpen; SkippedOverride }.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -15,14 +16,16 @@ function Select-WoscapGuiRemediationTarget {
     )
     $base = if (@($Selected).Count -gt 0) { @($Selected) } else { @($Result) }
     $findings = [System.Collections.Generic.List[object]]::new()
-    $remote = 0; $notOpen = 0
+    $remote = 0; $notOpen = 0; $override = 0
     foreach ($r in $base) {
         $hostName = [string](Get-WoscapObjectProperty $r 'Host' '')
         if (-not [string]::Equals($hostName, $ComputerName, [System.StringComparison]::OrdinalIgnoreCase)) { $remote++; continue }
         if ([string](Get-WoscapObjectProperty $r 'Status' '') -ne 'Open') { $notOpen++; continue }
+        $exType = [string](Get-WoscapObjectProperty (Get-WoscapObjectProperty $r 'Exception' $null) 'Type' '')
+        if ($exType -eq 'Override') { $override++; continue }
         $findings.Add($r)
     }
-    [pscustomobject]@{ Findings = $findings.ToArray(); SkippedRemote = $remote; SkippedNotOpen = $notOpen }
+    [pscustomobject]@{ Findings = $findings.ToArray(); SkippedRemote = $remote; SkippedNotOpen = $notOpen; SkippedOverride = $override }
 }
 
 function Test-WoscapGuiElevated {
