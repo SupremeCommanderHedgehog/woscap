@@ -44,7 +44,7 @@ function New-WoscapMainForm {
     $form.MainMenuStrip = $menu.Menu
 
     $tag = @{
-        Menu = $menu.Menu; MenuRun = $menu.Run; MenuExport = $menu.Export
+        Menu = $menu.Menu; MenuRun = $menu.Run; MenuExport = $menu.Export; MenuRemediate = $menu.Remediate
         Tabs = $tabs; ScanTab = $scan.TabPage; ContentTab = $contentTab; IntegrationsTab = $integrationsTab
         # Non-modal channel for partial-scan warning detail (see the OnWarning handler).
         StatusTip = New-Object System.Windows.Forms.ToolTip
@@ -55,6 +55,7 @@ function New-WoscapMainForm {
     $form.Tag = $tag
 
     Set-WoscapGuiActionEnabled -Tag $tag -Action Export -Enabled $false
+    Set-WoscapGuiActionEnabled -Tag $tag -Action Remediate -Enabled $false
     Update-WoscapGuiProfileButton -Tag $tag
     Update-WoscapGuiContentHint -Tag $tag
 
@@ -96,9 +97,11 @@ function New-WoscapMainForm {
 
     $scan.Run.Add_Click({ Invoke-WoscapGuiRun -Tag $script:WoscapGuiTag })
     $scan.Export.Add_Click({ Invoke-WoscapGuiExport -Tag $script:WoscapGuiTag })
+    $scan.Remediate.Add_Click({ Invoke-WoscapGuiRemediate -Tag $script:WoscapGuiTag })
 
     $menu.Run.Add_Click({ Invoke-WoscapGuiRun -Tag $script:WoscapGuiTag })
     $menu.Export.Add_Click({ Invoke-WoscapGuiExport -Tag $script:WoscapGuiTag })
+    $menu.Remediate.Add_Click({ Invoke-WoscapGuiRemediate -Tag $script:WoscapGuiTag })
     $menu.Exit.Add_Click({ $script:WoscapGuiTag['Tabs'].FindForm().Close() })
     $menu.Advanced.Add_Click({ Show-WoscapGuiAdvancedOption -Tag $script:WoscapGuiTag })
     $menu.OpenContent.Add_Click({ $t = $script:WoscapGuiTag; $t['Tabs'].SelectedTab = $t['ContentTab'] })

@@ -23,7 +23,7 @@ Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
                                  'ProfileUp','ProfileDown','UseCred','Run','AdvancedToggle','AdvancedGroup',
                                  'ContentPath','ContentPathDefault','ThrottleLimit','JsonPath',
                                  'Progress','Status','Grid','FilterSeverity','FilterStatus',
-                                 'Find','Format','Export','Results','Menu','MenuRun','MenuExport',
+                                 'Find','Format','Export','Results','Menu','MenuRun','MenuExport','Remediate','MenuRemediate',
                                  'Tabs','ScanTab','ContentTab','IntegrationsTab') {
                     $tag.ContainsKey($key) | Should -BeTrue -Because "Tag should expose '$key'"
                 }
@@ -334,6 +334,53 @@ Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
                 @($form.Tag['Menu'].Items | ForEach-Object Text) | Should -Be @('&File', '&Scan', '&Content', '&Integrations', '&Help')
                 $form.Tag['MenuRun'].ShortcutKeys    | Should -Be $K::F5
                 $form.Tag['MenuExport'].ShortcutKeys | Should -Be ($K::Control -bor $K::E)
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'has Scan > Remediate... and starts with Remediate disabled on button and menu' {
+        InModuleScope woscap {
+            $form = New-WoscapMainForm
+            try {
+                $scanMenu = @($form.Tag['Menu'].Items | Where-Object { $_.Text -eq '&Scan' })[0]
+                @($scanMenu.DropDownItems | ForEach-Object Text) | Should -Contain '&Remediate...'
+                $form.Tag['Remediate'].Enabled     | Should -BeFalse
+                $form.Tag['MenuRemediate'].Enabled | Should -BeFalse
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'enables Remediate after a scan with results and disables it while a scan runs' {
+        InModuleScope woscap {
+            $script:phase = 'complete'
+            Mock Invoke-WoscapGuiScan {
+                if ($script:phase -eq 'complete') {
+                    & $OnComplete -Results @([pscustomobject]@{ Host='H1'; StigId='V-1'; Severity='high'; Status='Open'; Title='T1'; Exception=$null })
+                }
+            }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                $form.Tag['Remediate'].Enabled     | Should -BeTrue
+                $form.Tag['MenuRemediate'].Enabled | Should -BeTrue
+                $script:phase = 'inflight'
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                $form.Tag['Remediate'].Enabled     | Should -BeFalse
+                $form.Tag['MenuRemediate'].Enabled | Should -BeFalse
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'disables Remediate after a hard scan failure' {
+        InModuleScope woscap {
+            Mock Invoke-WoscapGuiScan { & $OnError -Message 'boom' }
+            Mock Show-WoscapGuiMessage { }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                $form.Tag['Remediate'].Enabled | Should -BeFalse
             } finally { $form.Dispose() }
         }
     }

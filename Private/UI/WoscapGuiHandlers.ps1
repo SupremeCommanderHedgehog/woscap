@@ -128,6 +128,7 @@ function Invoke-WoscapGuiRun {
         -JsonPath $jsonPath
 
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $false
+    Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled $false
     $Tag['Status'].Text = 'Scanning...'
 
     # Callbacks are PLAIN scriptblocks (NOT closures). A plain scriptblock keeps the
@@ -148,6 +149,7 @@ function Invoke-WoscapGuiRun {
         Update-WoscapGuiView -Tag $t
         $t['Count'].Text = "$(@($t['Results']).Count) rules"
         Set-WoscapGuiActionEnabled -Tag $t -Action Export -Enabled (@($t['Results']).Count -gt 0)
+        Set-WoscapGuiActionEnabled -Tag $t -Action Remediate -Enabled (@($t['Results']).Count -gt 0)
         $t['Progress'].Style = 'Continuous'; $t['Progress'].Value = 0
         $t['Status'].Text = 'Done.'
         # Clear any tooltip left by a prior partial scan; OnWarning re-sets it if needed.
@@ -177,6 +179,7 @@ function Invoke-WoscapGuiRun {
         Update-WoscapGuiView -Tag $t
         $t['Count'].Text = '0 rules'
         Set-WoscapGuiActionEnabled -Tag $t -Action Export -Enabled $false
+        Set-WoscapGuiActionEnabled -Tag $t -Action Remediate -Enabled $false
         $t['Progress'].Style = 'Continuous'; $t['Progress'].Value = 0
         Set-WoscapGuiStatusTip -Tag $t -Text ''
         $t['Status'].Text = 'Failed.'
@@ -192,6 +195,7 @@ function Invoke-WoscapGuiRun {
         Show-WoscapGuiMessage -Text "Could not start scan: $($_.Exception.Message)"
         $Tag['Status'].Text = 'Failed.'
         $Tag['Progress'].Style = 'Continuous'; $Tag['Progress'].Value = 0
+        Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled (@($Tag['Results']).Count -gt 0)
         Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $true
     }
 }

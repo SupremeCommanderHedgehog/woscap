@@ -156,8 +156,10 @@ function New-WoscapGuiScanTab {
     if ($format.Items.Count -gt 0) { $format.SelectedIndex = 0 }
     $export = & $newButton 'Export...' '110,4' 90
     $export.Enabled = $false
-    $countLabel = & $newLabel '0 rules' '220,8'
-    $exportRow.Controls.AddRange(@($format, $export, $countLabel))
+    $remediate = & $newButton 'Remediate...' '210,4' 100
+    $remediate.Enabled = $false
+    $countLabel = & $newLabel '0 rules' '320,8'
+    $exportRow.Controls.AddRange(@($format, $export, $remediate, $countLabel))
 
     $rows = @($inputs, $toggleRow, $advancedGroup, $progressRow, $filterRow, $grid, $exportRow)
     $layout.RowCount = $rows.Count
@@ -183,6 +185,6 @@ function New-WoscapGuiScanTab {
         ThrottleLimit = $throttle; JsonPath = $jsonPath; JsonBrowse = $jsonBrowse
         Progress = $progress; Status = $status
         FilterSeverity = $filterSeverity; FilterStatus = $filterStatus; Find = $find
-        Grid = $grid; Format = $format; Export = $export; Count = $countLabel
+        Grid = $grid; Format = $format; Export = $export; Remediate = $remediate; Count = $countLabel
     }
 }

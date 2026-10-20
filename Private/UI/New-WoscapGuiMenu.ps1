@@ -1,6 +1,6 @@
 function New-WoscapGuiMenu {
     <#
-        Builds the main MenuStrip. Returns @{ Menu; Run; Export; Exit; Advanced; OpenContent;
+        Builds the main MenuStrip. Returns @{ Menu; Run; Remediate; Export; Exit; Advanced; OpenContent;
         OpenIntegrations; Manual; About } so the form can wire Click handlers. No logic here.
     #>
     [CmdletBinding()]
@@ -21,6 +21,7 @@ function New-WoscapGuiMenu {
     $export   = & $newItem '&Export results...' ($K::Control -bor $K::E)
     $exit     = & $newItem 'E&xit' $null
     $run      = & $newItem '&Run' $K::F5
+    $remediate = & $newItem '&Remediate...' $null
     $advanced = & $newItem '&Advanced options' $null
     $openContent      = & $newItem 'Open &Content tab' $null
     $openIntegrations = & $newItem 'Open &Integrations tab' $null
@@ -32,7 +33,7 @@ function New-WoscapGuiMenu {
     [void]$file.DropDownItems.Add((New-Object System.Windows.Forms.ToolStripSeparator))
     [void]$file.DropDownItems.Add($exit)
     $scan = & $newItem '&Scan' $null
-    [void]$scan.DropDownItems.AddRange([System.Windows.Forms.ToolStripItem[]]@($run, $advanced))
+    [void]$scan.DropDownItems.AddRange([System.Windows.Forms.ToolStripItem[]]@($run, $remediate, $advanced))
     $content = & $newItem '&Content' $null
     [void]$content.DropDownItems.Add($openContent)
     $integrations = & $newItem '&Integrations' $null
@@ -43,7 +44,7 @@ function New-WoscapGuiMenu {
     [void]$menu.Items.AddRange([System.Windows.Forms.ToolStripItem[]]@($file, $scan, $content, $integrations, $help))
 
     @{
-        Menu = $menu; Run = $run; Export = $export; Exit = $exit; Advanced = $advanced
+        Menu = $menu; Run = $run; Remediate = $remediate; Export = $export; Exit = $exit; Advanced = $advanced
         OpenContent = $openContent; OpenIntegrations = $openIntegrations; Manual = $manual; About = $about
     }
 }
