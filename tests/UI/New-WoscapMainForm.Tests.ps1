@@ -387,6 +387,73 @@ Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
         }
     }
 
+    It 'keeps every visible Scan-tab control inside its parent at default and minimum size, Advanced collapsed and expanded' {
+        InModuleScope woscap {
+            $form = New-WoscapMainForm
+            try {
+                $form.Show(); [System.Windows.Forms.Application]::DoEvents()
+                $walk = { param($c) foreach ($child in $c.Controls) { $child; & $walk $child } }
+                $bad = [System.Collections.Generic.List[string]]::new()
+                foreach ($size in $form.Size, $form.MinimumSize) {
+                    foreach ($expanded in $false, $true) {
+                        $form.Size = $size
+                        Set-WoscapGuiAdvanced -Tag $form.Tag -Expanded $expanded
+                        [System.Windows.Forms.Application]::DoEvents()
+                        foreach ($c in @(& $walk $form.Tag['ScanTab'])) {
+                            if (-not $c.Visible) { continue }
+                            $w = $c.Parent.ClientSize.Width
+                            if ($c.Left -lt 0 -or $c.Right -gt $w) {
+                                $bad.Add(('{0} "{1}" L={2} R={3} parentW={4} at {5}x{6} expanded={7}' -f
+                                    $c.GetType().Name, $c.Text, $c.Left, $c.Right, $w, $size.Width, $size.Height, $expanded))
+                            }
+                        }
+                    }
+                }
+                $bad | Should -BeNullOrEmpty -Because 'no Scan-tab control may overflow its parent'
+            } finally { $form.Close(); $form.Dispose() }
+        }
+    }
+
+    It 'keeps right-anchored controls at a constant gap from the right edge when resized' {
+        InModuleScope woscap {
+            $form = New-WoscapMainForm
+            try {
+                $form.Show(); [System.Windows.Forms.Application]::DoEvents()
+                Set-WoscapGuiAdvanced -Tag $form.Tag -Expanded $true
+                [System.Windows.Forms.Application]::DoEvents()
+                $walk = { param($c) foreach ($child in $c.Controls) { $child; & $walk $child } }
+                $A = [System.Windows.Forms.AnchorStyles]
+                $right = @(& $walk $form.Tag['ScanTab'] | Where-Object {
+                    ($_.Anchor -band $A::Right) -and -not ($_.Anchor -band $A::Left)
+                })
+                $right.Count | Should -BeGreaterThan 0
+                $gap = { param($c) $c.Parent.ClientSize.Width - $c.Right }
+                $baseline = @{}
+                foreach ($c in $right) { $baseline[$c] = & $gap $c }
+                foreach ($size in $form.MinimumSize, (New-Object System.Drawing.Size(1200, 800))) {
+                    $form.Size = $size
+                    [System.Windows.Forms.Application]::DoEvents()
+                    foreach ($c in $right) {
+                        & $gap $c | Should -Be $baseline[$c] -Because ('{0} "{1}" gap at {2}x{3}' -f $c.GetType().Name, $c.Text, $size.Width, $size.Height)
+                    }
+                }
+            } finally { $form.Close(); $form.Dispose() }
+        }
+    }
+
+    It 'menu Run is disabled while a scan is in flight' {
+        InModuleScope woscap {
+            Mock Invoke-WoscapGuiScan { }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                $form.Tag['Run'].Enabled     | Should -BeFalse
+                $form.Tag['MenuRun'].Enabled | Should -BeFalse
+            } finally { $form.Dispose() }
+        }
+    }
+
     It 'Profile Add uses the open-file seam and appends the chosen files' {
         InModuleScope woscap {
             Mock Get-WoscapGuiOpenPath { @('C:\p1.psd1', 'C:\p2.psd1') }

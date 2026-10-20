@@ -17,10 +17,14 @@ function New-WoscapGuiScanTab {
     $layout.ColumnCount = 1
     [void]$layout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
 
+    # Child coordinates below are designed for the row width at the form's default size.
+    # Containers must start at that width: anchors capture right-edge gaps when children are added.
+    $designWidth = 876
+
     $newRow = {
         param([int] $Height)
         $p = New-Object System.Windows.Forms.Panel
-        $p.Height = $Height
+        $p.Size = New-Object System.Drawing.Size($designWidth, $Height)
         $p.Anchor = 'Left, Right'
         $p.Margin = New-Object System.Windows.Forms.Padding(0)
         $p
@@ -88,7 +92,8 @@ function New-WoscapGuiScanTab {
     $toggleRow.Controls.Add($advancedToggle)
 
     $advancedGroup = New-Object System.Windows.Forms.GroupBox
-    $advancedGroup.Text = 'Advanced'; $advancedGroup.Height = 110
+    $advancedGroup.Text = 'Advanced'
+    $advancedGroup.Size = New-Object System.Drawing.Size(($designWidth - 6), 110)   # minus its 3px side margins
     $advancedGroup.Anchor = 'Left, Right'; $advancedGroup.Visible = $false
     $contentPath = New-Object System.Windows.Forms.TextBox
     $contentPath.Location = '110,20'; $contentPath.Width = 600; $contentPath.Anchor = 'Top, Left, Right'
