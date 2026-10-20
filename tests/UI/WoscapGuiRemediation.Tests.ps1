@@ -419,6 +419,24 @@ Describe 'Invoke-WoscapGuiRemediate targeting' -Skip:(-not $script:IsSta) {
         }
     }
 
+    It 'does not treat a <Button> mouse press on a row as a deliberate selection' -ForEach @(
+        @{ Button = 'Right' }, @{ Button = 'Middle' }
+    ) {
+        InModuleScope woscap -Parameters @{ Button = $Button } {
+            param($Button)
+            $script:form.Show(); [System.Windows.Forms.Application]::DoEvents()
+            Invoke-WoscapGuiRun -Tag $script:form.Tag
+            [System.Windows.Forms.Application]::DoEvents()
+            $grid = $script:form.Tag['Grid']
+            $click = [System.Windows.Forms.DataGridViewCellMouseEventArgs]::new(0, 1, 1, 1,
+                [System.Windows.Forms.MouseEventArgs]::new([System.Windows.Forms.MouseButtons]$Button, 1, 1, 1, 0))
+            $onCellMouseDown = [System.Windows.Forms.DataGridView].GetMethods([System.Reflection.BindingFlags]'NonPublic, Instance') |
+                Where-Object { $_.Name -eq 'OnCellMouseDown' -and $_.IsFamily } | Select-Object -First 1
+            [void]$onCellMouseDown.Invoke($grid, @($click))
+            $script:form.Tag['GridSelectionDeliberate'] | Should -BeFalse
+        }
+    }
+
     It 'forgets a deliberate selection when a filter rebuilds the grid' {
         InModuleScope woscap {
             Invoke-WoscapGuiRun -Tag $script:form.Tag

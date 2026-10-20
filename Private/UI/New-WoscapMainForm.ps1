@@ -100,7 +100,9 @@ function New-WoscapMainForm {
     $scan.Find.Add_TextChanged({ Update-WoscapGuiView -Tag $script:WoscapGuiTag })
     # $_ is the event args in a WinForms scriptblock handler.
     $scan.Grid.Add_CellMouseDown({
-        if ($_.RowIndex -ge 0) { $script:WoscapGuiTag['GridSelectionDeliberate'] = $true }
+        if ($_.RowIndex -ge 0 -and $_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+            $script:WoscapGuiTag['GridSelectionDeliberate'] = $true
+        }
     })
     $scan.Grid.Add_KeyDown({
         if (Test-WoscapGuiSelectionKey -KeyEvent $_) { $script:WoscapGuiTag['GridSelectionDeliberate'] = $true }
