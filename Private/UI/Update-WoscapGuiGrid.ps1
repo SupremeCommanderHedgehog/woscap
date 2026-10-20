@@ -21,6 +21,7 @@ function Update-WoscapGuiGrid {
         foreach ($r in $Rows) {
             $exc = if ($r.Exception -and $r.Exception.PSObject.Properties['Type']) { [string]$r.Exception.Type } else { '' }
             $idx = $Grid.Rows.Add($r.Host, $r.StigId, $r.Severity, $r.Status, $r.Title, $exc)
+            $Grid.Rows[$idx].Tag = $r   # lets a row selection map back to its result object
             # Color the whole row by status so Open findings stand out. Unknown/blank
             # statuses return $null -> row keeps the grid's default colors.
             $status = [string]$r.Status

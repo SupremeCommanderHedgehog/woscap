@@ -355,9 +355,31 @@ gray, Not_Reviewed = amber) so findings stand out at a glance, and the grid
 **partial scan** (e.g. one unreachable host among several) still shows the
 results that came back and reports `Done (N warnings)` with the detail on hover
 — only a scan that returns nothing raises a `Scan failed` dialog. The **Content**
-and **Integrations** tabs are placeholders until #17 / #18 land; remediation
-arrives with #16. Help > About shows the module version; Help > Open manual opens
+and **Integrations** tabs are placeholders until #17 / #18 land. Help > About shows the module version; Help > Open manual opens
 this file.
+
+**Remediate…** (Scan tab, or Scan > Remediate…) fixes Open findings on **this
+computer** via `Invoke-WoscapRemediation`. It uses the grid rows you selected
+(by left-click or keyboard), or, if you have not selected any since the last scan or
+filter change, every row the filters currently show. It skips rows from other
+hosts, rows that are not Open, and rows with an `Override` exception (remediation
+would write the benchmark value, not the override's), and says how many it
+skipped. It uses the benchmark and content path of the
+scan that produced the results, not whatever the Scan tab says now. It first
+previews with `-WhatIf`; if the preview fails, you get an error and no
+confirmation. Otherwise it shows a confirmation list (with any preview warnings
+in its header) where each automatic fix can be unticked; the header count follows
+your ticks (a merged audit-policy fix lists every
+STIG ID it covers; manual items are greyed and never applied). **Apply** is never
+the default button, and it is disabled unless woscap runs as administrator. Only
+the ticked fixes are applied; a report then shows each fix's State and After
+status (plus the preview's manual items, and unticked fixes as `Skipped` /
+`Not selected`) and offers **Re-scan**, which scans with the same benchmark and
+content path. Once a fix is applied, Remediate stays disabled until a scan
+completes. If you close the report without re-scanning, the status line notes that the grid predates the fixes.
+Warnings from the preview or the apply appear on the status line, with the
+detail on hover. Audit-policy fixes only enable the required directions
+(`Enable audit '<subcategory>': success and failure`); they never disable one.
 
 The GUI holds **no** evaluation, exception, or export logic of its own — every
 action calls the corresponding cmdlet, so it can never diverge from the CLI.
@@ -386,6 +408,12 @@ opt-in and confirmation-gated; the scan/audit path stays strictly read-only.
 parity with the Ansible playbook emitter). Every other check type — UserRight,
 Service, SecEdit, ScriptBlock, or a missing/incomplete descriptor — is reported
 `State='Manual'` and never written.
+
+**Audit policy only ever enables:** an AuditPolicy fix runs
+`auditpol /set /subcategory:<name>` with `/success:enable` and/or
+`/failure:enable` for the directions the Open rules require. It never passes
+`disable`, so a direction that is already audited is left on. (The Ansible
+playbook emitter still sets absolute state; see #21.)
 
 **Gating:** the cmdlet declares `SupportsShouldProcess` with `ConfirmImpact='High'`,
 so it prompts before each write by default.
@@ -418,7 +446,9 @@ $fixes = Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.x
 $fixes | Format-Table StigId, State, Before, After, Detail
 ```
 
-Each result is a `RemediationResult`: `Host`, `StigId`, `Title`, `CheckType`,
+Each result is a `RemediationResult`: `Host`, `StigId`, `StigIds` (every
+finding the action covers; a merged audit-policy action lists all of its rules),
+`Title`, `CheckType`,
 `Action`, `State` (`Planned` / `Applied` / `Failed` / `Skipped` / `Manual`),
 `Before`, `After`, `Detail`.
 

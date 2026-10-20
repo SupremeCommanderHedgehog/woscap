@@ -21,6 +21,8 @@ Describe 'GUI shell helpers' -Skip:(-not $script:IsSta) {
             MenuRun = New-Object System.Windows.Forms.ToolStripMenuItem
             Export = New-Object System.Windows.Forms.Button
             MenuExport = New-Object System.Windows.Forms.ToolStripMenuItem
+            Remediate = New-Object System.Windows.Forms.Button
+            MenuRemediate = New-Object System.Windows.Forms.ToolStripMenuItem
             AdvancedToggle = New-Object System.Windows.Forms.Button
             AdvancedGroup = New-Object System.Windows.Forms.GroupBox
             AdvancedExpanded = $false
@@ -40,6 +42,14 @@ Describe 'GUI shell helpers' -Skip:(-not $script:IsSta) {
             Set-WoscapGuiActionEnabled -Tag $Tag -Action Export -Enabled $true
             $Tag['Export'].Enabled     | Should -BeTrue
             $Tag['MenuExport'].Enabled | Should -BeTrue
+        }
+    }
+    It 'mirrors Remediate onto its menu item' {
+        InModuleScope woscap -Parameters @{ Tag = $script:tag } {
+            param($Tag)
+            Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled $true
+            $Tag['Remediate'].Enabled     | Should -BeTrue
+            $Tag['MenuRemediate'].Enabled | Should -BeTrue
         }
     }
     It 'expands and collapses the Advanced group' {

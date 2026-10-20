@@ -1,7 +1,7 @@
 # Maps every public cmdlet parameter to the main-form Tag key that drives it (Control), or
 # states why the GUI does not expose it (CliOnly). Enforced by tests/UI/WoscapGuiParity.Tests.ps1.
-# Common parameters (incl. WhatIf/Confirm) are excluded; #16/#17 add explicit entries for
-# their GUI confirmation equivalents.
+# Common parameters (incl. WhatIf/Confirm) are excluded; remediation's confirmation is the
+# Remediate flow (Force -> Remediate); #17 adds entries for its own confirmations.
 @{
     'Invoke-WoscapScan' = @{
         XccdfPath     = @{ Control = 'Xccdf' }
@@ -20,11 +20,11 @@
         Path   = @{ CliOnly = 'Chosen per export in a save dialog' }
     }
     'Invoke-WoscapRemediation' = @{
-        Result      = @{ CliOnly = 'Pending #16' }
-        Benchmark   = @{ CliOnly = 'Pending #16' }
-        ContentPath = @{ CliOnly = 'Pending #16' }
-        Force       = @{ CliOnly = 'Pending #16' }
-        Quiet       = @{ CliOnly = 'Pending #16' }
+        Result      = @{ Control = 'Grid' }
+        Benchmark   = @{ Control = 'Benchmark' }
+        ContentPath = @{ Control = 'ContentPath' }
+        Force       = @{ Control = 'Remediate' }
+        Quiet       = @{ CliOnly = 'GUI always passes -Quiet; the report dialog replaces the console summary' }
     }
     'Get-WoscapBenchmark' = @{
         Benchmark   = @{ CliOnly = 'Pending #17' }

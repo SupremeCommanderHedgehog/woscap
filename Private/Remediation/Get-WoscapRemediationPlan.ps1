@@ -8,16 +8,17 @@ function Get-WoscapRemediationPlan {
     $newManual = {
         param($StigId, $Title, $CheckType, $Reason)
         [pscustomobject]@{
-            StigId = $StigId; Title = $Title; Type = 'Manual'; CheckType = $CheckType
+            StigId = $StigId; StigIds = @($StigId); Title = $Title; Type = 'Manual'; CheckType = $CheckType
             Automatable = $false; Registry = $null; Audit = $null; ManualReason = $Reason
         }
     }
 
     # First pass: union of required audit directions per subcategory across ALL open
-    # AuditPolicy rules. auditpol / win_audit_policy_system set ABSOLUTE per-subcategory
-    # state, so a Success-only rule must not turn Failure auditing off, and paired
-    # Success/Failure rules for one subcategory must combine into a single action.
+    # AuditPolicy rules. win_audit_policy_system (Ansible) sets ABSOLUTE per-subcategory
+    # state, so paired Success/Failure rules for one subcategory must combine into a
+    # single action. The local auditpol write only ever enables (Invoke-AuditPolSet).
     $auditDirections = @{}   # subcategory -> HashSet of 'success'/'failure'
+    $auditStigIds    = @{}   # subcategory -> List of StigIds the merged action covers
     foreach ($rule in $FailedRule) {
         $stig = [string](Get-WoscapObjectProperty $rule 'StigId' '')
         $desc = if ($ContentPack.ContainsKey($stig)) { $ContentPack[$stig] } else { $null }
@@ -26,8 +27,10 @@ function Get-WoscapRemediationPlan {
             $sub = [string]$desc.Subcategory
             if (-not $auditDirections.ContainsKey($sub)) {
                 $auditDirections[$sub] = [System.Collections.Generic.HashSet[string]]::new()
+                $auditStigIds[$sub]    = [System.Collections.Generic.List[string]]::new()
             }
             [void]$auditDirections[$sub].Add(([string]$desc.Expected).ToLowerInvariant())
+            $auditStigIds[$sub].Add($stig)
         }
     }
 
@@ -48,7 +51,7 @@ function Get-WoscapRemediationPlan {
                 }
                 $kind = if ($desc.Expected -is [int] -or $desc.Expected -is [long] -or $desc.Expected -is [uint32]) { 'dword' } else { 'string' }
                 $actions.Add([pscustomobject]@{
-                    StigId = $stig; Title = $title; Type = 'Registry'; CheckType = 'Registry'
+                    StigId = $stig; StigIds = @($stig); Title = $title; Type = 'Registry'; CheckType = 'Registry'
                     Automatable = $true
                     Registry = @{ Path = [string]$desc.Path; Name = [string]$desc.Name; Data = $desc.Expected; Kind = $kind }
                     Audit = $null; ManualReason = $null
@@ -67,7 +70,7 @@ function Get-WoscapRemediationPlan {
                 if ($dirsSet.Contains('success')) { $directions += 'success' }
                 if ($dirsSet.Contains('failure')) { $directions += 'failure' }
                 $actions.Add([pscustomobject]@{
-                    StigId = $stig; Title = $title; Type = 'AuditPolicy'; CheckType = 'AuditPolicy'
+                    StigId = $stig; StigIds = @($auditStigIds[$sub]); Title = $title; Type = 'AuditPolicy'; CheckType = 'AuditPolicy'
                     Automatable = $true
                     Registry = $null
                     Audit = @{ Subcategory = $sub; Directions = $directions }

@@ -44,17 +44,24 @@ function New-WoscapMainForm {
     $form.MainMenuStrip = $menu.Menu
 
     $tag = @{
-        Menu = $menu.Menu; MenuRun = $menu.Run; MenuExport = $menu.Export
+        Menu = $menu.Menu; MenuRun = $menu.Run; MenuExport = $menu.Export; MenuRemediate = $menu.Remediate
         Tabs = $tabs; ScanTab = $scan.TabPage; ContentTab = $contentTab; IntegrationsTab = $integrationsTab
         # Non-modal channel for partial-scan warning detail (see the OnWarning handler).
         StatusTip = New-Object System.Windows.Forms.ToolTip
         AdvancedExpanded = $false
         Results = [System.Collections.Generic.List[object]]::new()
+        # Benchmark/ContentPath of the scan that produced Results; $null until one completes.
+        ResultsContext = $null
+        # True once a remediation applied a fix: Results' statuses are stale until the next scan.
+        ResultsStale = $false
+        # WinForms auto-selects a row on a shown grid; only a click or key press counts.
+        GridSelectionDeliberate = $false
     }
     foreach ($key in $scan.Keys) { if ($key -ne 'TabPage') { $tag[$key] = $scan[$key] } }
     $form.Tag = $tag
 
     Set-WoscapGuiActionEnabled -Tag $tag -Action Export -Enabled $false
+    Set-WoscapGuiActionEnabled -Tag $tag -Action Remediate -Enabled $false
     Update-WoscapGuiProfileButton -Tag $tag
     Update-WoscapGuiContentHint -Tag $tag
 
@@ -93,12 +100,23 @@ function New-WoscapMainForm {
     $scan.FilterSeverity.Add_SelectedIndexChanged({ Update-WoscapGuiView -Tag $script:WoscapGuiTag })
     $scan.FilterStatus.Add_SelectedIndexChanged({ Update-WoscapGuiView -Tag $script:WoscapGuiTag })
     $scan.Find.Add_TextChanged({ Update-WoscapGuiView -Tag $script:WoscapGuiTag })
+    # $_ is the event args in a WinForms scriptblock handler.
+    $scan.Grid.Add_CellMouseDown({
+        if ($_.RowIndex -ge 0 -and $_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+            $script:WoscapGuiTag['GridSelectionDeliberate'] = $true
+        }
+    })
+    $scan.Grid.Add_KeyDown({
+        if (Test-WoscapGuiSelectionKey -KeyEvent $_) { $script:WoscapGuiTag['GridSelectionDeliberate'] = $true }
+    })
 
     $scan.Run.Add_Click({ Invoke-WoscapGuiRun -Tag $script:WoscapGuiTag })
     $scan.Export.Add_Click({ Invoke-WoscapGuiExport -Tag $script:WoscapGuiTag })
+    $scan.Remediate.Add_Click({ Invoke-WoscapGuiRemediate -Tag $script:WoscapGuiTag })
 
     $menu.Run.Add_Click({ Invoke-WoscapGuiRun -Tag $script:WoscapGuiTag })
     $menu.Export.Add_Click({ Invoke-WoscapGuiExport -Tag $script:WoscapGuiTag })
+    $menu.Remediate.Add_Click({ Invoke-WoscapGuiRemediate -Tag $script:WoscapGuiTag })
     $menu.Exit.Add_Click({ $script:WoscapGuiTag['Tabs'].FindForm().Close() })
     $menu.Advanced.Add_Click({ Show-WoscapGuiAdvancedOption -Tag $script:WoscapGuiTag })
     $menu.OpenContent.Add_Click({ $t = $script:WoscapGuiTag; $t['Tabs'].SelectedTab = $t['ContentTab'] })

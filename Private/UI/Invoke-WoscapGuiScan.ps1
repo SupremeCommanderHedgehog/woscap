@@ -1,6 +1,6 @@
 function Invoke-WoscapGuiScan {
     <#
-        Runs Invoke-WoscapScan in a background runspace so the WinForms UI stays
+        Runs Invoke-WoscapScan (or, with -Command, Invoke-WoscapRemediation) in a background runspace so the WinForms UI stays
         responsive. A WinForms Timer polls the runspace's Progress stream and
         completion state, firing the supplied callbacks ON THE UI THREAD (the Timer
         ticks there). Non-blocking: returns immediately after starting the timer.
@@ -10,6 +10,8 @@ function Invoke-WoscapGuiScan {
           OnComplete  & $OnComplete -Results <object[]>
           OnWarning   & $OnWarning -Message <string> -Count <int>
           OnError     & $OnError -Message <string>
+          OnSettled   & $OnSettled -Results <object[]> -Outcome <Resolve-WoscapGuiCompletion result>
+                      Fires once, after every other callback, so a caller can act on the full outcome.
 
         Completion is classified by Resolve-WoscapGuiCompletion: OnComplete always fires
         first (results are always delivered). Then, if the scan ALSO reported errors, the
@@ -19,11 +21,14 @@ function Invoke-WoscapGuiScan {
     #>
     [CmdletBinding()]
     param(
+        [ValidateSet('Invoke-WoscapScan', 'Invoke-WoscapRemediation')]
+        [string] $Command = 'Invoke-WoscapScan',
         [Parameter(Mandatory)] [hashtable] $ScanParameters,
         [scriptblock] $OnProgress,
         [scriptblock] $OnComplete,
         [scriptblock] $OnWarning,
         [scriptblock] $OnError,
+        [scriptblock] $OnSettled,
         [int] $PollIntervalMs = 150
     )
     $manifest = Join-Path $script:WoscapModuleRoot 'woscap.psd1'
@@ -33,8 +38,9 @@ function Invoke-WoscapGuiScan {
         # Fresh runspace: no -Force needed (nothing is loaded yet). No -Quiet either --
         # the Write-Host summary lands harmlessly in this runspace's Information stream,
         # while the engine's Write-Progress must reach $ps.Streams.Progress for the bar.
-        [void]$ps.AddScript('param($mf, $sp) Import-Module $mf; Invoke-WoscapScan @sp')
+        [void]$ps.AddScript('param($mf, $cmd, $sp) Import-Module $mf; & $cmd @sp')
         [void]$ps.AddArgument($manifest)
+        [void]$ps.AddArgument($Command)
         [void]$ps.AddArgument($ScanParameters)
         $async = $ps.BeginInvoke()
     } catch {
@@ -72,6 +78,7 @@ function Invoke-WoscapGuiScan {
 
             if ($async.IsCompleted) {
                 $timer.Stop()
+                $settled = $null
                 try {
                     $results = @($ps.EndInvoke($async))
                     # Deliver results first so the grid populates, THEN classify the outcome:
@@ -83,6 +90,7 @@ function Invoke-WoscapGuiScan {
                         'Warning' { if ($OnWarning) { & $OnWarning -Message $outcome.Message -Count $outcome.Count } }
                         'Error'   { if ($OnError)   { & $OnError -Message $outcome.Message } }
                     }
+                    $settled = @{ Results = $results; Outcome = $outcome }
                 } catch {
                     # Terminating error: join any accumulated per-host/per-rule detail so the
                     # root cause is not lost behind the final exception message.
@@ -90,10 +98,13 @@ function Invoke-WoscapGuiScan {
                         -ErrorRecords @($ps.Streams.Error) -WarningRecords @($ps.Streams.Warning) `
                         -TerminatingError $_.Exception.Message
                     if ($OnError) { & $OnError -Message $outcome.Message }
+                    $settled = @{ Results = @(); Outcome = $outcome }
                 } finally {
                     $ps.Dispose()
                     $timer.Dispose()
                 }
+                # Outside the try: a throwing OnSettled must not re-enter the terminating path.
+                if ($OnSettled -and $settled) { & $OnSettled -Results $settled.Results -Outcome $settled.Outcome }
             }
         } catch {
             # Contain unexpected tick errors (e.g. a throwing OnProgress) so they do not
