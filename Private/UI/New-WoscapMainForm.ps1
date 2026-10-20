@@ -52,6 +52,8 @@ function New-WoscapMainForm {
         Results = [System.Collections.Generic.List[object]]::new()
         # Benchmark/ContentPath of the scan that produced Results; $null until one completes.
         ResultsContext = $null
+        # True once a remediation applied a fix: Results' statuses are stale until the next scan.
+        ResultsStale = $false
         # WinForms auto-selects a row on a shown grid; only a click or key press counts.
         GridSelectionDeliberate = $false
     }

@@ -152,6 +152,7 @@ function Invoke-WoscapGuiRun {
         $t['Results'].Clear()
         foreach ($r in @($Results)) { $t['Results'].Add($r) }
         $t['ResultsContext'] = $t['PendingScanContext']
+        $t['ResultsStale'] = $false
         Update-WoscapGuiView -Tag $t
         $t['Count'].Text = "$(@($t['Results']).Count) rules"
         Set-WoscapGuiActionEnabled -Tag $t -Action Export -Enabled (@($t['Results']).Count -gt 0)
@@ -202,7 +203,7 @@ function Invoke-WoscapGuiRun {
         Show-WoscapGuiMessage -Text "Could not start scan: $($_.Exception.Message)"
         $Tag['Status'].Text = 'Failed.'
         $Tag['Progress'].Style = 'Continuous'; $Tag['Progress'].Value = 0
-        Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled (@($Tag['Results']).Count -gt 0)
+        Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled (@($Tag['Results']).Count -gt 0 -and -not $Tag['ResultsStale'])
         Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $true
         return $false
     }

@@ -97,7 +97,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             Should -Invoke Show-WoscapGuiRemediationDialog -Times 1 -Exactly -ParameterFilter { $Elevated -eq $true }
             Should -Invoke Show-WoscapGuiRemediationReport -Times 1 -Exactly
             $script:form.Tag['Run'].Enabled       | Should -BeTrue
-            $script:form.Tag['Remediate'].Enabled | Should -BeTrue
+            $script:form.Tag['Remediate'].Enabled | Should -BeFalse -Because 'the grid predates the applied fix'
         }
     }
 
@@ -228,7 +228,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             $script:shown[0] | Should -Match 'already applied'
             $script:shown[0] | Should -Match 'report broke'
             $script:form.Tag['Run'].Enabled       | Should -BeTrue
-            $script:form.Tag['Remediate'].Enabled | Should -BeTrue
+            $script:form.Tag['Remediate'].Enabled | Should -BeFalse -Because 'the grid predates the applied fix'
         }
     }
 
@@ -630,6 +630,50 @@ Describe 'Invoke-WoscapGuiRemediate outcomes' -Skip:(-not $script:IsSta) {
             $tip = $script:form.Tag['StatusTip'].GetToolTip($script:form.Tag['Status'])
             $tip | Should -Match 'preview-w'
             $tip | Should -Match 'apply-w'
+        }
+    }
+
+    It 're-scans with the Benchmark and ContentPath the remediated results came from' {
+        InModuleScope woscap {
+            $script:form.Tag['ResultsContext'] = @{ Benchmark = 'Edge'; ContentPath = $TestDrive }
+            Mock Show-WoscapGuiRemediationDialog {
+                $script:form.Tag['Benchmark'].SelectedItem = 'Windows11'
+                $script:form.Tag['ContentPath'].Text = ''
+                @('R-1')
+            }
+            Mock Show-WoscapGuiRemediationReport { 'Rescan' }
+            $script:rescanWith = $null
+            Mock Invoke-WoscapGuiRun { $script:rescanWith = @{ B = [string]$Tag['Benchmark'].SelectedItem; C = [string]$Tag['ContentPath'].Text }; $true }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:rescanWith.B | Should -Be 'Edge'
+            $script:rescanWith.C | Should -Be $TestDrive
+        }
+    }
+
+    It 'keeps Remediate disabled after a fix was applied, until a new scan completes' {
+        InModuleScope woscap {
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:form.Tag['Run'].Enabled           | Should -BeTrue
+            $script:form.Tag['Remediate'].Enabled     | Should -BeFalse
+            $script:form.Tag['MenuRemediate'].Enabled | Should -BeFalse
+            $script:form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+            Mock Invoke-WoscapGuiScan { throw 'no runspace' } -ParameterFilter { $Command -ne 'Invoke-WoscapRemediation' }
+            Invoke-WoscapGuiRun -Tag $script:form.Tag
+            $script:form.Tag['Remediate'].Enabled | Should -BeFalse -Because 'a scan that never started leaves the grid stale'
+            Mock Invoke-WoscapGuiScan {
+                & $OnComplete -Results @([pscustomobject]@{ Host = $env:COMPUTERNAME; StigId = 'R-1'; Severity = 'high'; Status = 'NotAFinding'; Title = 'r1'; Exception = $null })
+            } -ParameterFilter { $Command -ne 'Invoke-WoscapRemediation' }
+            Invoke-WoscapGuiRun -Tag $script:form.Tag
+            $script:form.Tag['Remediate'].Enabled     | Should -BeTrue
+            $script:form.Tag['MenuRemediate'].Enabled | Should -BeTrue
+        }
+    }
+
+    It 're-enables Remediate when no fix reached State Applied' {
+        InModuleScope woscap {
+            $script:applyResults = $script:failed
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:form.Tag['Remediate'].Enabled | Should -BeTrue
         }
     }
 

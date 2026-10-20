@@ -3,7 +3,7 @@ function Set-WoscapGuiRemediationBusy {
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable] $Tag, [Parameter(Mandatory)][bool] $Busy, [string] $Status = '')
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled (-not $Busy)
-    Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled ((-not $Busy) -and @($Tag['Results']).Count -gt 0)
+    Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled ((-not $Busy) -and @($Tag['Results']).Count -gt 0 -and -not $Tag['ResultsStale'])
     $Tag['Progress'].Style = if ($Busy) { 'Marquee' } else { 'Continuous' }
     if ($Status) { $Tag['Status'].Text = $Status }
 }
@@ -67,6 +67,7 @@ function Invoke-WoscapGuiRemediate {
     $base = @{ Benchmark = [string]$context.Benchmark; Quiet = $true }
     if ($context.ContentPath) { $base['ContentPath'] = [string]$context.ContentPath }
     $Tag['RemediationBase'] = $base
+    $Tag['RemediationContext'] = $context
     $Tag['RemediationTarget'] = $target
     $Tag['RemediationPreview'] = @()
     $Tag['RemediationPreviewWarning'] = $null
@@ -158,10 +159,16 @@ function Start-WoscapGuiRemediationApply {
         $t = $script:WoscapGuiTag
         $t['RemediationApplied'] = @($Results | Where-Object {
             [string](Get-WoscapObjectProperty $_ 'State' '') -eq 'Applied' }).Count -gt 0
+        # The grid's Open statuses predate the fix; only a completed scan clears this.
+        if ($t['RemediationApplied']) { $t['ResultsStale'] = $true }
         Set-WoscapGuiRemediationBusy -Tag $t -Busy $false
         Set-WoscapGuiRemediationStatus -Tag $t -Text 'Remediation done.'
         $report = @(Get-WoscapGuiRemediationReportRow -Applied @($Results) -Preview @($t['RemediationPreview']))
         if ((Show-WoscapGuiRemediationReport -Result $report) -eq 'Rescan') {
+            # Re-scan what was remediated, whatever the Scan tab was changed to meanwhile.
+            $ctx = $t['RemediationContext']
+            $t['Benchmark'].SelectedItem = [string]$ctx.Benchmark
+            $t['ContentPath'].Text = [string]$ctx.ContentPath
             # Only a scan that actually started owns the UI; otherwise late outcomes still apply here.
             $t['RemediationRescan'] = [bool](Invoke-WoscapGuiRun -Tag $t)
         }
