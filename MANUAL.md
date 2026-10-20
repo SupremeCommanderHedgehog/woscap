@@ -360,19 +360,26 @@ this file.
 
 **Remediate…** (Scan tab, or Scan > Remediate…) fixes Open findings on **this
 computer** via `Invoke-WoscapRemediation`. It uses the grid rows you selected
-(by click or keyboard), or, if you have not selected any since the last scan or
+(by left-click or keyboard), or, if you have not selected any since the last scan or
 filter change, every row the filters currently show. It skips rows from other
-hosts or rows that are not Open, and uses the benchmark and content path of the
+hosts, rows that are not Open, and rows with an `Override` exception (remediation
+would write the benchmark value, not the override's), and says how many it
+skipped. It uses the benchmark and content path of the
 scan that produced the results, not whatever the Scan tab says now. It first
-previews with `-WhatIf`, then shows a confirmation list
-where each automatic fix can be unticked (a merged audit-policy fix lists every
+previews with `-WhatIf`; if the preview fails, you get an error and no
+confirmation. Otherwise it shows a confirmation list (with any preview warnings
+in its header) where each automatic fix can be unticked; the header count follows
+your ticks (a merged audit-policy fix lists every
 STIG ID it covers; manual items are greyed and never applied). **Apply** is never
 the default button, and it is disabled unless woscap runs as administrator. Only
 the ticked fixes are applied; a report then shows each fix's State and After
-status (plus the preview's manual items) and offers **Re-scan**. If you close it
-without re-scanning, the status line notes that the grid predates the fixes.
+status (plus the preview's manual items, and unticked fixes as `Skipped` /
+`Not selected`) and offers **Re-scan**, which scans with the same benchmark and
+content path. Once a fix is applied, Remediate stays disabled until a scan
+completes. If you close the report without re-scanning, the status line notes that the grid predates the fixes.
 Warnings from the preview or the apply appear on the status line, with the
-detail on hover.
+detail on hover. Audit-policy fixes only enable the required directions
+(`Enable audit '<subcategory>': success and failure`); they never disable one.
 
 The GUI holds **no** evaluation, exception, or export logic of its own — every
 action calls the corresponding cmdlet, so it can never diverge from the CLI.
