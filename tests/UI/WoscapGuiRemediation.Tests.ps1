@@ -24,6 +24,11 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             $script:form = New-WoscapMainForm
             foreach ($r in $script:local1, $script:local2, $script:clean, $script:remote) { $script:form.Tag['Results'].Add($r) }
             $script:form.Tag['Benchmark'].SelectedItem = 'Windows11'
+            # Stand-in for a completed scan: its context, and the rows as the grid shows them.
+            $script:form.Tag['ResultsContext'] = @{ Benchmark = 'Windows11'; ContentPath = '' }
+            Update-WoscapGuiView -Tag $script:form.Tag
+            # Never let an unexpected path pop a real MessageBox; tests that inspect it re-mock.
+            Mock Show-WoscapGuiMessage { }
         }
     }
     AfterEach { InModuleScope woscap { $script:form.Dispose() } }
@@ -42,11 +47,11 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
         }
     }
 
-    It 'passes the Scan tab content path when set' {
+    It 'passes the scanned content path when set' {
         InModuleScope woscap {
             Mock Get-WoscapGuiSelectedResult { @() }
             Mock Invoke-WoscapGuiScan { $script:previewParams = $ScanParameters } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
-            $script:form.Tag['ContentPath'].Text = 'D:\pack'
+            $script:form.Tag['ResultsContext'] = @{ Benchmark = 'Windows11'; ContentPath = 'D:\pack' }
             Invoke-WoscapGuiRemediate -Tag $script:form.Tag
             $script:previewParams['ContentPath'] | Should -Be 'D:\pack'
         }
@@ -55,6 +60,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
     It 'uses the grid selection when there is one' {
         InModuleScope woscap {
             Mock Get-WoscapGuiSelectedResult { @($script:local2) }
+            $script:form.Tag['GridSelectionDeliberate'] = $true
             Mock Invoke-WoscapGuiScan { $script:previewParams = $ScanParameters } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
             Invoke-WoscapGuiRemediate -Tag $script:form.Tag
             @($script:previewParams['Result'] | ForEach-Object StigId) | Should -Be @('R-2')
@@ -115,6 +121,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
     It 'shows a message and starts nothing when no local Open finding qualifies' {
         InModuleScope woscap {
             Mock Get-WoscapGuiSelectedResult { @($script:remote, $script:clean) }
+            $script:form.Tag['GridSelectionDeliberate'] = $true
             Mock Invoke-WoscapGuiScan { }
             $script:shown = @()
             Mock Show-WoscapGuiMessage { $script:shown += $Text }
@@ -305,6 +312,107 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             Invoke-WoscapGuiRemediate -Tag $script:form.Tag
             Should -Invoke Show-WoscapGuiMessage -Times 1 -Exactly
             $script:form.Tag['Run'].Enabled | Should -BeTrue
+        }
+    }
+}
+
+Describe 'Invoke-WoscapGuiRemediate targeting' -Skip:(-not $script:IsSta) {
+    BeforeEach {
+        InModuleScope woscap {
+            $me = $env:COMPUTERNAME
+            $script:scanRows = @(
+                [pscustomobject]@{ Host = $me;    StigId = 'R-1'; Severity = 'high';   Status = 'Open';        Title = 'r1'; Exception = $null }
+                [pscustomobject]@{ Host = $me;    StigId = 'R-2'; Severity = 'medium'; Status = 'Open';        Title = 'r2'; Exception = $null }
+                [pscustomobject]@{ Host = $me;    StigId = 'R-3'; Severity = 'low';    Status = 'NotAFinding'; Title = 'r3'; Exception = $null }
+                [pscustomobject]@{ Host = 'SRV9'; StigId = 'R-4'; Severity = 'high';   Status = 'Open';        Title = 'r4'; Exception = $null }
+            )
+            $script:previewParams = $null
+            # One runner stand-in: a scan delivers scanRows; a remediation preview is captured, never run.
+            Mock Invoke-WoscapGuiScan {
+                if ($Command -eq 'Invoke-WoscapRemediation') { $script:previewParams = $ScanParameters }
+                else { & $OnComplete -Results $script:scanRows }
+            }
+            Mock Show-WoscapGuiMessage { }
+            $script:form = New-WoscapMainForm
+            $script:form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+        }
+    }
+    AfterEach { InModuleScope woscap { $script:form.Close(); $script:form.Dispose() } }
+
+    It 'targets every visible local Open row on a shown, freshly scanned grid with no user selection' {
+        InModuleScope woscap {
+            $script:form.Show(); [System.Windows.Forms.Application]::DoEvents()
+            Invoke-WoscapGuiRun -Tag $script:form.Tag
+            [System.Windows.Forms.Application]::DoEvents()
+            $script:form.Tag['Grid'].SelectedRows.Count | Should -BeGreaterThan 0 -Because 'WinForms auto-selects a row on a shown grid'
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            @($script:previewParams['Result'] | ForEach-Object StigId) | Should -Be @('R-1', 'R-2')
+        }
+    }
+
+    It 'uses a selection the operator made with the keyboard' {
+        InModuleScope woscap {
+            $script:form.Show(); [System.Windows.Forms.Application]::DoEvents()
+            Invoke-WoscapGuiRun -Tag $script:form.Tag
+            [System.Windows.Forms.Application]::DoEvents()
+            $grid = $script:form.Tag['Grid']
+            $grid.CurrentCell = $grid.Rows[0].Cells[0]
+            $onKeyDown = [System.Windows.Forms.DataGridView].GetMethod('OnKeyDown', [System.Reflection.BindingFlags]'NonPublic, Instance')
+            [void]$onKeyDown.Invoke($grid, @([System.Windows.Forms.KeyEventArgs]::new([System.Windows.Forms.Keys]::Down)))
+            [System.Windows.Forms.Application]::DoEvents()
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            @($script:previewParams['Result'] | ForEach-Object StigId) | Should -Be @('R-2')
+        }
+    }
+
+    It 'forgets a deliberate selection when a filter rebuilds the grid' {
+        InModuleScope woscap {
+            Invoke-WoscapGuiRun -Tag $script:form.Tag
+            $script:form.Tag['GridSelectionDeliberate'] = $true
+            $script:form.Tag['FilterStatus'].SelectedItem = 'Open'
+            $script:form.Tag['GridSelectionDeliberate'] | Should -BeFalse
+        }
+    }
+
+    It 'targets only the rows the filters leave visible' {
+        InModuleScope woscap {
+            Invoke-WoscapGuiRun -Tag $script:form.Tag
+            $script:form.Tag['FilterSeverity'].SelectedItem = 'high'
+            $script:form.Tag['Grid'].Rows.Count | Should -Be 2 -Because 'R-1 and R-4 are high'
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            @($script:previewParams['Result'] | ForEach-Object StigId) | Should -Be @('R-1')
+        }
+    }
+
+    It 'uses the Benchmark and ContentPath of the scan that produced the results, not the controls at click time' {
+        InModuleScope woscap {
+            $script:form.Tag['Benchmark'].SelectedItem = 'Edge'
+            $script:form.Tag['ContentPath'].Text = $TestDrive
+            Invoke-WoscapGuiRun -Tag $script:form.Tag
+            $script:form.Tag['Benchmark'].SelectedItem = 'Windows11'
+            $script:form.Tag['ContentPath'].Text = ''
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:previewParams['Benchmark']   | Should -Be 'Edge'
+            $script:previewParams['ContentPath'] | Should -Be $TestDrive
+        }
+    }
+
+    It 'starts nothing when no scan produced the displayed results' {
+        InModuleScope woscap {
+            foreach ($r in $script:scanRows) { $script:form.Tag['Results'].Add($r) }
+            Update-WoscapGuiView -Tag $script:form.Tag
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            Should -Invoke Invoke-WoscapGuiScan -Times 0 -Exactly -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
+            Should -Invoke Show-WoscapGuiMessage -Times 1 -Exactly
+        }
+    }
+
+    It 'forgets the scan context when a scan fails' {
+        InModuleScope woscap {
+            Invoke-WoscapGuiRun -Tag $script:form.Tag
+            Mock Invoke-WoscapGuiScan { & $OnError -Message 'boom' } -ParameterFilter { $Command -ne 'Invoke-WoscapRemediation' }
+            Invoke-WoscapGuiRun -Tag $script:form.Tag
+            $script:form.Tag['ResultsContext'] | Should -BeNullOrEmpty
         }
     }
 }

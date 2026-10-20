@@ -69,6 +69,8 @@ function Update-WoscapGuiView {
         -Status   ([string]$Tag['FilterStatus'].SelectedItem) `
         -Find     ([string]$Tag['Find'].Text)
     Update-WoscapGuiGrid -Grid $Tag['Grid'] -Rows @($filtered)
+    # Rebuilt rows carry no operator selection, whatever WinForms auto-selects.
+    $Tag['GridSelectionDeliberate'] = $false
 }
 
 function Invoke-WoscapGuiRun {
@@ -130,6 +132,8 @@ function Invoke-WoscapGuiRun {
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $false
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled $false
     $Tag['Status'].Text = 'Scanning...'
+    # Remediation must use the pack that produced the results, not the controls at click time.
+    $Tag['PendingScanContext'] = @{ Benchmark = $benchmark; ContentPath = $contentPath }
 
     # Callbacks are PLAIN scriptblocks (NOT closures). A plain scriptblock keeps the
     # module's session state, so it resolves module-private functions when the executor
@@ -146,6 +150,7 @@ function Invoke-WoscapGuiRun {
         $t = $script:WoscapGuiTag
         $t['Results'].Clear()
         foreach ($r in @($Results)) { $t['Results'].Add($r) }
+        $t['ResultsContext'] = $t['PendingScanContext']
         Update-WoscapGuiView -Tag $t
         $t['Count'].Text = "$(@($t['Results']).Count) rules"
         Set-WoscapGuiActionEnabled -Tag $t -Action Export -Enabled (@($t['Results']).Count -gt 0)
@@ -176,6 +181,7 @@ function Invoke-WoscapGuiRun {
         $t = $script:WoscapGuiTag
         Show-WoscapGuiMessage -Text "Scan failed: $Message"
         $t['Results'].Clear()
+        $t['ResultsContext'] = $null
         Update-WoscapGuiView -Tag $t
         $t['Count'].Text = '0 rules'
         Set-WoscapGuiActionEnabled -Tag $t -Action Export -Enabled $false

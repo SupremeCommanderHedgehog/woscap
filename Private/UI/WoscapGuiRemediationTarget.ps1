@@ -40,3 +40,19 @@ function Get-WoscapGuiSelectedResult {
     param([Parameter(Mandatory)][System.Windows.Forms.DataGridView] $Grid)
     @($Grid.SelectedRows | ForEach-Object { $_.Tag } | Where-Object { $null -ne $_ })
 }
+
+function Get-WoscapGuiVisibleResult {
+    <# The result objects behind every row the grid currently shows (after the filters). #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][System.Windows.Forms.DataGridView] $Grid)
+    @($Grid.Rows | ForEach-Object { $_.Tag } | Where-Object { $null -ne $_ })
+}
+
+function Test-WoscapGuiSelectionKey {
+    <# True for keys with which an operator changes the grid selection on purpose. #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][System.Windows.Forms.KeyEventArgs] $KeyEvent)
+    $nav = 'Up', 'Down', 'PageUp', 'PageDown', 'Home', 'End'
+    [bool](([string]$KeyEvent.KeyCode -in $nav) -or ($KeyEvent.Control -and $KeyEvent.KeyCode -eq 'A'))
+}

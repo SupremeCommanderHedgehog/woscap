@@ -359,9 +359,12 @@ and **Integrations** tabs are placeholders until #17 / #18 land. Help > About sh
 this file.
 
 **Remediate…** (Scan tab, or Scan > Remediate…) fixes Open findings on **this
-computer** via `Invoke-WoscapRemediation`. It uses the selected grid rows, or
-every row when none are selected, and skips rows from other hosts or rows that
-are not Open. It first previews with `-WhatIf`, then shows a confirmation list
+computer** via `Invoke-WoscapRemediation`. It uses the grid rows you selected
+(by click or keyboard), or, if you have not selected any since the last scan or
+filter change, every row the filters currently show. It skips rows from other
+hosts or rows that are not Open, and uses the benchmark and content path of the
+scan that produced the results, not whatever the Scan tab says now. It first
+previews with `-WhatIf`, then shows a confirmation list
 where each automatic fix can be unticked (a merged audit-policy fix lists every
 STIG ID it covers; manual items are greyed and never applied). **Apply** is never
 the default button, and it is disabled unless woscap runs as administrator. Only

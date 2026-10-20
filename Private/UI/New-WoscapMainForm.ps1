@@ -50,6 +50,10 @@ function New-WoscapMainForm {
         StatusTip = New-Object System.Windows.Forms.ToolTip
         AdvancedExpanded = $false
         Results = [System.Collections.Generic.List[object]]::new()
+        # Benchmark/ContentPath of the scan that produced Results; $null until one completes.
+        ResultsContext = $null
+        # WinForms auto-selects a row on a shown grid; only a click or key press counts.
+        GridSelectionDeliberate = $false
     }
     foreach ($key in $scan.Keys) { if ($key -ne 'TabPage') { $tag[$key] = $scan[$key] } }
     $form.Tag = $tag
@@ -94,6 +98,14 @@ function New-WoscapMainForm {
     $scan.FilterSeverity.Add_SelectedIndexChanged({ Update-WoscapGuiView -Tag $script:WoscapGuiTag })
     $scan.FilterStatus.Add_SelectedIndexChanged({ Update-WoscapGuiView -Tag $script:WoscapGuiTag })
     $scan.Find.Add_TextChanged({ Update-WoscapGuiView -Tag $script:WoscapGuiTag })
+    $scan.Grid.Add_CellMouseDown({
+        param($s, $e)
+        if ($e.RowIndex -ge 0) { $script:WoscapGuiTag['GridSelectionDeliberate'] = $true }
+    })
+    $scan.Grid.Add_KeyDown({
+        param($s, $e)
+        if (Test-WoscapGuiSelectionKey -KeyEvent $e) { $script:WoscapGuiTag['GridSelectionDeliberate'] = $true }
+    })
 
     $scan.Run.Add_Click({ Invoke-WoscapGuiRun -Tag $script:WoscapGuiTag })
     $scan.Export.Add_Click({ Invoke-WoscapGuiExport -Tag $script:WoscapGuiTag })

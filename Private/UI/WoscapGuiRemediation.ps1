@@ -22,7 +22,8 @@ function Get-WoscapGuiRemediationFailureText {
 
 function Invoke-WoscapGuiRemediate {
     <#
-        Remediate action: pick local Open findings (selection, else all), preview them
+        Remediate action: pick local Open findings (deliberate selection, else every
+        visible row) using the pack of the scan that produced them, preview them
         with -WhatIf in the background, let the operator untick fixes, apply exactly the
         ticked findings with -Force, then show the report and offer a re-scan. -Force only
         replaces the console ShouldProcess prompt, which the confirmation dialog stands in for.
@@ -31,17 +32,21 @@ function Invoke-WoscapGuiRemediate {
     param([Parameter(Mandatory)][hashtable] $Tag)
     $script:WoscapGuiTag = $Tag
 
-    $target = Select-WoscapGuiRemediationTarget -Result @($Tag['Results']) `
-        -Selected @(Get-WoscapGuiSelectedResult -Grid $Tag['Grid'])
+    $context = $Tag['ResultsContext']
+    if (-not $context) {
+        Show-WoscapGuiMessage -Text 'Run a scan before remediating.'
+        return
+    }
+    $selected = @(if ($Tag['GridSelectionDeliberate']) { Get-WoscapGuiSelectedResult -Grid $Tag['Grid'] })
+    $target = Select-WoscapGuiRemediationTarget -Result @(Get-WoscapGuiVisibleResult -Grid $Tag['Grid']) -Selected $selected
     if (@($target.Findings).Count -eq 0) {
         Show-WoscapGuiMessage -Text ("No Open findings for this computer to remediate ({0} remote, {1} not Open)." -f `
             $target.SkippedRemote, $target.SkippedNotOpen)
         return
     }
 
-    $base = @{ Benchmark = [string]$Tag['Benchmark'].SelectedItem; Quiet = $true }
-    $contentPath = ([string]$Tag['ContentPath'].Text).Trim()
-    if ($contentPath) { $base['ContentPath'] = $contentPath }
+    $base = @{ Benchmark = [string]$context.Benchmark; Quiet = $true }
+    if ($context.ContentPath) { $base['ContentPath'] = [string]$context.ContentPath }
     $Tag['RemediationBase'] = $base
     $Tag['RemediationTarget'] = $target
     $Tag['RemediationRescan'] = $false
