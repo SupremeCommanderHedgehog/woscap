@@ -27,6 +27,26 @@ function Get-WoscapGuiSavePath {
     if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dlg.FileName } else { $null }
 }
 
+function Get-WoscapGuiOpenPath {
+    <# Thin seam over OpenFileDialog so handlers are testable. Returns the chosen path(s),
+       or an empty array if cancelled. #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][string] $Filter, [switch] $Multiselect)
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Filter = $Filter
+    $dlg.Multiselect = [bool]$Multiselect
+    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { @($dlg.FileNames) } else { @() }
+}
+
+function Invoke-WoscapGuiProfileAdd {
+    <# Profiles > Add...: pick one or more .psd1 files and append them. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable] $Tag)
+    $paths = @(Get-WoscapGuiOpenPath -Filter 'Profile (*.psd1)|*.psd1|All files|*.*' -Multiselect)
+    if ($paths.Count -gt 0) { Add-WoscapGuiProfile -Tag $Tag -Path $paths }
+}
+
 function Get-WoscapGuiCredential {
     <# Thin seam over Get-Credential so the Run handler is testable and never pops a real
        Windows credential dialog in tests. Returns a [pscredential], or $null if cancelled. #>
@@ -81,10 +101,10 @@ function Invoke-WoscapGuiRun {
     $splat = ConvertTo-WoscapGuiScanParameter -XccdfPath $xccdfPath `
         -Benchmark $benchmark `
         -Targets   ([string]$Tag['Targets'].Text) `
-        -ProfilePath ([string]$Tag['Profile'].Text) `
+        -ProfilePath @($Tag['Profiles'].Items | ForEach-Object { [string]$_ }) `
         -Credential $cred
 
-    $Tag['Run'].Enabled = $false
+    Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $false
     $Tag['Status'].Text = 'Scanning...'
 
     # Callbacks are PLAIN scriptblocks (NOT closures). A plain scriptblock keeps the
@@ -104,12 +124,12 @@ function Invoke-WoscapGuiRun {
         foreach ($r in @($Results)) { $t['Results'].Add($r) }
         Update-WoscapGuiView -Tag $t
         $t['Count'].Text = "$(@($t['Results']).Count) rules"
-        $t['Export'].Enabled = (@($t['Results']).Count -gt 0)
+        Set-WoscapGuiActionEnabled -Tag $t -Action Export -Enabled (@($t['Results']).Count -gt 0)
         $t['Progress'].Style = 'Continuous'; $t['Progress'].Value = 0
         $t['Status'].Text = 'Done.'
         # Clear any tooltip left by a prior partial scan; OnWarning re-sets it if needed.
         Set-WoscapGuiStatusTip -Tag $t -Text ''
-        $t['Run'].Enabled = $true
+        Set-WoscapGuiActionEnabled -Tag $t -Action Run -Enabled $true
     }
     $onWarning = {
         param($Message, $Count)
@@ -121,7 +141,7 @@ function Invoke-WoscapGuiRun {
         $noun = if ($n -eq 1) { 'warning' } else { 'warnings' }
         $t['Status'].Text = "Done ($n $noun)."
         Set-WoscapGuiStatusTip -Tag $t -Text ([string]$Message)
-        $t['Run'].Enabled = $true
+        Set-WoscapGuiActionEnabled -Tag $t -Action Run -Enabled $true
     }
     $onError = {
         param($Message)
@@ -133,11 +153,11 @@ function Invoke-WoscapGuiRun {
         $t['Results'].Clear()
         Update-WoscapGuiView -Tag $t
         $t['Count'].Text = '0 rules'
-        $t['Export'].Enabled = $false
+        Set-WoscapGuiActionEnabled -Tag $t -Action Export -Enabled $false
         $t['Progress'].Style = 'Continuous'; $t['Progress'].Value = 0
         Set-WoscapGuiStatusTip -Tag $t -Text ''
         $t['Status'].Text = 'Failed.'
-        $t['Run'].Enabled = $true
+        Set-WoscapGuiActionEnabled -Tag $t -Action Run -Enabled $true
     }
 
     # Starting the background scan can fail synchronously (runspace BeginInvoke or timer
@@ -149,7 +169,7 @@ function Invoke-WoscapGuiRun {
         Show-WoscapGuiMessage -Text "Could not start scan: $($_.Exception.Message)"
         $Tag['Status'].Text = 'Failed.'
         $Tag['Progress'].Style = 'Continuous'; $Tag['Progress'].Value = 0
-        $Tag['Run'].Enabled = $true
+        Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $true
     }
 }
 
