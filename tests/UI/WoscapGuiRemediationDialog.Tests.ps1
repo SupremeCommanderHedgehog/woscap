@@ -88,6 +88,31 @@ Describe 'Remediation confirmation dialog' -Skip:(-not $script:IsSta) {
             } finally { $d.Dispose() }
         }
     }
+    It 'keeps the header count in step with the ticked automatic rows' {
+        InModuleScope woscap -Parameters @{ Plan = $script:Plan } {
+            param($Plan)
+            $d = New-WoscapGuiRemediationDialog -Plan $Plan -Summary 'note.' -Elevated $true
+            try {
+                $d.Tag['Grid'].Rows[0].Cells[0].Value = $false
+                $d.Tag['Header'].Text | Should -Match '^1 fixes will change this computer\. 1 require'
+                $d.Tag['Header'].Text | Should -Match 'note\.'
+                $d.Tag['Grid'].Rows[1].Cells[0].Value = $false
+                $d.Tag['Header'].Text | Should -Match '^0 fixes will'
+                $d.Tag['Grid'].Rows[0].Cells[0].Value = $true
+                $d.Tag['Header'].Text | Should -Match '^1 fixes will'
+            } finally { $d.Dispose() }
+        }
+    }
+    It 'says fixes would change the computer when not elevated' {
+        InModuleScope woscap -Parameters @{ Plan = $script:Plan } {
+            param($Plan)
+            $d = New-WoscapGuiRemediationDialog -Plan $Plan -Summary '' -Elevated $false
+            try {
+                $d.Tag['Header'].Text | Should -Match '^2 fixes would change this computer'
+                $d.Tag['Header'].Text | Should -Not -Match 'will'
+            } finally { $d.Dispose() }
+        }
+    }
     # A long summary must wrap, not widen the layout and push the buttons off-screen.
     It 'keeps every control inside its parent when shown (<W>x<H>, <Case>)' -ForEach @(
         @{ W = 760; H = 460; Case = 'no summary';   Summary = '' }

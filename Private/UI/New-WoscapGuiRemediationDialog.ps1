@@ -32,8 +32,6 @@ function New-WoscapGuiRemediationDialog {
     $header = New-Object System.Windows.Forms.Label
     $header.Dock = 'Fill'; $header.AutoSize = $true
     $header.Padding = New-Object System.Windows.Forms.Padding(6)
-    $header.Text = "$auto fixes will change this computer. $manual require manual action."
-    if ($Summary) { $header.Text += " $Summary" }
 
     $grid = New-Object System.Windows.Forms.DataGridView
     $grid.Dock = 'Fill'
@@ -81,7 +79,8 @@ function New-WoscapGuiRemediationDialog {
     $form.Controls.Add($layout)
     $form.CancelButton = $cancel
 
-    $form.Tag = @{ Grid = $grid; Apply = $apply; Cancel = $cancel; ElevationNote = $note; Header = $header; Elevated = $Elevated }
+    $form.Tag = @{ Grid = $grid; Apply = $apply; Cancel = $cancel; ElevationNote = $note; Header = $header; Elevated = $Elevated
+        Manual = $manual; Summary = $Summary }
 
     # Commit checkbox clicks immediately so CellValueChanged fires on click, not on focus loss.
     $grid.Add_CurrentCellDirtyStateChanged({
@@ -110,10 +109,15 @@ function Get-WoscapGuiRemediationSelection {
 }
 
 function Update-WoscapGuiRemediationApply {
-    <# Apply needs elevation and at least one ticked automatic fix. #>
+    <# Apply needs elevation and at least one ticked automatic fix; the header counts the ticked ones. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable] $Tag)
     $Tag['Apply'].Enabled = [bool]$Tag['Elevated'] -and @(Get-WoscapGuiRemediationSelection -Tag $Tag).Count -gt 0
+    $ticked = @($Tag['Grid'].Rows | Where-Object { $_.Cells[0].Value -eq $true -and -not $_.Cells[0].ReadOnly }).Count
+    $verb = if ($Tag['Elevated']) { 'will' } else { 'would' }
+    $text = "$ticked fixes $verb change this computer. $($Tag['Manual']) require manual action."
+    if ($Tag['Summary']) { $text += " $($Tag['Summary'])" }
+    $Tag['Header'].Text = $text
 }
 
 function Show-WoscapGuiRemediationDialog {
