@@ -412,19 +412,32 @@ Service, SecEdit, ScriptBlock, or a missing/incomplete descriptor — is reporte
 **Registry operators:** a Registry fix is auto-applied only when writing the
 rule's `Expected` value is guaranteed to make that rule pass:
 
-- `eq` with a whole number from 0 to 2147483647 (written as a DWORD) or a string
-  (written as REG_SZ);
-- `ge` / `le` with a whole number from 0 to 2147483647 (the threshold itself is
-  written as a DWORD).
+- `eq` with an Int32 (a whole number from -2147483648 to 2147483647), written as
+  a DWORD, or with a string, written as REG_SZ;
+- `ge` / `le` with an Int32. The threshold itself is written, as a DWORD.
 
-Every other Registry rule is reported `State='Manual'`, and the reason names the
-operator. That covers `ne`, `in`, `notin`, `regex`, `sequence` and `exists`, a
-rule with no `Operator`, and any other kind of `Expected` value. None of these
-has one value that is safe to write. For example, `ne` would write the forbidden
-value, and `regex` would write the pattern text into a logon banner. In the
-shipped Windows 11 pack these are WN11-CC-000052/055/085/205/320,
-WN11-SO-000075/080/095 and WN11-UC-000020 (#23). The Ansible playbook emitter
-uses the same rule and writes a `# manual:` line for each of them.
+A rule can declare its registry type with `Kind = 'dword'` or `Kind = 'string'`,
+and the fix is then written as that type. For example, WN11-SO-000085
+(`CachedLogonsCount`) is a REG_SZ that holds a number, so its fix writes the
+string `'10'` rather than DWORD 10. If the value cannot be written as the
+declared Kind, the rule is Manual.
+
+Every other Registry rule is reported `State='Manual'` with a reason in `Detail`:
+
+- **Paths under HKCU.** An elevated fix would write the operator's own hive,
+  not the audited user's, and the re-check reads that same hive, so the fix
+  would falsely report success (WN11-CC-000390, WN11-UC-000015, WN11-UC-000020).
+- **Other operators.** For `ne`, `notin`, `regex`, `sequence` and `exists`
+  there is no single value that is safe to write: `ne` would write the
+  forbidden value, and `regex` would write the pattern text into a logon
+  banner. For `in`, woscap does not choose which allowed value to enforce;
+  that is a site decision. In the shipped Windows 11 pack these are
+  WN11-CC-000052/055/085/205/320, WN11-SO-000075/080/095 and WN11-UC-000020
+  (#23).
+- **No `Operator`, or an `Expected` that is not a string or an Int32.**
+
+The reason names the operator or the HKCU path. The Ansible playbook emitter
+uses the same rules and writes a `# manual:` line for each of these.
 
 **Audit policy only ever enables:** an AuditPolicy fix runs
 `auditpol /set /subcategory:<name>` with `/success:enable` and/or
@@ -720,7 +733,7 @@ Each entry is a hashtable. Keys vary by `Type`; all types compare via an
 
 | Type | Read helper | Descriptor keys |
 |---|---|---|
-| `Registry` | `Get-RegValue` | `Path`, `Name`; optional `AbsentIsPass` |
+| `Registry` | `Get-RegValue` | `Path`, `Name`; optional `AbsentIsPass`, `Kind` (`'dword'`/`'string'`, the type remediation writes) |
 | `SecEdit` | `Get-SecEditSetting` | `Name`, `Section` (default `System Access`) |
 | `UserRight` | `Get-UserRight` | `Privilege` (a `Se*` right); `Expected` is a principal list, compared **as SIDs** via `Resolve-PrincipalSid` |
 | `AuditPolicy` | `Get-AuditPolicy` | `Subcategory` |

@@ -49,31 +49,46 @@ function Get-WoscapRemediationPlan {
                     $actions.Add((& $newManual $stig $title 'Registry' 'Registry descriptor is incomplete (missing Path, Name, or Expected).'))
                     break
                 }
-                # Automate only when writing Expected provably makes this descriptor pass (#23).
-                $op = if ($desc.ContainsKey('Operator')) { [string]$desc.Operator } else { '' }
-                if ([string]::IsNullOrEmpty($op)) {
-                    $actions.Add((& $newManual $stig $title 'Registry' 'Registry descriptor declares no Operator, so no write can be shown to satisfy it.'))
+                # Automate only when writing Data as Kind provably makes this descriptor pass (#23).
+                $path = [string]$desc.Path
+                if ($path -match '^(HKCU:|(Microsoft\.PowerShell\.Core\\)?Registry::HKEY_CURRENT_USER)') {
+                    $actions.Add((& $newManual $stig $title 'Registry' "Registry path is under HKCU; an elevated fix would write the operator's own hive, not the audited user's."))
                     break
                 }
+                $op = [string]$desc['Operator']
                 if ($op -notin @('eq', 'ge', 'le')) {
-                    $actions.Add((& $newManual $stig $title 'Registry' "Registry operator '$op' has no single safe value to write."))
+                    $reason = if ($op) { "Registry operator '$op' has no single safe value to write." }
+                              else { 'Registry descriptor declares no Operator, so no write can be shown to satisfy it.' }
+                    $actions.Add((& $newManual $stig $title 'Registry' $reason))
                     break
                 }
                 $exp = $desc.Expected
-                $isInteger = $exp -is [int] -or $exp -is [long] -or $exp -is [uint32]
-                # REG_DWORD reads back as Int32, so only 0..Int32.MaxValue round-trips unchanged.
-                $kind = if ($isInteger -and [long]$exp -ge 0 -and [long]$exp -le [int]::MaxValue) { 'dword' }
-                        elseif ($op -eq 'eq' -and $exp -is [string]) { 'string' }
-                        else { $null }
+                # REG_DWORD reads back as Int32, so only Int32 values round-trip unchanged.
+                $isInt32 = ($exp -is [int] -or $exp -is [long] -or $exp -is [uint32]) -and
+                           [long]$exp -ge [int]::MinValue -and [long]$exp -le [int]::MaxValue
+                # A declared Kind keeps the value's registry type (e.g. a REG_SZ holding a number).
+                $declared = [string]$desc['Kind']
+                if (-not $declared) { $declared = if ($isInt32) { 'dword' } elseif ($exp -is [string]) { 'string' } else { '' } }
+                $kind = $null
+                $data = $exp
+                switch ($declared) {
+                    'dword'  { if ($isInt32) { $kind = 'dword' } }
+                    'string' {
+                        # ge/le compare numerically, so a string threshold is not trusted.
+                        if ($isInt32) { $kind = 'string'; $data = [string]$exp }
+                        elseif ($op -eq 'eq' -and $exp -is [string]) { $kind = 'string' }
+                    }
+                }
                 if ($null -eq $kind) {
                     $typeName = if ($null -eq $exp) { 'null' } else { $exp.GetType().Name }
-                    $actions.Add((& $newManual $stig $title 'Registry' "Registry operator '$op' with Expected '$exp' ($typeName) has no value that is safe to write."))
+                    $kindNote = if ($declared) { " as declared Kind '$declared'" } else { '' }
+                    $actions.Add((& $newManual $stig $title 'Registry' "Registry operator '$op' with Expected '$exp' ($typeName) has no value that is safe to write$kindNote."))
                     break
                 }
                 $actions.Add([pscustomobject]@{
                     StigId = $stig; StigIds = @($stig); Title = $title; Type = 'Registry'; CheckType = 'Registry'
                     Automatable = $true
-                    Registry = @{ Path = [string]$desc.Path; Name = [string]$desc.Name; Data = $desc.Expected; Kind = $kind }
+                    Registry = @{ Path = $path; Name = [string]$desc.Name; Data = $data; Kind = $kind }
                     Audit = $null; ManualReason = $null
                 })
             }

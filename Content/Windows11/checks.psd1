@@ -331,9 +331,9 @@
     # A site-defined title is permitted, so this only requires a non-empty one.
     'WN11-SO-000080' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
         Name = 'LegalNoticeCaption'; Operator = 'regex'; Expected = '\S' }
-    # REG_SZ holding a number; 'le' compares numerically.
+    # REG_SZ holding a number; 'le' compares numerically. Kind keeps a fix REG_SZ.
     'WN11-SO-000085' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
-        Name = 'CachedLogonsCount'; Operator = 'le'; Expected = 10 }
+        Name = 'CachedLogonsCount'; Operator = 'le'; Expected = 10; Kind = 'string' }
     'WN11-SO-000095' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
         Name = 'SCRemoveOption'; Operator = 'in'; Expected = @('1','2') }
     'WN11-SO-000140' = @{ Type = 'SecEdit'; Name = 'LSAAnonymousNameLookup'; Operator = 'eq'; Expected = 0 }

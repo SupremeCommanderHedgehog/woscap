@@ -35,7 +35,7 @@ Describe 'Get-WoscapRemediationPlan' {
             $plan[0].Registry.Data | Should -Be 32768
         }
     }
-    It 'makes a DWORD Expected above Int32.MaxValue Manual (it reads back negative, so eq never passes)' {
+    It 'makes an Expected outside Int32 Manual (REG_DWORD reads back as Int32, so eq never passes)' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ StigId = 'R-3'; Title = 'Big dword'; Status = 'Open' })
             $pack  = @{ 'R-3' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Operator = 'eq'; Expected = [long]4294967295 } }
@@ -51,6 +51,8 @@ Describe 'Get-WoscapRemediationPlan' {
         @{ Operator = 'eq'; Expected = 'abc'; Kind = 'string' }
         @{ Operator = 'ge'; Expected = 6;     Kind = 'dword' }
         @{ Operator = 'le'; Expected = 10;    Kind = 'dword' }
+        @{ Operator = 'eq'; Expected = -1;    Kind = 'dword' }
+        @{ Operator = 'le'; Expected = -5;    Kind = 'dword' }
     ) {
         InModuleScope woscap -Parameters @{ Operator = $Operator; Expected = $Expected; Kind = $Kind } {
             param($Operator, $Expected, $Kind)
@@ -97,12 +99,59 @@ Describe 'Get-WoscapRemediationPlan' {
             $action.ManualReason | Should -Match 'Operator'
         }
     }
+    It 'honors a declared Kind (<Case>)' -ForEach @(
+        @{ Case = 'REG_SZ number, le'; Operator = 'le'; Expected = 10;    Declared = 'string'; Data = '10' }
+        @{ Case = 'REG_SZ number, eq'; Operator = 'eq'; Expected = 1;     Declared = 'string'; Data = '1' }
+        @{ Case = 'REG_SZ text';       Operator = 'eq'; Expected = 'abc'; Declared = 'string'; Data = 'abc' }
+        @{ Case = 'dword';             Operator = 'eq'; Expected = 1;     Declared = 'dword';  Data = 1 }
+    ) {
+        InModuleScope woscap -Parameters @{ Operator = $Operator; Expected = $Expected; Declared = $Declared; Data = $Data } {
+            param($Operator, $Expected, $Declared, $Data)
+            $rules = @([pscustomobject]@{ StigId = 'R-1'; Title = 'r'; Status = 'Open' })
+            $pack  = @{ 'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Operator = $Operator; Expected = $Expected; Kind = $Declared } }
+            $action = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)[0]
+            $action.Automatable   | Should -BeTrue
+            $action.Registry.Kind | Should -Be $Declared
+            $action.Registry.Data | Should -BeOfType $Data.GetType()
+            $action.Registry.Data | Should -Be $Data
+        }
+    }
+    It 'makes a declared Kind it cannot honor Manual (<Case>)' -ForEach @(
+        @{ Case = 'dword with text';  Operator = 'eq'; Expected = 'abc'; Declared = 'dword' }
+        @{ Case = 'unsupported Kind'; Operator = 'eq'; Expected = 1;     Declared = 'qword' }
+        @{ Case = 'string threshold'; Operator = 'ge'; Expected = '6';   Declared = 'string' }
+    ) {
+        InModuleScope woscap -Parameters @{ Operator = $Operator; Expected = $Expected; Declared = $Declared } {
+            param($Operator, $Expected, $Declared)
+            $rules = @([pscustomobject]@{ StigId = 'R-1'; Title = 'r'; Status = 'Open' })
+            $pack  = @{ 'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Operator = $Operator; Expected = $Expected; Kind = $Declared } }
+            $action = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)[0]
+            $action.Type         | Should -Be 'Manual'
+            $action.ManualReason | Should -Not -BeNullOrEmpty
+        }
+    }
+    It 'never automates a rule under the current-user hive (<Path>)' -ForEach @(
+        @{ Path = 'HKCU:\SOFTWARE\Policies\X' }
+        @{ Path = 'hkcu:\Software\X' }
+        @{ Path = 'Registry::HKEY_CURRENT_USER\Software\X' }
+        @{ Path = 'Microsoft.PowerShell.Core\Registry::HKEY_CURRENT_USER\Software\X' }
+    ) {
+        InModuleScope woscap -Parameters @{ Path = $Path } {
+            param($Path)
+            $rules = @([pscustomobject]@{ StigId = 'R-1'; Title = 'r'; Status = 'Open' })
+            $pack  = @{ 'R-1' = @{ Type = 'Registry'; Path = $Path; Name = 'N'; Operator = 'eq'; Expected = 1 } }
+            $action = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)[0]
+            $action.Type         | Should -Be 'Manual'
+            $action.Automatable  | Should -BeFalse
+            $action.ManualReason | Should -Match 'HKCU'
+        }
+    }
     It 'makes <Operator> with a non-encodable Expected (<Case>) Manual' -ForEach @(
         @{ Case = 'string threshold'; Operator = 'ge'; Expected = '6' }
         @{ Case = 'array';            Operator = 'eq'; Expected = @(1, 2) }
         @{ Case = 'bool';             Operator = 'eq'; Expected = $true }
         @{ Case = 'double';           Operator = 'le'; Expected = 1.5 }
-        @{ Case = 'negative';         Operator = 'eq'; Expected = -1 }
+        @{ Case = 'above Int32';      Operator = 'ge'; Expected = [long]2147483648 }
     ) {
         InModuleScope woscap -Parameters @{ Operator = $Operator; Expected = $Expected } {
             param($Operator, $Expected)
