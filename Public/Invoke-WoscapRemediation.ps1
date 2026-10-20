@@ -4,9 +4,78 @@ function Invoke-WoscapRemediation {
         Applies Registry and AuditPolicy fixes for Open STIG findings on the LOCAL host,
         then re-checks each rule. Gated by -WhatIf / -Confirm (ConfirmImpact High).
     .DESCRIPTION
-        This is woscap's only deliberate write path. Every other check type (UserRight,
-        Service, SecEdit, ScriptBlock, missing/incomplete descriptor) is reported as
-        'Manual' and never written. Requires an elevated session for real writes.
+        This is woscap's only deliberate write path. Requires an elevated session for
+        real writes. Only Open findings are processed; every other status is ignored.
+
+        A Registry rule is auto-applied only when writing its Expected value is
+        guaranteed to make the same rule pass:
+          - Operator 'eq' with an Int32 Expected (written as REG_DWORD) or a string
+            Expected (written as REG_SZ).
+          - Operator 'ge' or 'le' with an Int32 Expected. The threshold itself is
+            written, as REG_DWORD.
+          - When the rule declares Kind = 'dword' or 'string', the value is written
+            as that registry type (for example, the number 10 is written as the
+            REG_SZ '10'). A Kind the value cannot be written as makes the rule Manual.
+        These Registry rules are reported as 'Manual' and never written:
+          - A path under HKCU. An elevated fix would write the operator's own hive,
+            not the audited user's.
+          - Any other operator (ne, in, notin, regex, sequence, exists, ...), or no
+            Operator at all. None of these has one value woscap can safely choose.
+          - An Expected that is not a string or an Int32 (an array, a boolean, a
+            number outside the Int32 range, and so on).
+
+        An AuditPolicy fix only ever enables auditing. It turns on the success
+        and/or failure directions that the Open rules require, merged per
+        subcategory, and never disables a direction.
+
+        Every other check type (UserRight, Service, SecEdit, ScriptBlock, or a
+        missing or incomplete descriptor) is reported as 'Manual' and never written.
+
+        After a fix is applied, the rule's descriptor is evaluated again and the
+        outcome is reported in After: NotAFinding, Open, or Error. If one fix fails,
+        that row is reported as 'Failed' and the remaining fixes still run.
+    .PARAMETER Result
+        Findings to remediate, usually piped from Invoke-WoscapScan. Only rows with
+        Status 'Open' are acted on; each row's StigId selects its content descriptor.
+    .PARAMETER Benchmark
+        Name of the shipped content pack under Content\ that supplies the fix
+        descriptors. Default: Windows11. Ignored when -ContentPath is given.
+    .PARAMETER ContentPath
+        Directory of a content pack (checks.psd1, optional checks.overrides.ps1) to
+        use instead of -Benchmark. The cmdlet throws if the path does not exist.
+    .PARAMETER Force
+        Apply without prompting, for unattended runs. An explicit -Confirm still
+        prompts, and -WhatIf still only plans.
+    .PARAMETER Quiet
+        Suppress the console summary (Applied / Failed / Manual / Planned counts).
+        The result objects are returned either way.
+    .PARAMETER WhatIf
+        Plan only. Every rule that would be auto-applied is returned with
+        State 'Planned', and nothing is written.
+    .PARAMETER Confirm
+        Prompt before each write. Prompting is already the default because
+        ConfirmImpact is High.
+    .OUTPUTS
+        RemediationResult objects (Host, StigId, StigIds, Title, CheckType, Action,
+        State, Before, After, Detail). State is one of Applied, Failed, Manual,
+        Planned (-WhatIf) or Skipped (declined at the prompt). For a Manual row,
+        Detail gives the reason.
+    .EXAMPLE
+        Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml |
+            Invoke-WoscapRemediation -WhatIf
+
+        Shows what would change and writes nothing.
+    .EXAMPLE
+        $fixes = Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml |
+            Invoke-WoscapRemediation -Force
+        $fixes | Format-Table StigId, State, Before, After, Detail
+
+        Applies every automatable fix without prompting (run from an elevated
+        shell), then shows each rule's outcome.
+    .EXAMPLE
+        $scan | Invoke-WoscapRemediation -ContentPath .\MyPack
+
+        Uses a custom content pack and prompts before each write.
     #>
     [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
     [OutputType([pscustomobject])]

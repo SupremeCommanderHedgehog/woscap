@@ -40,6 +40,15 @@ Describe 'ConvertTo-AnsiblePlaybook' {
             $text | Should -Not -Match 'win_regedit'
         }
     }
+    It 'emits a # manual line, not a win_regedit task, for a Registry rule whose operator has no safe write' {
+        InModuleScope woscap {
+            $failed = @([pscustomobject]@{ StigId = 'WN11-CC-000055'; Title = 'Multiple connections'; Status = 'Open' })
+            $pack = @{ 'WN11-CC-000055' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WcmSvc\GroupPolicy'; Name = 'fMinimizeConnections'; Operator = 'ne'; Expected = 0 } }
+            $text = ConvertTo-AnsiblePlaybook -FailedRule $failed -ContentPack $pack
+            $text | Should -Match "# manual: WN11-CC-000055 - Multiple connections \(.*operator 'ne'"
+            $text | Should -Not -Match 'win_regedit'
+        }
+    }
     It 'merges paired Success+Failure rules for one subcategory into a single task' {
         InModuleScope woscap {
             $failed = @(

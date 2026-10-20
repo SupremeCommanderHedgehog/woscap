@@ -13,7 +13,7 @@ Describe 'Invoke-WoscapRemediation' {
 
     It 'with -WhatIf applies nothing and marks automatable rules Planned' {
         InModuleScope woscap {
-            Mock Import-ContentPack { @{ 'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Expected = 1 } } }
+            Mock Import-ContentPack { @{ 'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Operator = 'eq'; Expected = 1 } } }
             Mock Test-Path { $true }
             Mock Set-WoscapRegValue {}
             Mock Invoke-AuditPolSet {}
@@ -23,6 +23,23 @@ Describe 'Invoke-WoscapRemediation' {
             Should -Invoke Set-WoscapRegValue -Exactly 0
             $out.Count     | Should -Be 1
             $out[0].State  | Should -Be 'Planned'
+        }
+    }
+
+    It 'with -Force never writes a Registry rule whose operator has no safe value (#23)' {
+        InModuleScope woscap {
+            Mock Import-ContentPack { @{
+                'R-NE' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Operator = 'ne'; Expected = 0 }
+                'R-RX' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'T'; Operator = 'regex'; Expected = '\S' }
+            } }
+            Mock Test-Path { $true }
+            Mock Set-WoscapRegValue {}
+            Mock Invoke-AuditPolSet {}
+            Mock Test-Descriptor { [pscustomobject]@{ Result = 'Pass'; Observed = 1; Expected = 1 } }
+            $rules = @('R-NE', 'R-RX' | ForEach-Object { [pscustomobject]@{ StigId = $_; Title = $_; Status = 'Open' } })
+            $out = @(Invoke-WoscapRemediation -Result $rules -ContentPath 'TestDrive:\pack' -Force -Quiet)
+            Should -Invoke Set-WoscapRegValue -Exactly 0
+            @($out | Where-Object { $_.State -eq 'Manual' }).Count | Should -Be 2
         }
     }
 
@@ -45,8 +62,8 @@ Describe 'Invoke-WoscapRemediation' {
     It 'processes only Open rules' {
         InModuleScope woscap {
             Mock Import-ContentPack { @{
-                'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Expected = 1 }
-                'R-2' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'M'; Expected = 1 }
+                'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Operator = 'eq'; Expected = 1 }
+                'R-2' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'M'; Operator = 'eq'; Expected = 1 }
             } }
             Mock Test-Path { $true }
             Mock Set-WoscapRegValue {}
@@ -63,7 +80,7 @@ Describe 'Invoke-WoscapRemediation' {
 
     It 'applies, re-checks, and flips After to NotAFinding on success' {
         InModuleScope woscap {
-            Mock Import-ContentPack { @{ 'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Expected = 1 } } }
+            Mock Import-ContentPack { @{ 'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Operator = 'eq'; Expected = 1 } } }
             Mock Test-Path { $true }
             Mock Set-WoscapRegValue {}
             Mock Test-Descriptor { [pscustomobject]@{ Result = 'Pass'; Observed = 1; Expected = 1 } }
@@ -78,8 +95,8 @@ Describe 'Invoke-WoscapRemediation' {
     It 'isolates an apply failure as Failed and still completes the batch' {
         InModuleScope woscap {
             Mock Import-ContentPack { @{
-                'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Expected = 1 }
-                'R-2' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'M'; Expected = 1 }
+                'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Operator = 'eq'; Expected = 1 }
+                'R-2' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'M'; Operator = 'eq'; Expected = 1 }
             } }
             Mock Test-Path { $true }
             Mock Set-WoscapRegValue { if ($Name -eq 'N') { throw 'access denied' } }
@@ -114,8 +131,8 @@ Describe 'Invoke-WoscapRemediation' {
     It 'with -WhatIf emits one Planned row per automatable rule' {
         InModuleScope woscap {
             Mock Import-ContentPack { @{
-                'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Expected = 1 }
-                'R-2' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'M'; Expected = 1 }
+                'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Operator = 'eq'; Expected = 1 }
+                'R-2' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'M'; Operator = 'eq'; Expected = 1 }
             } }
             Mock Test-Path { $true }
             Mock Set-WoscapRegValue {}

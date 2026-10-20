@@ -44,12 +44,11 @@ function ConvertTo-AnsiblePlaybook {
                 [void]$sb.AppendLine("        audit_type: $auditType")
             }
             'Manual' {
-                # Ansible-specific wording, reproduced from the action's CheckType so the
-                # emitter output stays byte-identical to the pre-refactor behavior. This is
-                # intentionally NOT action.ManualReason (whose wording is tool-agnostic and
-                # differs) — substituting it here would break the golden-file test.
+                # Registry uses the planner's reason, which names the operator that blocked the write.
+                # Other types keep their Ansible-specific wording (pinned by the golden file).
                 $reason = if ($action.CheckType -eq 'Registry') {
-                    'Registry descriptor missing Path/Name/Expected'
+                    # A newline would end the YAML comment early.
+                    [string]$action.ManualReason -replace '[\r\n]+', ' '
                 } elseif ($action.CheckType -eq 'AuditPolicy') {
                     'AuditPolicy descriptor missing Subcategory/Expected'
                 } else {

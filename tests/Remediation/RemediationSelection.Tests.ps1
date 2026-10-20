@@ -13,8 +13,8 @@ Describe 'Remediation selection invariant' {
         InModuleScope woscap -Parameters @{ Order = $Order } {
             param($Order)
             Mock Import-ContentPack { @{
-                'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'A'; Expected = 1 }
-                'R-2' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'B'; Expected = 'x' }
+                'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'A'; Operator = 'eq'; Expected = 1 }
+                'R-2' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'B'; Operator = 'eq'; Expected = 'x' }
                 'A-1' = @{ Type = 'AuditPolicy'; Subcategory = 'Logon';  Expected = 'Success' }
                 'A-2' = @{ Type = 'AuditPolicy'; Subcategory = 'Logon';  Expected = 'Failure' }
                 'A-3' = @{ Type = 'AuditPolicy'; Subcategory = 'Logoff'; Expected = 'Success' }
