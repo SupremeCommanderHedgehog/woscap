@@ -11,16 +11,10 @@ function Set-WoscapGuiRemediationBusy {
 function Set-WoscapGuiRemediationStatus {
     <#
         Status line + tooltip for the remediation flow. Appends the stale-grid notice once a
-        fix was applied (until a re-scan starts) and any preview warning. -Refresh re-renders
-        the last Text/Tip, e.g. when a preview warning arrives late.
+        fix was applied (until a re-scan starts) and any preview warning.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][hashtable] $Tag, [string] $Text = '', [string] $Tip = '', [switch] $Refresh)
-    if ($Refresh) {
-        $Text = [string]$Tag['RemediationStatusText']; $Tip = [string]$Tag['RemediationStatusTip']
-    } else {
-        $Tag['RemediationStatusText'] = $Text; $Tag['RemediationStatusTip'] = $Tip
-    }
+    param([Parameter(Mandatory)][hashtable] $Tag, [string] $Text = '', [string] $Tip = '')
     if ($Tag['RemediationApplied'] -and -not $Tag['RemediationRescan']) {
         $Text += ' Results shown predate these fixes; re-scan to refresh.'
     }
@@ -88,9 +82,15 @@ function Invoke-WoscapGuiRemediate {
 
     # Plain scriptblocks (not closures) keep module session state; state is reached via
     # $script:WoscapGuiTag, as in Invoke-WoscapGuiRun.
+    # OnSettled fires after the outcome is classified, so warnings reach the dialog and an
+    # errored preview (already reported by OnError) never offers Apply.
     $onPreview = {
-        param($Results)
+        param($Results, $Outcome)
         $t = $script:WoscapGuiTag
+        if ($Outcome.Kind -eq 'Error') { return }
+        if ($Outcome.Kind -eq 'Warning') {
+            $t['RemediationPreviewWarning'] = @{ Message = [string]$Outcome.Message; Count = [int]$Outcome.Count }
+        }
         if (@($Results).Count -eq 0) {
             Set-WoscapGuiRemediationBusy -Tag $t -Busy $false
             Set-WoscapGuiRemediationStatus -Tag $t -Text 'Nothing to remediate.'
@@ -101,6 +101,8 @@ function Invoke-WoscapGuiRemediate {
         $notes = @()
         if ($tg.SkippedRemote -gt 0)  { $notes += "$($tg.SkippedRemote) remote finding(s) skipped." }
         if ($tg.SkippedNotOpen -gt 0) { $notes += "$($tg.SkippedNotOpen) finding(s) not Open skipped." }
+        $pw = $t['RemediationPreviewWarning']
+        if ($pw) { $notes += "Preview reported $($pw.Count) warning(s): $($pw.Message)" }
         $ids = @(Show-WoscapGuiRemediationDialog -Plan @($Results) -Summary ($notes -join ' ') -Elevated (Test-WoscapGuiElevated))
         if ($ids.Count -eq 0) {
             Set-WoscapGuiRemediationBusy -Tag $t -Busy $false
@@ -108,14 +110,6 @@ function Invoke-WoscapGuiRemediate {
             return
         }
         Start-WoscapGuiRemediationApply -Tag $t -StigId $ids
-    }
-    # The runner reports preview warnings after OnComplete, i.e. after the dialog closed.
-    $onPreviewWarning = {
-        param($Message, $Count)
-        $t = $script:WoscapGuiTag
-        $t['RemediationPreviewWarning'] = @{ Message = [string]$Message; Count = [int]$Count }
-        if ($t['RemediationRescan']) { return }
-        Set-WoscapGuiRemediationStatus -Tag $t -Refresh
     }
     $onError = {
         param($Message)
@@ -127,7 +121,7 @@ function Invoke-WoscapGuiRemediate {
 
     try {
         Invoke-WoscapGuiScan -Command 'Invoke-WoscapRemediation' -ScanParameters $preview `
-            -OnComplete $onPreview -OnWarning $onPreviewWarning -OnError $onError
+            -OnSettled $onPreview -OnError $onError
     } catch {
         Show-WoscapGuiMessage -Text "Could not start remediation: $($_.Exception.Message)"
         Set-WoscapGuiRemediationBusy -Tag $Tag -Busy $false -Status 'Failed.'

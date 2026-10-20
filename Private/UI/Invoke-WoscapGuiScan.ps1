@@ -10,6 +10,8 @@ function Invoke-WoscapGuiScan {
           OnComplete  & $OnComplete -Results <object[]>
           OnWarning   & $OnWarning -Message <string> -Count <int>
           OnError     & $OnError -Message <string>
+          OnSettled   & $OnSettled -Results <object[]> -Outcome <Resolve-WoscapGuiCompletion result>
+                      Fires once, after every other callback, so a caller can act on the full outcome.
 
         Completion is classified by Resolve-WoscapGuiCompletion: OnComplete always fires
         first (results are always delivered). Then, if the scan ALSO reported errors, the
@@ -26,6 +28,7 @@ function Invoke-WoscapGuiScan {
         [scriptblock] $OnComplete,
         [scriptblock] $OnWarning,
         [scriptblock] $OnError,
+        [scriptblock] $OnSettled,
         [int] $PollIntervalMs = 150
     )
     $manifest = Join-Path $script:WoscapModuleRoot 'woscap.psd1'
@@ -75,6 +78,7 @@ function Invoke-WoscapGuiScan {
 
             if ($async.IsCompleted) {
                 $timer.Stop()
+                $settled = $null
                 try {
                     $results = @($ps.EndInvoke($async))
                     # Deliver results first so the grid populates, THEN classify the outcome:
@@ -86,6 +90,7 @@ function Invoke-WoscapGuiScan {
                         'Warning' { if ($OnWarning) { & $OnWarning -Message $outcome.Message -Count $outcome.Count } }
                         'Error'   { if ($OnError)   { & $OnError -Message $outcome.Message } }
                     }
+                    $settled = @{ Results = $results; Outcome = $outcome }
                 } catch {
                     # Terminating error: join any accumulated per-host/per-rule detail so the
                     # root cause is not lost behind the final exception message.
@@ -93,10 +98,13 @@ function Invoke-WoscapGuiScan {
                         -ErrorRecords @($ps.Streams.Error) -WarningRecords @($ps.Streams.Warning) `
                         -TerminatingError $_.Exception.Message
                     if ($OnError) { & $OnError -Message $outcome.Message }
+                    $settled = @{ Results = @(); Outcome = $outcome }
                 } finally {
                     $ps.Dispose()
                     $timer.Dispose()
                 }
+                # Outside the try: a throwing OnSettled must not re-enter the terminating path.
+                if ($OnSettled -and $settled) { & $OnSettled -Results $settled.Results -Outcome $settled.Outcome }
             }
         } catch {
             # Contain unexpected tick errors (e.g. a throwing OnProgress) so they do not

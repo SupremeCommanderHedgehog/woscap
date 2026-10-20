@@ -21,6 +21,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             )
             $script:applied = @([pscustomobject]@{ StigId = 'R-1'; StigIds = @('R-1'); Title = 'r1'; Action = 'a1'; State = 'Applied'; After = 'NotAFinding'; Detail = '' })
             $script:previewParams = $null; $script:applyParams = $null
+            $script:none = [pscustomobject]@{ Kind = 'None'; Message = ''; Count = 0 }
             $script:form = New-WoscapMainForm
             foreach ($r in $script:local1, $script:local2, $script:clean, $script:remote) { $script:form.Tag['Results'].Add($r) }
             $script:form.Tag['Benchmark'].SelectedItem = 'Windows11'
@@ -86,7 +87,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             Mock Show-WoscapGuiRemediationDialog { @('R-2') }
             Mock Show-WoscapGuiRemediationReport { 'Close' }
             Mock Invoke-WoscapGuiScan {
-                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:plan -Outcome $script:none }
                 else { $script:applyParams = $ScanParameters; & $OnComplete -Results $script:applied }
             } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
             Invoke-WoscapGuiRemediate -Tag $script:form.Tag
@@ -109,7 +110,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             $script:calls = 0
             Mock Invoke-WoscapGuiScan {
                 $script:calls++
-                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:plan -Outcome $script:none }
             } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
             Invoke-WoscapGuiRemediate -Tag $script:form.Tag
             $script:calls | Should -Be 1 -Because 'only the preview may run'
@@ -140,7 +141,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             Mock Show-WoscapGuiRemediationReport { 'Rescan' }
             Mock Invoke-WoscapGuiRun { }
             Mock Invoke-WoscapGuiScan {
-                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:plan -Outcome $script:none }
                 else { & $OnComplete -Results $script:applied }
             } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
             Invoke-WoscapGuiRemediate -Tag $script:form.Tag
@@ -158,7 +159,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             # Stand-in for a started scan: Run goes busy.
             Mock Invoke-WoscapGuiRun { Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $false; $Tag['Status'].Text = 'Scanning...'; $true }
             Mock Invoke-WoscapGuiScan {
-                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:plan -Outcome $script:none }
                 else {
                     # Runner order: OnComplete first, then the classified outcome.
                     & $OnComplete -Results $script:applied
@@ -181,7 +182,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             $script:shown = @()
             Mock Show-WoscapGuiMessage { $script:shown += $Text }
             Mock Invoke-WoscapGuiScan {
-                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:plan -Outcome $script:none }
                 else {
                     # Mirrors the runner's tick catch: a throwing OnComplete is routed to OnError.
                     try { & $OnComplete -Results $script:applied } catch { & $OnError -Message $_.Exception.Message }
@@ -206,7 +207,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             $script:shown = @()
             Mock Show-WoscapGuiMessage { $script:shown += $Text }
             Mock Invoke-WoscapGuiScan {
-                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:plan -Outcome $script:none }
                 else { & $OnComplete -Results $script:applied }
             } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
             Invoke-WoscapGuiRemediate -Tag $script:form.Tag
@@ -226,7 +227,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             $script:shown = @()
             Mock Show-WoscapGuiMessage { $script:shown += $Text }
             Mock Invoke-WoscapGuiScan {
-                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:plan -Outcome $script:none }
                 else { & $OnComplete -Results @(); & $OnError -Message 'access denied' }
             } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
             Invoke-WoscapGuiRemediate -Tag $script:form.Tag
@@ -241,7 +242,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             Mock Show-WoscapGuiRemediationDialog { @('R-4', 'R-3', 'R-1') }
             Mock Show-WoscapGuiRemediationReport { 'Close' }
             Mock Invoke-WoscapGuiScan {
-                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:plan -Outcome $script:none }
                 else { $script:applyParams = $ScanParameters; & $OnComplete -Results $script:applied }
             } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
             Invoke-WoscapGuiRemediate -Tag $script:form.Tag
@@ -260,7 +261,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             }
             Mock Show-WoscapGuiRemediationReport { 'Close' }
             Mock Invoke-WoscapGuiScan {
-                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:plan -Outcome $script:none }
                 else { $script:applyParams = $ScanParameters; & $OnComplete -Results $script:applied }
             } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
             Invoke-WoscapGuiRemediate -Tag $script:form.Tag
@@ -279,7 +280,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             $script:calls = 0
             Mock Invoke-WoscapGuiScan {
                 $script:calls++
-                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:plan -Outcome $script:none }
             } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
             Invoke-WoscapGuiRemediate -Tag $script:form.Tag
             $script:calls | Should -Be 1 -Because 'only the preview may run'
@@ -466,6 +467,7 @@ Describe 'Invoke-WoscapGuiRemediate outcomes' -Skip:(-not $script:IsSta) {
             $script:failed  = @([pscustomobject]@{ StigId = 'R-1'; StigIds = @('R-1'); Title = 'r1'; Action = 'a1'; State = 'Failed'; After = ''; Detail = 'denied' })
             $script:applyResults = $script:applied
             $script:previewWarning = $null
+            $script:previewError = $null
             $script:applyOutcome = $null
             $script:reported = $null
             $script:shown = @()
@@ -473,11 +475,16 @@ Describe 'Invoke-WoscapGuiRemediate outcomes' -Skip:(-not $script:IsSta) {
             Mock Test-WoscapGuiElevated { $true }
             Mock Show-WoscapGuiRemediationDialog { @('R-1') }
             Mock Show-WoscapGuiRemediationReport { $script:reported = $Result; 'Close' }
-            # Runner order: OnComplete first, then the classified outcome.
+            # Runner order: OnComplete first, then the classified outcome, then OnSettled.
             Mock Invoke-WoscapGuiScan {
                 if ($ScanParameters.ContainsKey('WhatIf')) {
-                    & $OnComplete -Results $script:plan
-                    if ($script:previewWarning) { & $OnWarning -Message $script:previewWarning -Count 2 }
+                    $kind = if ($script:previewWarning) { 'Warning' } else { 'None' }
+                    $outcome = [pscustomobject]@{ Kind = $kind; Message = [string]$script:previewWarning; Count = 2 }
+                    if ($script:previewError) {
+                        $outcome = [pscustomobject]@{ Kind = 'Error'; Message = $script:previewError; Count = 1 }
+                        & $OnError -Message $script:previewError
+                    }
+                    & $OnSettled -Results $script:plan -Outcome $outcome
                 } else {
                     try { & $OnComplete -Results $script:applyResults } catch { & $OnError -Message $_.Exception.Message; return }
                     if ($script:applyOutcome -eq 'Warning') { & $OnWarning -Message 'apply-w' -Count 1 }
@@ -536,6 +543,29 @@ Describe 'Invoke-WoscapGuiRemediate outcomes' -Skip:(-not $script:IsSta) {
             $script:form.Tag['Status'].Text | Should -Match 'cancelled'
             $script:form.Tag['Status'].Text | Should -Match 'Preview: 2 warning'
             $script:form.Tag['StatusTip'].GetToolTip($script:form.Tag['Status']) | Should -Match 'preview-w'
+        }
+    }
+
+    It 'shows preview warnings in the confirmation dialog, before the operator decides' {
+        InModuleScope woscap {
+            $script:previewWarning = 'preview-w'
+            $script:dialogSummary = $null
+            Mock Show-WoscapGuiRemediationDialog { $script:dialogSummary = $Summary }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            Should -Invoke Show-WoscapGuiRemediationDialog -Times 1 -Exactly
+            $script:dialogSummary | Should -Match '2 warning'
+            $script:dialogSummary | Should -Match 'preview-w'
+        }
+    }
+
+    It 'never shows the confirmation dialog when the preview errored' {
+        InModuleScope woscap {
+            $script:previewError = 'pack broke'
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            Should -Not -Invoke Show-WoscapGuiRemediationDialog
+            Should -Invoke Invoke-WoscapGuiScan -Times 1 -Exactly -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
+            $script:shown | Should -Contain 'Remediation failed: pack broke'
+            $script:form.Tag['Run'].Enabled | Should -BeTrue
         }
     }
 
