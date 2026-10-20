@@ -156,7 +156,7 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
             Mock Show-WoscapGuiRemediationReport { 'Rescan' }
             Mock Show-WoscapGuiMessage { }
             # Stand-in for a started scan: Run goes busy.
-            Mock Invoke-WoscapGuiRun { Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $false; $Tag['Status'].Text = 'Scanning...' }
+            Mock Invoke-WoscapGuiRun { Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $false; $Tag['Status'].Text = 'Scanning...'; $true }
             Mock Invoke-WoscapGuiScan {
                 if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
                 else {
@@ -407,12 +407,137 @@ Describe 'Invoke-WoscapGuiRemediate targeting' -Skip:(-not $script:IsSta) {
         }
     }
 
+    It 'Invoke-WoscapGuiRun returns true only when it started a scan' {
+        InModuleScope woscap {
+            @(Invoke-WoscapGuiRun -Tag $script:form.Tag) | Should -Be @($true)
+            $script:form.Tag['Xccdf'].Text = ''
+            @(Invoke-WoscapGuiRun -Tag $script:form.Tag) | Should -Be @($false)
+            $script:form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+            Mock Invoke-WoscapGuiScan { throw 'no runspace' } -ParameterFilter { $Command -ne 'Invoke-WoscapRemediation' }
+            @(Invoke-WoscapGuiRun -Tag $script:form.Tag) | Should -Be @($false)
+        }
+    }
+
     It 'forgets the scan context when a scan fails' {
         InModuleScope woscap {
             Invoke-WoscapGuiRun -Tag $script:form.Tag
             Mock Invoke-WoscapGuiScan { & $OnError -Message 'boom' } -ParameterFilter { $Command -ne 'Invoke-WoscapRemediation' }
             Invoke-WoscapGuiRun -Tag $script:form.Tag
             $script:form.Tag['ResultsContext'] | Should -BeNullOrEmpty
+        }
+    }
+}
+
+Describe 'Invoke-WoscapGuiRemediate outcomes' -Skip:(-not $script:IsSta) {
+    BeforeEach {
+        InModuleScope woscap {
+            $me = $env:COMPUTERNAME
+            $script:form = New-WoscapMainForm
+            foreach ($r in @(
+                [pscustomobject]@{ Host = $me; StigId = 'R-1'; Severity = 'high';   Status = 'Open'; Title = 'r1'; Exception = $null }
+                [pscustomobject]@{ Host = $me; StigId = 'M-1'; Severity = 'medium'; Status = 'Open'; Title = 'm1'; Exception = $null }
+            )) { $script:form.Tag['Results'].Add($r) }
+            $script:form.Tag['ResultsContext'] = @{ Benchmark = 'Windows11'; ContentPath = '' }
+            Update-WoscapGuiView -Tag $script:form.Tag
+            $script:plan = @(
+                [pscustomobject]@{ StigId = 'R-1'; StigIds = @('R-1'); Title = 'r1'; Action = 'a1'; State = 'Planned'; Detail = '' }
+                [pscustomobject]@{ StigId = 'M-1'; StigIds = @('M-1'); Title = 'm1'; Action = 'Manual remediation required'; State = 'Manual'; Detail = 'svc' }
+            )
+            $script:applied = @([pscustomobject]@{ StigId = 'R-1'; StigIds = @('R-1'); Title = 'r1'; Action = 'a1'; State = 'Applied'; After = 'NotAFinding'; Detail = '' })
+            $script:failed  = @([pscustomobject]@{ StigId = 'R-1'; StigIds = @('R-1'); Title = 'r1'; Action = 'a1'; State = 'Failed'; After = ''; Detail = 'denied' })
+            $script:applyResults = $script:applied
+            $script:previewWarning = $null
+            $script:applyOutcome = $null
+            $script:reported = $null
+            $script:shown = @()
+            Mock Show-WoscapGuiMessage { $script:shown += $Text }
+            Mock Test-WoscapGuiElevated { $true }
+            Mock Show-WoscapGuiRemediationDialog { @('R-1') }
+            Mock Show-WoscapGuiRemediationReport { $script:reported = $Result; 'Close' }
+            # Runner order: OnComplete first, then the classified outcome.
+            Mock Invoke-WoscapGuiScan {
+                if ($ScanParameters.ContainsKey('WhatIf')) {
+                    & $OnComplete -Results $script:plan
+                    if ($script:previewWarning) { & $OnWarning -Message $script:previewWarning -Count 2 }
+                } else {
+                    try { & $OnComplete -Results $script:applyResults } catch { & $OnError -Message $_.Exception.Message; return }
+                    if ($script:applyOutcome -eq 'Warning') { & $OnWarning -Message 'apply-w' -Count 1 }
+                }
+            } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
+        }
+    }
+    AfterEach { InModuleScope woscap { $script:form.Dispose() } }
+
+    It 'tells the operator the grid predates the fixes when the report is closed without re-scan' {
+        InModuleScope woscap {
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:form.Tag['Status'].Text | Should -Match 're-scan'
+        }
+    }
+
+    It 'keeps the re-scan notice when a late apply warning arrives' {
+        InModuleScope woscap {
+            $script:applyOutcome = 'Warning'
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:form.Tag['Status'].Text | Should -Match '1 warning'
+            $script:form.Tag['Status'].Text | Should -Match 're-scan'
+        }
+    }
+
+    It 'handles a late apply warning normally when the re-scan could not start' {
+        InModuleScope woscap {
+            Mock Show-WoscapGuiRemediationReport { 'Rescan' }
+            $script:applyOutcome = 'Warning'
+            $script:form.Tag['Xccdf'].Text = ''   # real Run refuses to start without an XCCDF
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:shown | Should -Contain 'Select a valid XCCDF (.xml) file before running.'
+            $script:form.Tag['Status'].Text | Should -Match 'Remediation done \(1 warning'
+            $script:form.Tag['StatusTip'].GetToolTip($script:form.Tag['Status']) | Should -Match 'apply-w'
+            $script:form.Tag['Run'].Enabled | Should -BeTrue
+        }
+    }
+
+    It 'does not claim fixes were applied when none reached State Applied' {
+        InModuleScope woscap {
+            $script:applyResults = $script:failed
+            Mock Show-WoscapGuiRemediationReport { throw 'report broke' }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:shown.Count | Should -Be 1
+            $script:shown[0] | Should -Not -Match 'already applied'
+            $script:shown[0] | Should -Match 'report broke'
+            $script:form.Tag['Status'].Text | Should -Not -Match 're-scan'
+        }
+    }
+
+    It 'surfaces preview warnings on the status line and tooltip when the dialog is cancelled' {
+        InModuleScope woscap {
+            Mock Show-WoscapGuiRemediationDialog { }
+            $script:previewWarning = 'preview-w'
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:form.Tag['Status'].Text | Should -Match 'cancelled'
+            $script:form.Tag['Status'].Text | Should -Match 'Preview: 2 warning'
+            $script:form.Tag['StatusTip'].GetToolTip($script:form.Tag['Status']) | Should -Match 'preview-w'
+        }
+    }
+
+    It 'keeps preview warnings visible after the apply completes' {
+        InModuleScope woscap {
+            $script:previewWarning = 'preview-w'
+            $script:applyOutcome = 'Warning'
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:form.Tag['Status'].Text | Should -Match 'Preview: 2 warning'
+            $tip = $script:form.Tag['StatusTip'].GetToolTip($script:form.Tag['Status'])
+            $tip | Should -Match 'preview-w'
+            $tip | Should -Match 'apply-w'
+        }
+    }
+
+    It 'includes the preview Manual items in the post-apply report' {
+        InModuleScope woscap {
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            @($script:reported | ForEach-Object StigId) | Should -Be @('R-1', 'M-1')
+            $report = New-WoscapGuiRemediationReport -Result @($script:reported)
+            try { $report.Tag['Summary'].Text | Should -Match 'Manual: 1' } finally { $report.Dispose() }
         }
     }
 }

@@ -79,46 +79,47 @@ function Invoke-WoscapGuiRun {
         scan. NAMED function -> resolves module-private helpers on any invocation path.
         Stores the tag in $script:WoscapGuiTag so the scan CALLBACKS (plain scriptblocks
         the executor invokes later) can reach the controls. The GUI is single-window, so
-        one 'current tag' is safe.
+        one 'current tag' is safe. Returns $true only if a scan was started.
     #>
     [CmdletBinding()]
+    [OutputType([bool])]
     param([Parameter(Mandatory)][hashtable] $Tag)
     $script:WoscapGuiTag = $Tag
 
     $xccdfPath = [string]$Tag['Xccdf'].Text
     if ([string]::IsNullOrWhiteSpace($xccdfPath) -or -not (Test-Path -LiteralPath $xccdfPath)) {
         Show-WoscapGuiMessage -Text 'Select a valid XCCDF (.xml) file before running.'
-        return
+        return $false
     }
     $benchmark = [string]$Tag['Benchmark'].SelectedItem
     if ([string]::IsNullOrWhiteSpace($benchmark)) {
         Show-WoscapGuiMessage -Text 'Select a benchmark before running. (No content packs were found under Content/.)'
-        return
+        return $false
     }
     $profiles = @($Tag['Profiles'].Items | ForEach-Object { [string]$_ })
     $missingProfile = @($profiles | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) }) | Select-Object -First 1
     if ($missingProfile) {
         Show-WoscapGuiMessage -Text "Profile not found: $missingProfile"
-        return
+        return $false
     }
     $contentPath = ([string]$Tag['ContentPath'].Text).Trim()
     if ($contentPath -and -not (Test-Path -LiteralPath $contentPath -PathType Container)) {
         Show-WoscapGuiMessage -Text "Content path not found: $contentPath"
-        return
+        return $false
     }
     $jsonPath = ([string]$Tag['JsonPath'].Text).Trim()
     if ($jsonPath) {
         $jsonDir = Split-Path -Path $jsonPath -Parent
         if ($jsonDir -and -not (Test-Path -LiteralPath $jsonDir -PathType Container)) {
             Show-WoscapGuiMessage -Text "JSON output folder not found: $jsonDir"
-            return
+            return $false
         }
     }
     # Credential last: never prompt for one and then reject the run on a bad path.
     $cred = $null
     if ($Tag['UseCred'].Checked) {
         $cred = Get-WoscapGuiCredential
-        if (-not $cred) { return }   # cancelled
+        if (-not $cred) { return $false }   # cancelled
     }
     $splat = ConvertTo-WoscapGuiScanParameter -XccdfPath $xccdfPath `
         -Benchmark $benchmark `
@@ -195,7 +196,7 @@ function Invoke-WoscapGuiRun {
     # Starting the background scan can fail synchronously (runspace BeginInvoke or timer
     # Start). Re-enable the UI on that path so the Run button is never stuck disabled.
     try {
-        Invoke-WoscapGuiScan -ScanParameters $splat -OnProgress $onProgress `
+        $null = Invoke-WoscapGuiScan -ScanParameters $splat -OnProgress $onProgress `
             -OnComplete $onComplete -OnWarning $onWarning -OnError $onError
     } catch {
         Show-WoscapGuiMessage -Text "Could not start scan: $($_.Exception.Message)"
@@ -203,7 +204,9 @@ function Invoke-WoscapGuiRun {
         $Tag['Progress'].Style = 'Continuous'; $Tag['Progress'].Value = 0
         Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled (@($Tag['Results']).Count -gt 0)
         Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $true
+        return $false
     }
+    $true
 }
 
 function Invoke-WoscapGuiExport {

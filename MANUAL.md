@@ -369,7 +369,10 @@ where each automatic fix can be unticked (a merged audit-policy fix lists every
 STIG ID it covers; manual items are greyed and never applied). **Apply** is never
 the default button, and it is disabled unless woscap runs as administrator. Only
 the ticked fixes are applied; a report then shows each fix's State and After
-status and offers **Re-scan**.
+status (plus the preview's manual items) and offers **Re-scan**. If you close it
+without re-scanning, the status line notes that the grid predates the fixes.
+Warnings from the preview or the apply appear on the status line, with the
+detail on hover.
 
 The GUI holds **no** evaluation, exception, or export logic of its own — every
 action calls the corresponding cmdlet, so it can never diverge from the CLI.
