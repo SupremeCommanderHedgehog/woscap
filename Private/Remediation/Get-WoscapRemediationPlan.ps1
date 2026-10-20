@@ -22,7 +22,8 @@ function Get-WoscapRemediationPlan {
         $stig = [string](Get-WoscapObjectProperty $rule 'StigId' '')
         $desc = if ($ContentPack.ContainsKey($stig)) { $ContentPack[$stig] } else { $null }
         if ($desc -is [hashtable] -and $desc.ContainsKey('Type') -and [string]$desc.Type -eq 'AuditPolicy' `
-                -and $desc.ContainsKey('Subcategory') -and $desc.ContainsKey('Expected')) {
+                -and $desc.ContainsKey('Subcategory') -and $desc.ContainsKey('Expected') `
+                -and @('success', 'failure') -contains ([string]$desc.Expected).ToLowerInvariant()) {
             $sub = [string]$desc.Subcategory
             if (-not $auditDirections.ContainsKey($sub)) {
                 $auditDirections[$sub] = [System.Collections.Generic.HashSet[string]]::new()
@@ -94,6 +95,10 @@ function Get-WoscapRemediationPlan {
             'AuditPolicy' {
                 if (-not ($desc.ContainsKey('Subcategory') -and $desc.ContainsKey('Expected'))) {
                     $actions.Add((& $newManual $stig $title 'AuditPolicy' 'AuditPolicy descriptor is incomplete (missing Subcategory or Expected).'))
+                    break
+                }
+                if (@('success', 'failure') -notcontains ([string]$desc.Expected).ToLowerInvariant()) {
+                    $actions.Add((& $newManual $stig $title 'AuditPolicy' "AuditPolicy Expected '$($desc.Expected)' is not Success or Failure, so there is no direction to enable."))
                     break
                 }
                 $sub = [string]$desc.Subcategory

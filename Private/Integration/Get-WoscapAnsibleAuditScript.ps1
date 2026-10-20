@@ -10,7 +10,9 @@ function Get-WoscapAnsibleAuditScript {
         throws on a non-zero auditpol exit code. Subcategory and Directions arrive as
         win_powershell parameters, never interpolated into this text. The inclusion-setting
         parse mirrors ConvertFrom-AuditPolCsv so the playbook agrees with woscap's scan.
-        This function only returns text; it executes nothing.
+        Only auditpol's stdout is parsed; stderr appears solely in failure messages. The
+        script declares SupportsShouldProcess because win_powershell otherwise skips it
+        in check mode. This function only returns text; it executes nothing.
     .OUTPUTS
         System.String
     #>
@@ -19,6 +21,8 @@ function Get-WoscapAnsibleAuditScript {
     param()
 
     @'
+# SupportsShouldProcess: without it win_powershell skips the script under --check.
+[CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [Parameter(Mandatory = $true)] [string] $Subcategory,
     [Parameter(Mandatory = $true)] [string[]] $Directions
@@ -28,8 +32,16 @@ param(
 foreach ($d in $Directions) {
     if (@('success', 'failure') -notcontains $d) { throw "woscap: unknown audit direction '$d'." }
 }
-$out = @(& auditpol /get "/subcategory:$Subcategory" /r 2>&1 | ForEach-Object { "$_" })
-if ($LASTEXITCODE -ne 0) { throw "auditpol /get failed for '$Subcategory' (exit $LASTEXITCODE): $($out -join ' ')" }
+# Returns auditpol's stdout only; stderr is kept out of the CSV but reported on failure.
+function Invoke-WoscapAuditPol([string[]] $ArgList) {
+    $raw = @(& auditpol @ArgList 2>&1)
+    $code = $LASTEXITCODE
+    $stdout = @($raw | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
+    $stderr = @($raw | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
+    if ($code -ne 0) { throw "auditpol $($ArgList[0]) failed for '$Subcategory' (exit $code): $(($stderr + $stdout) -join ' ')" }
+    $stdout
+}
+$out = @(Invoke-WoscapAuditPol @('/get', "/subcategory:$Subcategory", '/r'))
 $row = @($out | Where-Object { $_.Trim() } | ConvertFrom-Csv | Where-Object { $_.'Subcategory' }) | Select-Object -First 1
 if (-not $row) { throw "auditpol returned no row for '$Subcategory'." }
 $setting = [string]$row.'Inclusion Setting'
@@ -41,7 +53,6 @@ if ($Ansible.CheckMode) { return }
 $setArgs = @('/set', "/subcategory:$Subcategory")
 if ($missing -contains 'success') { $setArgs += '/success:enable' }
 if ($missing -contains 'failure') { $setArgs += '/failure:enable' }
-$out = @(& auditpol @setArgs 2>&1 | ForEach-Object { "$_" })
-if ($LASTEXITCODE -ne 0) { throw "auditpol /set failed for '$Subcategory' (exit $LASTEXITCODE): $($out -join ' ')" }
+$null = Invoke-WoscapAuditPol $setArgs
 '@
 }

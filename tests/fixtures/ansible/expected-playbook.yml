@@ -2,12 +2,12 @@
 - name: woscap STIG remediation
   hosts: all
   tasks:
-    - name: WN11-00-000032 - MinimumPIN
+    - name: "WN11-00-000032 - MinimumPIN"
       win_regedit:
-        path: HKLM:\SOFTWARE\Policies\Microsoft\FVE
-        name: MinimumPIN
+        path: "HKLM:\\SOFTWARE\\Policies\\Microsoft\\FVE"
+        name: "MinimumPIN"
         data: 6
-        type: dword
+        type: "dword"
     - name: "Audit policy: Credential Validation"
       ansible.windows.win_powershell:
         parameters:
@@ -15,6 +15,8 @@
           Directions:
             - success
         script: |
+          # SupportsShouldProcess: without it win_powershell skips the script under --check.
+          [CmdletBinding(SupportsShouldProcess = $true)]
           param(
               [Parameter(Mandatory = $true)] [string] $Subcategory,
               [Parameter(Mandatory = $true)] [string[]] $Directions
@@ -24,8 +26,16 @@
           foreach ($d in $Directions) {
               if (@('success', 'failure') -notcontains $d) { throw "woscap: unknown audit direction '$d'." }
           }
-          $out = @(& auditpol /get "/subcategory:$Subcategory" /r 2>&1 | ForEach-Object { "$_" })
-          if ($LASTEXITCODE -ne 0) { throw "auditpol /get failed for '$Subcategory' (exit $LASTEXITCODE): $($out -join ' ')" }
+          # Returns auditpol's stdout only; stderr is kept out of the CSV but reported on failure.
+          function Invoke-WoscapAuditPol([string[]] $ArgList) {
+              $raw = @(& auditpol @ArgList 2>&1)
+              $code = $LASTEXITCODE
+              $stdout = @($raw | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
+              $stderr = @($raw | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
+              if ($code -ne 0) { throw "auditpol $($ArgList[0]) failed for '$Subcategory' (exit $code): $(($stderr + $stdout) -join ' ')" }
+              $stdout
+          }
+          $out = @(Invoke-WoscapAuditPol @('/get', "/subcategory:$Subcategory", '/r'))
           $row = @($out | Where-Object { $_.Trim() } | ConvertFrom-Csv | Where-Object { $_.'Subcategory' }) | Select-Object -First 1
           if (-not $row) { throw "auditpol returned no row for '$Subcategory'." }
           $setting = [string]$row.'Inclusion Setting'
@@ -37,6 +47,5 @@
           $setArgs = @('/set', "/subcategory:$Subcategory")
           if ($missing -contains 'success') { $setArgs += '/success:enable' }
           if ($missing -contains 'failure') { $setArgs += '/failure:enable' }
-          $out = @(& auditpol @setArgs 2>&1 | ForEach-Object { "$_" })
-          if ($LASTEXITCODE -ne 0) { throw "auditpol /set failed for '$Subcategory' (exit $LASTEXITCODE): $($out -join ' ')" }
+          $null = Invoke-WoscapAuditPol $setArgs
     # manual: WN11-99-000001 - Some manual-only rule (CheckType 'Script' has no Ansible mapping)

@@ -188,6 +188,35 @@ Describe 'Get-WoscapRemediationPlan' {
             $audit.Audit.Directions | Should -Be @('success')
         }
     }
+    It 'makes an AuditPolicy rule Manual when Expected is not Success or Failure' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ StigId = 'A-8'; Title = 'Odd'; Status = 'Open' })
+            $pack  = @{ 'A-8' = @{ Type = 'AuditPolicy'; Subcategory = 'Logon'; Expected = 'Bogus' } }
+            $plan  = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)
+            $plan.Count | Should -Be 1
+            $plan[0].Type         | Should -Be 'Manual'
+            $plan[0].CheckType    | Should -Be 'AuditPolicy'
+            $plan[0].ManualReason | Should -Match "'Bogus'"
+        }
+    }
+    It 'never emits an AuditPolicy action with empty Directions; valid siblings still merge' {
+        InModuleScope woscap {
+            $rules = @(
+                [pscustomobject]@{ StigId = 'A-8'; Title = 'Odd'; Status = 'Open' },
+                [pscustomobject]@{ StigId = 'A-9'; Title = 'Fail'; Status = 'Open' }
+            )
+            $pack = @{
+                'A-8' = @{ Type = 'AuditPolicy'; Subcategory = 'Logon'; Expected = 'Bogus' }
+                'A-9' = @{ Type = 'AuditPolicy'; Subcategory = 'Logon'; Expected = 'FAILURE' }
+            }
+            $plan  = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)
+            $audit = @($plan | Where-Object { $_.Type -eq 'AuditPolicy' })
+            $audit.Count | Should -Be 1
+            $audit[0].Audit.Directions | Should -Be @('failure')
+            @($audit[0].StigIds) | Should -Be @('A-9')
+            @($plan | Where-Object { $_.Type -eq 'Manual' }).StigId | Should -Be 'A-8'
+        }
+    }
     It 'reports an unsupported CheckType as Manual with a reason' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ StigId = 'S-1'; Title = 'Svc rule'; Status = 'Open' })
