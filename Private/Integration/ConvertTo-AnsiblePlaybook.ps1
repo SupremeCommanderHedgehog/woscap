@@ -9,6 +9,7 @@ function ConvertTo-AnsiblePlaybook {
     # remediation truth). This function only RENDERS the plan as an Ansible playbook.
     $plan = Get-WoscapRemediationPlan -FailedRule $FailedRule -ContentPack $ContentPack
 
+    $auditScript = (Get-WoscapAnsibleAuditScript).TrimEnd()
     $sb = [System.Text.StringBuilder]::new()
     [void]$sb.AppendLine('---')
     [void]$sb.AppendLine('- name: woscap STIG remediation')
@@ -19,42 +20,45 @@ function ConvertTo-AnsiblePlaybook {
         switch ($action.Type) {
             'Registry' {
                 $reg = $action.Registry
-                [void]$sb.AppendLine("    - name: $($action.StigId) - $($action.Title)")
+                # Quote every scalar so YAML cannot re-type ('yes', '10') or misparse it.
+                # A dword stays a bare integer: the planner guarantees it is an Int32.
+                $data = if ($reg.Kind -eq 'dword') { [string][int]$reg.Data } else { ConvertTo-WoscapYamlString ([string]$reg.Data) }
+                [void]$sb.AppendLine("    - name: $(ConvertTo-WoscapYamlString "$($action.StigId) - $($action.Title)")")
                 [void]$sb.AppendLine('      win_regedit:')
-                [void]$sb.AppendLine("        path: $($reg.Path)")
-                [void]$sb.AppendLine("        name: $($reg.Name)")
-                [void]$sb.AppendLine("        data: $($reg.Data)")
-                [void]$sb.AppendLine("        type: $($reg.Kind)")
+                [void]$sb.AppendLine("        path: $(ConvertTo-WoscapYamlString ([string]$reg.Path))")
+                [void]$sb.AppendLine("        name: $(ConvertTo-WoscapYamlString ([string]$reg.Name))")
+                [void]$sb.AppendLine("        data: $data")
+                [void]$sb.AppendLine("        type: $(ConvertTo-WoscapYamlString ([string]$reg.Kind))")
             }
             'AuditPolicy' {
-                $dirs = $action.Audit.Directions
-                $auditType = if (($dirs -contains 'success') -and ($dirs -contains 'failure')) {
-                    'success and failure'
-                } elseif ($dirs -contains 'failure') {
-                    'failure'
-                } else {
-                    'success'
+                # Enable-only win_powershell task (#21): win_audit_policy_system sets
+                # absolute state and would disable already-compliant directions.
+                $sub = [string]$action.Audit.Subcategory
+                [void]$sb.AppendLine("    - name: $(ConvertTo-WoscapYamlString "Audit policy: $sub")")
+                [void]$sb.AppendLine('      ansible.windows.win_powershell:')
+                [void]$sb.AppendLine('        parameters:')
+                [void]$sb.AppendLine("          Subcategory: $(ConvertTo-WoscapYamlString $sub)")
+                [void]$sb.AppendLine('          Directions:')
+                foreach ($dir in $action.Audit.Directions) {
+                    [void]$sb.AppendLine("            - $dir")
                 }
-                $sub = $action.Audit.Subcategory
-                # Quote the name: an unquoted "Audit policy: <sub>" embeds a ': ' which YAML
-                # reads as a mapping indicator, so ansible-playbook would refuse to parse it.
-                [void]$sb.AppendLine("    - name: `"Audit policy: $sub`"")
-                [void]$sb.AppendLine('      win_audit_policy_system:')
-                [void]$sb.AppendLine("        subcategory: $sub")
-                [void]$sb.AppendLine("        audit_type: $auditType")
+                [void]$sb.AppendLine('        script: |')
+                foreach ($line in ($auditScript -split '\r?\n')) {
+                    [void]$sb.AppendLine($(if ($line) { "          $line" } else { '' }))
+                }
             }
             'Manual' {
-                # Registry uses the planner's reason, which names the operator that blocked the write.
+                # Registry/AuditPolicy use the planner's reason (it names what blocked the fix).
                 # Other types keep their Ansible-specific wording (pinned by the golden file).
-                $reason = if ($action.CheckType -eq 'Registry') {
-                    # A newline would end the YAML comment early.
-                    [string]$action.ManualReason -replace '[\r\n]+', ' '
-                } elseif ($action.CheckType -eq 'AuditPolicy') {
-                    'AuditPolicy descriptor missing Subcategory/Expected'
+                $reason = if ($action.CheckType -in @('Registry', 'AuditPolicy')) {
+                    [string]$action.ManualReason
                 } else {
                     "CheckType '$($action.CheckType)' has no Ansible mapping"
                 }
-                [void]$sb.AppendLine("    # manual: $($action.StigId) - $($action.Title) ($reason)")
+                # Line breaks (incl. NEL, U+2028/9) would end the comment early; other
+                # controls are not allowed in YAML at all.
+                $comment = "$($action.StigId) - $($action.Title) ($reason)" -replace '[\p{Cc}\p{Cf}\p{Cs}\p{Cn}\p{Zl}\p{Zp}]+', ' '
+                [void]$sb.AppendLine("    # manual: $comment")
             }
         }
     }

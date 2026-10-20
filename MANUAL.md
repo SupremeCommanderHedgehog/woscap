@@ -442,8 +442,8 @@ uses the same rules and writes a `# manual:` line for each of these.
 **Audit policy only ever enables:** an AuditPolicy fix runs
 `auditpol /set /subcategory:<name>` with `/success:enable` and/or
 `/failure:enable` for the directions the Open rules require. It never passes
-`disable`, so a direction that is already audited is left on. (The Ansible
-playbook emitter still sets absolute state; see #21.)
+`disable`, so a direction that is already audited is left on. The Ansible
+playbook emitter follows the same enable-only rule (#21).
 
 **Gating:** the cmdlet declares `SupportsShouldProcess` with `ConfirmImpact='High'`,
 so it prompts before each write by default.
@@ -548,9 +548,19 @@ them, and a plugin failure only warns — it never aborts a scan.
   IP-vs-computername hosts via the `-Config` `HostMap`/`ResolveDns` keys (#52). It can
   also **trigger a live scan over GMP** (`Invoke-WoscapIntegration`, #23) — see below.
 - **Ansible** parses an INI or YAML inventory into a target list, and emits a
-  remediation **playbook** (`win_regedit` / `win_audit_policy_system` / …) derived
-  from the same check descriptors the engine evaluates. Rules with no automatable
-  fix are emitted as `# manual:` comments, never silently dropped.
+  remediation **playbook** derived from the same check descriptors the engine
+  evaluates: `win_regedit` tasks for Registry fixes and one
+  `ansible.windows.win_powershell` task per audit subcategory. Rules with no
+  automatable fix are emitted as `# manual:` comments, never silently dropped.
+- **Audit tasks are enable-only and idempotent (#21).** Each audit task reads the
+  subcategory's current setting (`auditpol /get /subcategory:<name> /r`, parsed
+  the same way the scan parses it) and runs `auditpol /set` with only the missing
+  `/success:enable` / `/failure:enable` flags. It never passes `disable`, so a
+  direction that is already audited stays on. It reports `changed` only when it
+  enabled something, honors `--check` (reports would-change, sets nothing), and
+  fails the task on a non-zero auditpol exit code. The subcategory and directions
+  are passed as task `parameters:`, never spliced into the script text. Requires
+  the `ansible.windows` collection (which provides `win_powershell`).
 - **Zabbix** pushes per-host posture metrics (`woscap.open.cat1/2/3`,
   `compliance.pct`, exception counts) over the **Zabbix sender protocol** using
   in-box `System.Net.Sockets` — no `zabbix_sender` binary required.

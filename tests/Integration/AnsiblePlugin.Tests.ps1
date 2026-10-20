@@ -24,7 +24,7 @@ Describe 'Ansible plugin' {
         try {
             $out = Export-WoscapIntegration -Integration 'Ansible' -PluginPath $script:PluginDir -Result $failed -Remediation -Path $tmp
             $out | Should -Be $tmp
-            Get-Content $tmp -Raw | Should -Match 'win_audit_policy_system'
+            Get-Content $tmp -Raw | Should -Match 'ansible\.windows\.win_powershell:'
         } finally { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
     }
     It 'New-Remediation still emits (no throw) for a result lacking a Title property' {
@@ -36,7 +36,7 @@ Describe 'Ansible plugin' {
             { Export-WoscapIntegration -Integration 'Ansible' -PluginPath $script:PluginDir -Result $failed -Remediation -Path $tmp } | Should -Not -Throw
             $out = Export-WoscapIntegration -Integration 'Ansible' -PluginPath $script:PluginDir -Result $failed -Remediation -Path $tmp
             $out | Should -Be $tmp
-            Get-Content $tmp -Raw | Should -Match 'win_audit_policy_system'
+            Get-Content $tmp -Raw | Should -Match 'ansible\.windows\.win_powershell:'
         } finally { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
     }
     It 'writes the playbook as BOM-less UTF-8 (ansible-playbook cannot parse a BOM)' {
