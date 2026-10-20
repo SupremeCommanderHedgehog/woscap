@@ -8,6 +8,18 @@ function Set-WoscapGuiRemediationBusy {
     if ($Status) { $Tag['Status'].Text = $Status }
 }
 
+function Get-WoscapGuiRemediationFailureText {
+    <# Once apply results are delivered the system has changed; never call a later failure 'Remediation failed'. #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][hashtable] $Tag, [string] $Message = '', [string] $Default = 'Remediation failed')
+    if ($Tag['RemediationDelivered']) {
+        "Fixes were already applied, but a follow-up step failed: $Message"
+    } else {
+        "${Default}: $Message"
+    }
+}
+
 function Invoke-WoscapGuiRemediate {
     <#
         Remediate action: pick local Open findings (selection, else all), preview them
@@ -33,6 +45,7 @@ function Invoke-WoscapGuiRemediate {
     $Tag['RemediationBase'] = $base
     $Tag['RemediationTarget'] = $target
     $Tag['RemediationRescan'] = $false
+    $Tag['RemediationDelivered'] = $false
 
     $preview = $base.Clone()
     $preview['Result'] = @($target.Findings)
@@ -91,6 +104,7 @@ function Start-WoscapGuiRemediationApply {
     $onApplied = {
         param($Results)
         $t = $script:WoscapGuiTag
+        $t['RemediationDelivered'] = @($Results).Count -gt 0
         Set-WoscapGuiRemediationBusy -Tag $t -Busy $false -Status 'Remediation done.'
         if ((Show-WoscapGuiRemediationReport -Result @($Results)) -eq 'Rescan') {
             $t['RemediationRescan'] = $true
@@ -109,7 +123,7 @@ function Start-WoscapGuiRemediationApply {
     $onError = {
         param($Message)
         $t = $script:WoscapGuiTag
-        Show-WoscapGuiMessage -Text "Remediation failed: $Message"
+        Show-WoscapGuiMessage -Text (Get-WoscapGuiRemediationFailureText -Tag $t -Message $Message)
         if ($t['RemediationRescan']) { return }
         Set-WoscapGuiRemediationBusy -Tag $t -Busy $false -Status 'Remediation failed.'
     }
@@ -118,7 +132,8 @@ function Start-WoscapGuiRemediationApply {
         Invoke-WoscapGuiScan -Command 'Invoke-WoscapRemediation' -ScanParameters $apply `
             -OnComplete $onApplied -OnWarning $onWarning -OnError $onError
     } catch {
-        Show-WoscapGuiMessage -Text "Could not start remediation: $($_.Exception.Message)"
+        Show-WoscapGuiMessage -Text (Get-WoscapGuiRemediationFailureText -Tag $Tag -Message $_.Exception.Message -Default 'Could not start remediation')
+        if ($Tag['RemediationRescan']) { return }
         Set-WoscapGuiRemediationBusy -Tag $Tag -Busy $false -Status 'Failed.'
     }
 }

@@ -165,6 +165,125 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
         }
     }
 
+    It 'says fixes were applied when a step after delivering apply results fails' {
+        InModuleScope woscap {
+            Mock Get-WoscapGuiSelectedResult { @() }
+            Mock Test-WoscapGuiElevated { $true }
+            Mock Show-WoscapGuiRemediationDialog { @('R-1') }
+            Mock Show-WoscapGuiRemediationReport { throw 'report broke' }
+            $script:shown = @()
+            Mock Show-WoscapGuiMessage { $script:shown += $Text }
+            Mock Invoke-WoscapGuiScan {
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                else {
+                    # Mirrors the runner's tick catch: a throwing OnComplete is routed to OnError.
+                    try { & $OnComplete -Results $script:applied } catch { & $OnError -Message $_.Exception.Message }
+                }
+            } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:shown.Count | Should -Be 1
+            $script:shown[0] | Should -Not -Match 'Remediation failed'
+            $script:shown[0] | Should -Match 'already applied'
+            $script:shown[0] | Should -Match 'report broke'
+            $script:form.Tag['Run'].Enabled       | Should -BeTrue
+            $script:form.Tag['Remediate'].Enabled | Should -BeTrue
+        }
+    }
+
+    It 'says fixes were applied when the report throws straight out of the runner call' {
+        InModuleScope woscap {
+            Mock Get-WoscapGuiSelectedResult { @() }
+            Mock Test-WoscapGuiElevated { $true }
+            Mock Show-WoscapGuiRemediationDialog { @('R-1') }
+            Mock Show-WoscapGuiRemediationReport { throw 'report broke' }
+            $script:shown = @()
+            Mock Show-WoscapGuiMessage { $script:shown += $Text }
+            Mock Invoke-WoscapGuiScan {
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                else { & $OnComplete -Results $script:applied }
+            } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:shown.Count | Should -Be 1
+            $script:shown[0] | Should -Match 'already applied'
+            $script:shown[0] | Should -Not -Match 'Remediation failed|Could not start'
+            $script:form.Tag['Run'].Enabled | Should -BeTrue
+        }
+    }
+
+    It 'keeps the Remediation failed wording when apply delivers no results' {
+        InModuleScope woscap {
+            Mock Get-WoscapGuiSelectedResult { @() }
+            Mock Test-WoscapGuiElevated { $true }
+            Mock Show-WoscapGuiRemediationDialog { @('R-1') }
+            Mock Show-WoscapGuiRemediationReport { 'Close' }
+            $script:shown = @()
+            Mock Show-WoscapGuiMessage { $script:shown += $Text }
+            Mock Invoke-WoscapGuiScan {
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                else { & $OnComplete -Results @(); & $OnError -Message 'access denied' }
+            } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:shown[-1] | Should -Match 'Remediation failed: access denied'
+        }
+    }
+
+    It 'applies only valid local Open findings even if the dialog returns other StigIds' {
+        InModuleScope woscap {
+            Mock Get-WoscapGuiSelectedResult { @() }
+            Mock Test-WoscapGuiElevated { $true }
+            Mock Show-WoscapGuiRemediationDialog { @('R-4', 'R-3', 'R-1') }
+            Mock Show-WoscapGuiRemediationReport { 'Close' }
+            Mock Invoke-WoscapGuiScan {
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                else { $script:applyParams = $ScanParameters; & $OnComplete -Results $script:applied }
+            } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            @($script:applyParams['Result'] | ForEach-Object StigId) | Should -Be @('R-1')
+        }
+    }
+
+    It 'applies the preview-time findings even if Results change before apply' {
+        InModuleScope woscap {
+            Mock Get-WoscapGuiSelectedResult { @() }
+            Mock Test-WoscapGuiElevated { $true }
+            Mock Show-WoscapGuiRemediationDialog {
+                $script:form.Tag['Results'].Clear()
+                $script:form.Tag['Results'].Add([pscustomobject]@{ Host = $env:COMPUTERNAME; StigId = 'R-9'; Severity = 'high'; Status = 'Open'; Title = 'r9'; Exception = $null })
+                @('R-1', 'R-2', 'R-9')
+            }
+            Mock Show-WoscapGuiRemediationReport { 'Close' }
+            Mock Invoke-WoscapGuiScan {
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+                else { $script:applyParams = $ScanParameters; & $OnComplete -Results $script:applied }
+            } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            @($script:applyParams['Result'] | ForEach-Object StigId) | Should -Be @('R-1', 'R-2')
+            @($script:applyParams['Result'])[0] | Should -Be $script:local1
+        }
+    }
+
+    It 'never applies when the confirmation dialog throws, and re-enables Run and Remediate' {
+        InModuleScope woscap {
+            Mock Get-WoscapGuiSelectedResult { @() }
+            Mock Test-WoscapGuiElevated { $true }
+            Mock Show-WoscapGuiRemediationDialog { throw 'dialog broke' }
+            Mock Show-WoscapGuiRemediationReport { 'Close' }
+            Mock Show-WoscapGuiMessage { }
+            $script:calls = 0
+            Mock Invoke-WoscapGuiScan {
+                $script:calls++
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnComplete -Results $script:plan }
+            } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            $script:calls | Should -Be 1 -Because 'only the preview may run'
+            Should -Not -Invoke Show-WoscapGuiRemediationReport
+            $script:form.Tag['Run'].Enabled           | Should -BeTrue
+            $script:form.Tag['MenuRun'].Enabled       | Should -BeTrue
+            $script:form.Tag['Remediate'].Enabled     | Should -BeTrue
+            $script:form.Tag['MenuRemediate'].Enabled | Should -BeTrue
+        }
+    }
+
     It 'reports a preview failure and re-enables Run and Remediate' {
         InModuleScope woscap {
             Mock Get-WoscapGuiSelectedResult { @() }
