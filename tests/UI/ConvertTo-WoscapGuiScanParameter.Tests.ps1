@@ -24,10 +24,36 @@ Describe 'ConvertTo-WoscapGuiScanParameter' {
             $p.ContainsKey('ComputerName') | Should -BeFalse
         }
     }
-    It 'includes ProfilePath when set and omits it when blank' {
+    It 'passes multiple profiles in order and drops blank entries' {
         InModuleScope woscap {
-            (ConvertTo-WoscapGuiScanParameter -XccdfPath 'C:\x.xml' -Benchmark 'Windows11' -ProfilePath 'C:\p.psd1')['ProfilePath'] | Should -Be 'C:\p.psd1'
+            $p = ConvertTo-WoscapGuiScanParameter -XccdfPath 'C:\x.xml' -Benchmark 'Windows11' -ProfilePath @('C:\a.psd1', '  ', 'C:\b.psd1')
+            @($p['ProfilePath']) | Should -Be @('C:\a.psd1', 'C:\b.psd1')
+        }
+    }
+    It 'omits ProfilePath when no non-blank profile is given' {
+        InModuleScope woscap {
             (ConvertTo-WoscapGuiScanParameter -XccdfPath 'C:\x.xml' -Benchmark 'Windows11').ContainsKey('ProfilePath') | Should -BeFalse
+            (ConvertTo-WoscapGuiScanParameter -XccdfPath 'C:\x.xml' -Benchmark 'Windows11' -ProfilePath @(' ')).ContainsKey('ProfilePath') | Should -BeFalse
+        }
+    }
+    It 'includes ContentPath when set and omits it when blank' {
+        InModuleScope woscap {
+            (ConvertTo-WoscapGuiScanParameter -XccdfPath 'C:\x.xml' -Benchmark 'Windows11' -ContentPath 'D:\pack')['ContentPath'] | Should -Be 'D:\pack'
+            (ConvertTo-WoscapGuiScanParameter -XccdfPath 'C:\x.xml' -Benchmark 'Windows11' -ContentPath ' ').ContainsKey('ContentPath') | Should -BeFalse
+        }
+    }
+    It 'includes JsonPath when set and omits it when blank' {
+        InModuleScope woscap {
+            (ConvertTo-WoscapGuiScanParameter -XccdfPath 'C:\x.xml' -Benchmark 'Windows11' -JsonPath 'C:\o\r.json')['JsonPath'] | Should -Be 'C:\o\r.json'
+            (ConvertTo-WoscapGuiScanParameter -XccdfPath 'C:\x.xml' -Benchmark 'Windows11' -JsonPath '').ContainsKey('JsonPath') | Should -BeFalse
+        }
+    }
+    It 'includes ThrottleLimit only when it differs from the cmdlet default' {
+        InModuleScope woscap {
+            $default = (Get-WoscapGuiScanDefault).ThrottleLimit
+            (ConvertTo-WoscapGuiScanParameter -XccdfPath 'C:\x.xml' -Benchmark 'Windows11' -ThrottleLimit $default).ContainsKey('ThrottleLimit') | Should -BeFalse
+            (ConvertTo-WoscapGuiScanParameter -XccdfPath 'C:\x.xml' -Benchmark 'Windows11' -ThrottleLimit ($default + 4))['ThrottleLimit'] | Should -Be ($default + 4)
+            (ConvertTo-WoscapGuiScanParameter -XccdfPath 'C:\x.xml' -Benchmark 'Windows11').ContainsKey('ThrottleLimit') | Should -BeFalse
         }
     }
     It 'includes Credential when supplied' {
