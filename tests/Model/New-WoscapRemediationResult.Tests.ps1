@@ -28,4 +28,14 @@ Describe 'New-WoscapRemediationResult' {
             { New-WoscapRemediationResult -StigId 'x' -Title 't' -CheckType '' -Action 'a' -State 'Bogus' } | Should -Throw
         }
     }
+    It 'defaults StigIds to the single StigId' {
+        InModuleScope woscap {
+            @((New-WoscapRemediationResult -StigId 'R-1' -Title 't' -CheckType 'Registry' -Action 'a' -State 'Planned').StigIds) | Should -Be @('R-1')
+        }
+    }
+    It 'carries explicit StigIds' {
+        InModuleScope woscap {
+            @((New-WoscapRemediationResult -StigId 'A-1' -StigIds @('A-1','A-2') -Title 't' -CheckType 'AuditPolicy' -Action 'a' -State 'Planned').StigIds) | Should -Be @('A-1','A-2')
+        }
+    }
 }

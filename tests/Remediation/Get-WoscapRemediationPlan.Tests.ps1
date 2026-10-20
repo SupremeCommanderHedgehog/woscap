@@ -93,4 +93,36 @@ Describe 'Get-WoscapRemediationPlan' {
             @(Get-WoscapRemediationPlan -FailedRule @() -ContentPack @{}).Count | Should -Be 0
         }
     }
+    It 'gives a Registry action StigIds of just its own rule' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ StigId = 'R-1'; Title = 'r'; Status = 'Open' })
+            $pack  = @{ 'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Expected = 1 } }
+            @((Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)[0].StigIds) | Should -Be @('R-1')
+        }
+    }
+    It 'gives a merged AuditPolicy action StigIds of every rule in its subcategory, in input order' {
+        InModuleScope woscap {
+            $rules = @(
+                [pscustomobject]@{ StigId = 'A-2'; Title = 'f'; Status = 'Open' }
+                [pscustomobject]@{ StigId = 'X-1'; Title = 'x'; Status = 'Open' }
+                [pscustomobject]@{ StigId = 'A-1'; Title = 's'; Status = 'Open' }
+            )
+            $pack = @{
+                'A-1' = @{ Type = 'AuditPolicy'; Subcategory = 'Logon';  Expected = 'Success' }
+                'A-2' = @{ Type = 'AuditPolicy'; Subcategory = 'Logon';  Expected = 'Failure' }
+                'X-1' = @{ Type = 'AuditPolicy'; Subcategory = 'Logoff'; Expected = 'Success' }
+            }
+            $plan = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)
+            $plan.Count | Should -Be 2
+            $logon = $plan | Where-Object { $_.Audit.Subcategory -eq 'Logon' }
+            @($logon.StigIds) | Should -Be @('A-2', 'A-1')
+            @(($plan | Where-Object { $_.Audit.Subcategory -eq 'Logoff' }).StigIds) | Should -Be @('X-1')
+        }
+    }
+    It 'gives a Manual action StigIds of just its own rule' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ StigId = 'M-1'; Title = 'm'; Status = 'Open' })
+            @((Get-WoscapRemediationPlan -FailedRule $rules -ContentPack @{})[0].StigIds) | Should -Be @('M-1')
+        }
+    }
 }

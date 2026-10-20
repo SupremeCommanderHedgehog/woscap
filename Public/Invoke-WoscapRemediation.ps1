@@ -43,7 +43,7 @@ function Invoke-WoscapRemediation {
         $results = [System.Collections.Generic.List[object]]::new()
         foreach ($action in $plan) {
             if ($action.Type -eq 'Manual') {
-                $results.Add((New-WoscapRemediationResult -StigId $action.StigId -Title $action.Title `
+                $results.Add((New-WoscapRemediationResult -StigId $action.StigId -StigIds $action.StigIds -Title $action.Title `
                     -CheckType $action.CheckType -Action 'Manual remediation required' `
                     -State 'Manual' -Detail $action.ManualReason))
                 continue
@@ -58,7 +58,7 @@ function Invoke-WoscapRemediation {
             if (-not $PSCmdlet.ShouldProcess("$env:COMPUTERNAME: $($action.StigId)", $summary)) {
                 $state  = if ($WhatIfPreference) { 'Planned' } else { 'Skipped' }
                 $detail = if ($WhatIfPreference) { 'WhatIf: not applied.' } else { 'Declined at confirmation prompt.' }
-                $results.Add((New-WoscapRemediationResult -StigId $action.StigId -Title $action.Title `
+                $results.Add((New-WoscapRemediationResult -StigId $action.StigId -StigIds $action.StigIds -Title $action.Title `
                     -CheckType $action.CheckType -Action $summary -State $state -Detail $detail))
                 continue
             }
@@ -87,10 +87,10 @@ function Invoke-WoscapRemediation {
                     'Fail'  { 'Open' }
                     default { 'Error' }
                 }
-                $results.Add((New-WoscapRemediationResult -StigId $action.StigId -Title $action.Title `
+                $results.Add((New-WoscapRemediationResult -StigId $action.StigId -StigIds $action.StigIds -Title $action.Title `
                     -CheckType $action.CheckType -Action $summary -State 'Applied' -After $after -Detail ''))
             } catch {
-                $results.Add((New-WoscapRemediationResult -StigId $action.StigId -Title $action.Title `
+                $results.Add((New-WoscapRemediationResult -StigId $action.StigId -StigIds $action.StigIds -Title $action.Title `
                     -CheckType $action.CheckType -Action $summary -State 'Failed' -Detail "$_"))
             }
         }
