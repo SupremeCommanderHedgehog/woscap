@@ -67,10 +67,23 @@ Describe 'Resolve-WoscapGuiDisaTerms' {
 }
 
 Describe 'Show-WoscapGuiDisaTermsDialog seam' {
-    It 'exists so the gate can be mocked, and fails closed until the real dialog lands' {
-        InModuleScope woscap {
-            Get-Command Show-WoscapGuiDisaTermsDialog -ErrorAction Stop | Should -Not -BeNullOrEmpty
-            { Show-WoscapGuiDisaTermsDialog -Notice 'x' } | Should -Throw
+    # The real dialog is modal; a stand-in form keeps the seam testable without ShowDialog.
+    It 'returns <Expect> for DialogResult <Result>' -ForEach @(
+        @{ Result = 'Cancel'; Remember = $true;  Expect = 'null' }
+        @{ Result = 'OK';     Remember = $false; Expect = 'Remember=False' }
+        @{ Result = 'OK';     Remember = $true;  Expect = 'Remember=True' }
+    ) {
+        InModuleScope woscap -Parameters @{ Result = $Result; Remember = $Remember; Expect = $Expect } {
+            param($Result, $Remember, $Expect)
+            $fake = [pscustomobject]@{ Tag = @{ Remember = [pscustomobject]@{ Checked = $Remember } }; Result = $Result; Disposed = $false }
+            $fake | Add-Member ScriptMethod ShowDialog { [System.Windows.Forms.DialogResult]$this.Result }
+            $fake | Add-Member ScriptMethod Dispose { $this.Disposed = $true }
+            Mock New-WoscapGuiDisaTermsDialog { $fake }.GetNewClosure()
+            $r = Show-WoscapGuiDisaTermsDialog -Notice 'x'
+            $got = if ($null -eq $r) { 'null' } else { 'Remember=' + $r['Remember'] }
+            $got | Should -Be $Expect
+            $fake.Disposed | Should -BeTrue
+            Should -Invoke New-WoscapGuiDisaTermsDialog -Times 1 -Exactly -ParameterFilter { $Notice -eq 'x' }
         }
     }
 }
