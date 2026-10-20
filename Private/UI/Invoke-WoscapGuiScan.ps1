@@ -1,6 +1,6 @@
 function Invoke-WoscapGuiScan {
     <#
-        Runs Invoke-WoscapScan in a background runspace so the WinForms UI stays
+        Runs Invoke-WoscapScan (or, with -Command, Invoke-WoscapRemediation) in a background runspace so the WinForms UI stays
         responsive. A WinForms Timer polls the runspace's Progress stream and
         completion state, firing the supplied callbacks ON THE UI THREAD (the Timer
         ticks there). Non-blocking: returns immediately after starting the timer.
@@ -19,6 +19,8 @@ function Invoke-WoscapGuiScan {
     #>
     [CmdletBinding()]
     param(
+        [ValidateSet('Invoke-WoscapScan', 'Invoke-WoscapRemediation')]
+        [string] $Command = 'Invoke-WoscapScan',
         [Parameter(Mandatory)] [hashtable] $ScanParameters,
         [scriptblock] $OnProgress,
         [scriptblock] $OnComplete,
@@ -33,8 +35,9 @@ function Invoke-WoscapGuiScan {
         # Fresh runspace: no -Force needed (nothing is loaded yet). No -Quiet either --
         # the Write-Host summary lands harmlessly in this runspace's Information stream,
         # while the engine's Write-Progress must reach $ps.Streams.Progress for the bar.
-        [void]$ps.AddScript('param($mf, $sp) Import-Module $mf; Invoke-WoscapScan @sp')
+        [void]$ps.AddScript('param($mf, $cmd, $sp) Import-Module $mf; & $cmd @sp')
         [void]$ps.AddArgument($manifest)
+        [void]$ps.AddArgument($Command)
         [void]$ps.AddArgument($ScanParameters)
         $async = $ps.BeginInvoke()
     } catch {

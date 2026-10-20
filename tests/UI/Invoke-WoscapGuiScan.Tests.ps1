@@ -55,4 +55,31 @@ Describe 'Invoke-WoscapGuiScan' -Skip:(-not $script:IsSta) {
             $progress.Count | Should -BeGreaterThan 0 -Because 'the per-rule Write-Progress must reach OnProgress'
         }
     }
+
+    It 'rejects a command outside the allowlist' {
+        InModuleScope woscap {
+            { Invoke-WoscapGuiScan -Command 'Get-Process' -ScanParameters @{} } | Should -Throw
+        }
+    }
+
+    It 'runs Invoke-WoscapRemediation in the background when asked' {
+        # Empty input + -WhatIf: the cmdlet plans nothing and can write nothing.
+        InModuleScope woscap {
+            $done   = @{ Called = $false; Count = -1 }
+            $errors = [System.Collections.ArrayList]::new()
+            $onComplete = { param($Results) $done.Called = $true; $done.Count = @($Results).Count }.GetNewClosure()
+            $onError    = { param($Message) [void]$errors.Add($Message) }.GetNewClosure()
+            Invoke-WoscapGuiScan -Command 'Invoke-WoscapRemediation' `
+                -ScanParameters @{ Result = @(); WhatIf = $true; Quiet = $true } `
+                -OnComplete $onComplete -OnError $onError
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            while (-not $done.Called -and $sw.Elapsed.TotalSeconds -lt 30) {
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 25
+            }
+            $errors      | Should -BeNullOrEmpty
+            $done.Called | Should -BeTrue
+            $done.Count  | Should -Be 0
+        }
+    }
 }
