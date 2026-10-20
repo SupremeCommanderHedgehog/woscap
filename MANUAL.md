@@ -355,9 +355,18 @@ gray, Not_Reviewed = amber) so findings stand out at a glance, and the grid
 **partial scan** (e.g. one unreachable host among several) still shows the
 results that came back and reports `Done (N warnings)` with the detail on hover
 — only a scan that returns nothing raises a `Scan failed` dialog. The **Content**
-and **Integrations** tabs are placeholders until #17 / #18 land; remediation
-arrives with #16. Help > About shows the module version; Help > Open manual opens
+and **Integrations** tabs are placeholders until #17 / #18 land. Help > About shows the module version; Help > Open manual opens
 this file.
+
+**Remediate…** (Scan tab, or Scan > Remediate…) fixes Open findings on **this
+computer** via `Invoke-WoscapRemediation`. It uses the selected grid rows, or
+every row when none are selected, and skips rows from other hosts or rows that
+are not Open. It first previews with `-WhatIf`, then shows a confirmation list
+where each automatic fix can be unticked (a merged audit-policy fix lists every
+STIG ID it covers; manual items are greyed and never applied). **Apply** is never
+the default button, and it is disabled unless woscap runs as administrator. Only
+the ticked fixes are applied; a report then shows each fix's State and After
+status and offers **Re-scan**.
 
 The GUI holds **no** evaluation, exception, or export logic of its own — every
 action calls the corresponding cmdlet, so it can never diverge from the CLI.
@@ -418,7 +427,9 @@ $fixes = Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.x
 $fixes | Format-Table StigId, State, Before, After, Detail
 ```
 
-Each result is a `RemediationResult`: `Host`, `StigId`, `Title`, `CheckType`,
+Each result is a `RemediationResult`: `Host`, `StigId`, `StigIds` (every
+finding the action covers; a merged audit-policy action lists all of its rules),
+`Title`, `CheckType`,
 `Action`, `State` (`Planned` / `Applied` / `Failed` / `Skipped` / `Manual`),
 `Before`, `After`, `Detail`.
 

@@ -40,7 +40,9 @@ function New-WoscapGuiRemediationDialog {
     $grid.AllowUserToAddRows = $false; $grid.AllowUserToDeleteRows = $false
     $grid.RowHeadersVisible = $false; $grid.AutoSizeColumnsMode = 'Fill'; $grid.SelectionMode = 'FullRowSelect'
     $check = New-Object System.Windows.Forms.DataGridViewCheckBoxColumn
-    $check.HeaderText = 'Apply'; $check.FillWeight = 20
+    $check.HeaderText = 'Apply'
+    # Fixed width: a Fill share shrinks to ~20px at minimum size and clips the header.
+    $check.AutoSizeMode = 'None'; $check.Width = 55
     [void]$grid.Columns.Add($check)
     foreach ($col in 'STIG IDs', 'Title', 'Change', 'Kind') {
         $i = $grid.Columns.Add($col, $col)
