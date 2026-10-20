@@ -93,6 +93,26 @@ function Invoke-WoscapGuiRun {
         Show-WoscapGuiMessage -Text 'Select a benchmark before running. (No content packs were found under Content/.)'
         return
     }
+    $profiles = @($Tag['Profiles'].Items | ForEach-Object { [string]$_ })
+    $missingProfile = @($profiles | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) }) | Select-Object -First 1
+    if ($missingProfile) {
+        Show-WoscapGuiMessage -Text "Profile not found: $missingProfile"
+        return
+    }
+    $contentPath = ([string]$Tag['ContentPath'].Text).Trim()
+    if ($contentPath -and -not (Test-Path -LiteralPath $contentPath -PathType Container)) {
+        Show-WoscapGuiMessage -Text "Content path not found: $contentPath"
+        return
+    }
+    $jsonPath = ([string]$Tag['JsonPath'].Text).Trim()
+    if ($jsonPath) {
+        $jsonDir = Split-Path -Path $jsonPath -Parent
+        if ($jsonDir -and -not (Test-Path -LiteralPath $jsonDir -PathType Container)) {
+            Show-WoscapGuiMessage -Text "JSON output folder not found: $jsonDir"
+            return
+        }
+    }
+    # Credential last: never prompt for one and then reject the run on a bad path.
     $cred = $null
     if ($Tag['UseCred'].Checked) {
         $cred = Get-WoscapGuiCredential
@@ -101,8 +121,11 @@ function Invoke-WoscapGuiRun {
     $splat = ConvertTo-WoscapGuiScanParameter -XccdfPath $xccdfPath `
         -Benchmark $benchmark `
         -Targets   ([string]$Tag['Targets'].Text) `
-        -ProfilePath @($Tag['Profiles'].Items | ForEach-Object { [string]$_ }) `
-        -Credential $cred
+        -ProfilePath $profiles `
+        -Credential $cred `
+        -ContentPath $contentPath `
+        -ThrottleLimit ([int]$Tag['ThrottleLimit'].Value) `
+        -JsonPath $jsonPath
 
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $false
     $Tag['Status'].Text = 'Scanning...'

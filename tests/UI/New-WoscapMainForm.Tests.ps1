@@ -465,4 +465,80 @@ Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
             } finally { $form.Dispose() }
         }
     }
+
+    It 'passes profiles in list order and the Advanced options into the scan splat' {
+        InModuleScope woscap {
+            $script:captured = $null
+            Mock Invoke-WoscapGuiScan { $script:captured = $ScanParameters; & $OnComplete -Results @() }
+            $existing = (Get-Module woscap).Path
+            $dir = Split-Path $existing -Parent
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = $existing
+                Add-WoscapGuiProfile -Tag $form.Tag -Path @($existing, (Join-Path $dir 'woscap.psd1'))
+                $form.Tag['ContentPath'].Text = $dir
+                $form.Tag['ThrottleLimit'].Value = 3
+                $form.Tag['JsonPath'].Text = Join-Path $dir 'out.json'
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                @($script:captured['ProfilePath']) | Should -Be @($existing, (Join-Path $dir 'woscap.psd1'))
+                $script:captured['ContentPath']   | Should -Be $dir
+                $script:captured['ThrottleLimit'] | Should -Be 3
+                $script:captured['JsonPath']      | Should -Be (Join-Path $dir 'out.json')
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'omits ThrottleLimit when left at the default' {
+        InModuleScope woscap {
+            $script:captured = $null
+            Mock Invoke-WoscapGuiScan { $script:captured = $ScanParameters; & $OnComplete -Results @() }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                $script:captured.ContainsKey('ThrottleLimit') | Should -BeFalse
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'refuses to scan when <Case>' -ForEach @(
+        @{ Case = 'the content path does not exist'; Field = 'ContentPath'; Value = 'C:\does\not\exist\pack'; Match = 'Content path' }
+        @{ Case = 'a profile file does not exist';   Field = 'Profiles';    Value = 'C:\does\not\exist\p.psd1'; Match = 'p\.psd1' }
+        @{ Case = 'the JSON output folder does not exist'; Field = 'JsonPath'; Value = 'C:\does\not\exist\out.json'; Match = 'JSON' }
+    ) {
+        InModuleScope woscap -Parameters @{ Field = $Field; Value = $Value; Match = $Match } {
+            param($Field, $Value, $Match)
+            Mock Invoke-WoscapGuiScan { }
+            $script:shown = @()
+            Mock Show-WoscapGuiMessage { $script:shown += $Text }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                if ($Field -eq 'Profiles') { Add-WoscapGuiProfile -Tag $form.Tag -Path @($Value) }
+                else { $form.Tag[$Field].Text = $Value }
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                Should -Not -Invoke Invoke-WoscapGuiScan -Scope It
+                @($script:shown).Count | Should -Be 1
+                $script:shown[0] | Should -Match $Match
+                $form.Tag['Run'].Enabled | Should -BeTrue
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'validates paths before prompting for a credential' {
+        InModuleScope woscap {
+            Mock Invoke-WoscapGuiScan { }
+            Mock Show-WoscapGuiMessage { }
+            Mock Get-WoscapGuiCredential { [pscredential]::new('u', (ConvertTo-SecureString 'p' -AsPlainText -Force)) }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                $form.Tag['UseCred'].Checked = $true
+                $form.Tag['ContentPath'].Text = 'C:\does\not\exist\pack'
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                Should -Not -Invoke Get-WoscapGuiCredential -Scope It
+                Should -Not -Invoke Invoke-WoscapGuiScan -Scope It
+            } finally { $form.Dispose() }
+        }
+    }
 }
