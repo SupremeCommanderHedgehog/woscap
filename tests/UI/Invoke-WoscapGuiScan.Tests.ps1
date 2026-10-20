@@ -62,6 +62,39 @@ Describe 'Invoke-WoscapGuiScan' -Skip:(-not $script:IsSta) {
         }
     }
 
+    It 'accepts the content commands and still rejects others' {
+        InModuleScope woscap {
+            $set = (Get-Command Invoke-WoscapGuiScan).Parameters['Command'].Attributes |
+                Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+            $set.ValidValues | Should -Contain 'Save-WoscapStigContent'
+            $set.ValidValues | Should -Contain 'Update-WoscapBenchmark'
+            $set.ValidValues | Should -Not -Contain 'Get-Process'
+        }
+    }
+
+    It 'runs Update-WoscapBenchmark -WhatIf against an empty TestDrive cache with no rows and no error' {
+        $cache = Join-Path $TestDrive 'empty-cache'
+        New-Item -ItemType Directory -Path $cache | Out-Null
+        InModuleScope woscap -Parameters @{ Cache = $cache } {
+            param($Cache)
+            $done   = @{ Called = $false; Count = -1 }
+            $errors = [System.Collections.ArrayList]::new()
+            $onComplete = { param($Results) $done.Called = $true; $done.Count = @($Results).Count }.GetNewClosure()
+            $onError    = { param($Message) [void]$errors.Add($Message) }.GetNewClosure()
+            Invoke-WoscapGuiScan -Command 'Update-WoscapBenchmark' `
+                -ScanParameters @{ Destination = $Cache; WhatIf = $true } `
+                -OnComplete $onComplete -OnError $onError
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            while (-not $done.Called -and $sw.Elapsed.TotalSeconds -lt 30) {
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 25
+            }
+            $errors      | Should -BeNullOrEmpty
+            $done.Called | Should -BeTrue
+            $done.Count  | Should -Be 0
+        }
+    }
+
     It 'runs Invoke-WoscapRemediation in the background when asked' {
         # Empty input + -WhatIf: the cmdlet plans nothing and can write nothing.
         InModuleScope woscap {

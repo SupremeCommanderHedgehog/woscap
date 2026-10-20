@@ -105,6 +105,23 @@ Describe 'Save-WoscapStigContent' {
         }
     }
 
+    It 'shows the exact DISA notice text to the consent prompt and the warning' {
+        InModuleScope woscap -Parameters @{ Cache = $script:Cache } {
+            $expected = @('woscap does NOT bundle or redistribute DISA STIG content. This action downloads content',
+                'on demand from a URL you supply (or a bundled best-effort pointer) into an operator-local',
+                'cache. Your use of that content is governed by DISA''s own terms (public.cyber.mil), not',
+                'this project.') -join "`n"
+            Mock Invoke-WebRequest { if ($Method -eq 'Head') { $null } }
+            Mock Get-WoscapDisaConsent { $false }
+            $cap = @{ W = $null }
+            Mock Write-Warning { $cap.W = $Message }
+            { Save-WoscapStigContent -Benchmark 'Windows11' -Url 'https://disa/x.zip' -Destination $Cache } |
+                Should -Throw
+            Should -Invoke Get-WoscapDisaConsent -Times 1 -Exactly -ParameterFilter { ($Notice -replace "`r`n", "`n") -ceq $expected }
+            ($cap.W -replace "`r`n", "`n") | Should -BeExactly $expected
+        }
+    }
+
     It 'proceeds without -AcceptDisaTerms when a persisted marker is present' {
         InModuleScope woscap -Parameters @{ Zip = $script:GoodZip } {
             Mock Invoke-WebRequest {
