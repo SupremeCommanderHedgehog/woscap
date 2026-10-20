@@ -131,15 +131,31 @@ function Invoke-WoscapGuiRemediate {
 }
 
 function Get-WoscapGuiRemediationReportRow {
-    <# Apply results plus the preview's Manual items, so the report matches the preview. #>
+    <#
+        Apply results plus the preview's Manual items and the automatic rows the operator
+        unticked (State Skipped), so the report accounts for every preview row.
+    #>
     [CmdletBinding()]
-    param([AllowEmptyCollection()][object[]] $Applied = @(), [AllowEmptyCollection()][object[]] $Preview = @())
+    param(
+        [AllowEmptyCollection()][object[]] $Applied = @(),
+        [AllowEmptyCollection()][object[]] $Preview = @(),
+        [AllowEmptyCollection()][string[]] $Selected = @()
+    )
     $seen = @($Applied | ForEach-Object { [string](Get-WoscapObjectProperty $_ 'StigId' '') })
-    $manual = @($Preview | Where-Object {
-        [string](Get-WoscapObjectProperty $_ 'State' '') -eq 'Manual' -and
-        [string](Get-WoscapObjectProperty $_ 'StigId' '') -notin $seen
-    })
-    @($Applied) + $manual
+    $rest = foreach ($p in @($Preview)) {
+        if ([string](Get-WoscapObjectProperty $p 'StigId' '') -in $seen) { continue }
+        $state = [string](Get-WoscapObjectProperty $p 'State' '')
+        if ($state -eq 'Manual') { $p; continue }
+        $ticked = @(@(Get-WoscapObjectProperty $p 'StigIds' @()) | Where-Object { $_ -in $Selected }).Count -gt 0
+        if ($state -eq 'Planned' -and -not $ticked) {
+            [pscustomobject]@{
+                StigId = Get-WoscapObjectProperty $p 'StigId' ''; StigIds = @(Get-WoscapObjectProperty $p 'StigIds' @())
+                Title = Get-WoscapObjectProperty $p 'Title' ''; Action = Get-WoscapObjectProperty $p 'Action' ''
+                State = 'Skipped'; After = ''; Detail = 'Not selected'
+            }
+        }
+    }
+    @($Applied) + @($rest)
 }
 
 function Start-WoscapGuiRemediationApply {
@@ -152,6 +168,7 @@ function Start-WoscapGuiRemediationApply {
     $apply = $Tag['RemediationBase'].Clone()
     $apply['Result'] = $subset
     $apply['Force'] = $true
+    $Tag['RemediationSelected'] = $StigId
     Set-WoscapGuiRemediationStatus -Tag $Tag -Text 'Applying fixes...'
 
     $onApplied = {
@@ -163,7 +180,7 @@ function Start-WoscapGuiRemediationApply {
         if ($t['RemediationApplied']) { $t['ResultsStale'] = $true }
         Set-WoscapGuiRemediationBusy -Tag $t -Busy $false
         Set-WoscapGuiRemediationStatus -Tag $t -Text 'Remediation done.'
-        $report = @(Get-WoscapGuiRemediationReportRow -Applied @($Results) -Preview @($t['RemediationPreview']))
+        $report = @(Get-WoscapGuiRemediationReportRow -Applied @($Results) -Preview @($t['RemediationPreview']) -Selected @($t['RemediationSelected']))
         if ((Show-WoscapGuiRemediationReport -Result $report) -eq 'Rescan') {
             # Re-scan what was remediated, whatever the Scan tab was changed to meanwhile.
             $ctx = $t['RemediationContext']

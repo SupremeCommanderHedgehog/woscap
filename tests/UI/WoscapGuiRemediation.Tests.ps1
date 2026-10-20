@@ -677,6 +677,23 @@ Describe 'Invoke-WoscapGuiRemediate outcomes' -Skip:(-not $script:IsSta) {
         }
     }
 
+    It 'reports automatic rows the operator unticked as Skipped / Not selected' {
+        InModuleScope woscap {
+            $script:plan = @(
+                $script:plan[0]
+                [pscustomobject]@{ StigId = 'R-2'; StigIds = @('R-2'); Title = 'r2'; Action = 'a2'; State = 'Planned'; Detail = '' }
+                $script:plan[1]
+            )
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            @($script:reported | ForEach-Object StigId) | Should -Be @('R-1', 'R-2', 'M-1')
+            $skipped = @($script:reported | Where-Object StigId -eq 'R-2')[0]
+            $skipped.State  | Should -Be 'Skipped'
+            $skipped.Detail | Should -Be 'Not selected'
+            $report = New-WoscapGuiRemediationReport -Result @($script:reported)
+            try { $report.Tag['Summary'].Text | Should -Match 'Skipped: 1' } finally { $report.Dispose() }
+        }
+    }
+
     It 'includes the preview Manual items in the post-apply report' {
         InModuleScope woscap {
             Invoke-WoscapGuiRemediate -Tag $script:form.Tag

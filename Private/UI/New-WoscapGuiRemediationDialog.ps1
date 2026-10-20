@@ -156,7 +156,7 @@ function New-WoscapGuiRemediationReport {
     $summary = New-Object System.Windows.Forms.Label
     $summary.Dock = 'Fill'; $summary.AutoSize = $true
     $summary.Padding = New-Object System.Windows.Forms.Padding(6)
-    $summary.Text = 'Applied: {0}   Failed: {1}   Manual: {2}' -f (& $count 'Applied'), (& $count 'Failed'), (& $count 'Manual')
+    $summary.Text = 'Applied: {0}   Failed: {1}   Skipped: {2}   Manual: {3}' -f (& $count 'Applied'), (& $count 'Failed'), (& $count 'Skipped'), (& $count 'Manual')
 
     $grid = New-Object System.Windows.Forms.DataGridView
     $grid.Dock = 'Fill'; $grid.ReadOnly = $true
