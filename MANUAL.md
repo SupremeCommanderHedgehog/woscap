@@ -396,6 +396,12 @@ parity with the Ansible playbook emitter). Every other check type — UserRight,
 Service, SecEdit, ScriptBlock, or a missing/incomplete descriptor — is reported
 `State='Manual'` and never written.
 
+**Audit policy only ever enables:** an AuditPolicy fix runs
+`auditpol /set /subcategory:<name>` with `/success:enable` and/or
+`/failure:enable` for the directions the Open rules require. It never passes
+`disable`, so a direction that is already audited is left on. (The Ansible
+playbook emitter still sets absolute state; see #21.)
+
 **Gating:** the cmdlet declares `SupportsShouldProcess` with `ConfirmImpact='High'`,
 so it prompts before each write by default.
 

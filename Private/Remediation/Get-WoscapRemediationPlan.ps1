@@ -14,9 +14,9 @@ function Get-WoscapRemediationPlan {
     }
 
     # First pass: union of required audit directions per subcategory across ALL open
-    # AuditPolicy rules. auditpol / win_audit_policy_system set ABSOLUTE per-subcategory
-    # state, so a Success-only rule must not turn Failure auditing off, and paired
-    # Success/Failure rules for one subcategory must combine into a single action.
+    # AuditPolicy rules. win_audit_policy_system (Ansible) sets ABSOLUTE per-subcategory
+    # state, so paired Success/Failure rules for one subcategory must combine into a
+    # single action. The local auditpol write only ever enables (Invoke-AuditPolSet).
     $auditDirections = @{}   # subcategory -> HashSet of 'success'/'failure'
     $auditStigIds    = @{}   # subcategory -> List of StigIds the merged action covers
     foreach ($rule in $FailedRule) {
