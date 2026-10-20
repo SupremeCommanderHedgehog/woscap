@@ -409,6 +409,23 @@ parity with the Ansible playbook emitter). Every other check type — UserRight,
 Service, SecEdit, ScriptBlock, or a missing/incomplete descriptor — is reported
 `State='Manual'` and never written.
 
+**Registry operators:** a Registry fix is auto-applied only when writing the
+rule's `Expected` value is guaranteed to make that rule pass:
+
+- `eq` with a whole number from 0 to 2147483647 (written as a DWORD) or a string
+  (written as REG_SZ);
+- `ge` / `le` with a whole number from 0 to 2147483647 (the threshold itself is
+  written as a DWORD).
+
+Every other Registry rule is reported `State='Manual'`, and the reason names the
+operator. That covers `ne`, `in`, `notin`, `regex`, `sequence` and `exists`, a
+rule with no `Operator`, and any other kind of `Expected` value. None of these
+has one value that is safe to write. For example, `ne` would write the forbidden
+value, and `regex` would write the pattern text into a logon banner. In the
+shipped Windows 11 pack these are WN11-CC-000052/055/085/205/320,
+WN11-SO-000075/080/095 and WN11-UC-000020 (#23). The Ansible playbook emitter
+uses the same rule and writes a `# manual:` line for each of them.
+
 **Audit policy only ever enables:** an AuditPolicy fix runs
 `auditpol /set /subcategory:<name>` with `/success:enable` and/or
 `/failure:enable` for the directions the Open rules require. It never passes

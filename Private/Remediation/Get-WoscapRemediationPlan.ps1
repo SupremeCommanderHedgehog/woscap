@@ -49,7 +49,27 @@ function Get-WoscapRemediationPlan {
                     $actions.Add((& $newManual $stig $title 'Registry' 'Registry descriptor is incomplete (missing Path, Name, or Expected).'))
                     break
                 }
-                $kind = if ($desc.Expected -is [int] -or $desc.Expected -is [long] -or $desc.Expected -is [uint32]) { 'dword' } else { 'string' }
+                # Automate only when writing Expected provably makes this descriptor pass (#23).
+                $op = if ($desc.ContainsKey('Operator')) { [string]$desc.Operator } else { '' }
+                if ([string]::IsNullOrEmpty($op)) {
+                    $actions.Add((& $newManual $stig $title 'Registry' 'Registry descriptor declares no Operator, so no write can be shown to satisfy it.'))
+                    break
+                }
+                if ($op -notin @('eq', 'ge', 'le')) {
+                    $actions.Add((& $newManual $stig $title 'Registry' "Registry operator '$op' has no single safe value to write."))
+                    break
+                }
+                $exp = $desc.Expected
+                $isInteger = $exp -is [int] -or $exp -is [long] -or $exp -is [uint32]
+                # REG_DWORD reads back as Int32, so only 0..Int32.MaxValue round-trips unchanged.
+                $kind = if ($isInteger -and [long]$exp -ge 0 -and [long]$exp -le [int]::MaxValue) { 'dword' }
+                        elseif ($op -eq 'eq' -and $exp -is [string]) { 'string' }
+                        else { $null }
+                if ($null -eq $kind) {
+                    $typeName = if ($null -eq $exp) { 'null' } else { $exp.GetType().Name }
+                    $actions.Add((& $newManual $stig $title 'Registry' "Registry operator '$op' with Expected '$exp' ($typeName) has no value that is safe to write."))
+                    break
+                }
                 $actions.Add([pscustomobject]@{
                     StigId = $stig; StigIds = @($stig); Title = $title; Type = 'Registry'; CheckType = 'Registry'
                     Automatable = $true
