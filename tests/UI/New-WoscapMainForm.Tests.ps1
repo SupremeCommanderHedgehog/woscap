@@ -19,11 +19,15 @@ Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
             try {
                 $form | Should -BeOfType [System.Windows.Forms.Form]
                 $tag = $form.Tag
-                foreach ($key in 'Benchmark','Xccdf','Targets','Profile','UseCred','Run',
+                foreach ($key in 'Benchmark','Xccdf','Targets','Profiles','ProfileAdd','ProfileRemove',
+                                 'ProfileUp','ProfileDown','UseCred','Run','AdvancedToggle','AdvancedGroup',
+                                 'ContentPath','ContentPathDefault','ThrottleLimit','JsonPath',
                                  'Progress','Status','Grid','FilterSeverity','FilterStatus',
-                                 'Find','Format','Export','Results') {
+                                 'Find','Format','Export','Results','Menu','MenuRun','MenuExport',
+                                 'Tabs','ScanTab','ContentTab','IntegrationsTab') {
                     $tag.ContainsKey($key) | Should -BeTrue -Because "Tag should expose '$key'"
                 }
+                $tag.ContainsKey('Profile') | Should -BeFalse -Because 'the single Profile box was replaced by the Profiles list'
             } finally { $form.Dispose() }
         }
     }
@@ -177,14 +181,15 @@ Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
         }
     }
 
-    It 'anchors the grid to all four edges and pins the export row to the bottom so the table resizes with the window' {
+    It 'docks menu top and tabs fill, and the grid fills its row so the table resizes with the window' {
         InModuleScope woscap {
             $form = New-WoscapMainForm
             try {
-                $A = [System.Windows.Forms.AnchorStyles]
-                $form.Tag['Grid'].Anchor   | Should -Be ($A::Top -bor $A::Bottom -bor $A::Left -bor $A::Right)
-                $form.Tag['Export'].Anchor | Should -Be ($A::Bottom -bor $A::Left)
-                # A minimum size keeps the layout from collapsing onto itself.
+                $D = [System.Windows.Forms.DockStyle]
+                $form.Tag['Menu'].Dock  | Should -Be $D::Top
+                $form.Tag['Tabs'].Dock  | Should -Be $D::Fill
+                $form.Tag['Grid'].Dock  | Should -Be $D::Fill
+                $form.MainMenuStrip     | Should -Be $form.Tag['Menu']
                 $form.MinimumSize.Width  | Should -BeGreaterThan 0
                 $form.MinimumSize.Height | Should -BeGreaterThan 0
             } finally { $form.Dispose() }
@@ -306,6 +311,233 @@ Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
                 Invoke-WoscapGuiRun -Tag $form.Tag
                 Should -Invoke Show-WoscapGuiMessage -Times 1 -Scope It
                 $form.Tag['Run'].Enabled | Should -BeTrue
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'has Scan, Content and Integrations tabs with Content/Integrations as placeholders' {
+        InModuleScope woscap {
+            $form = New-WoscapMainForm
+            try {
+                @($form.Tag['Tabs'].TabPages | ForEach-Object Text) | Should -Be @('Scan', 'Content', 'Integrations')
+                $form.Tag['ContentTab'].Controls[0].Text      | Should -Match '#17'
+                $form.Tag['IntegrationsTab'].Controls[0].Text | Should -Match '#18'
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'builds File/Scan/Content/Integrations/Help menus with Run=F5 and Export=Ctrl+E' {
+        InModuleScope woscap {
+            $form = New-WoscapMainForm
+            try {
+                $K = [System.Windows.Forms.Keys]
+                @($form.Tag['Menu'].Items | ForEach-Object Text) | Should -Be @('&File', '&Scan', '&Content', '&Integrations', '&Help')
+                $form.Tag['MenuRun'].ShortcutKeys    | Should -Be $K::F5
+                $form.Tag['MenuExport'].ShortcutKeys | Should -Be ($K::Control -bor $K::E)
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'starts with Export disabled on both button and menu, and Advanced collapsed' {
+        InModuleScope woscap {
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Export'].Enabled     | Should -BeFalse
+                $form.Tag['MenuExport'].Enabled | Should -BeFalse
+                $form.Tag['AdvancedExpanded']   | Should -BeFalse
+                $form.Tag['AdvancedToggle'].Text | Should -Be '[+] Advanced'
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'initializes throttle from the cmdlet default and shows the default content path' {
+        InModuleScope woscap {
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['ThrottleLimit'].Value | Should -Be (Get-WoscapGuiScanDefault).ThrottleLimit
+                $form.Tag['ContentPathDefault'].Text | Should -Match 'Content\\Windows11$'
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'mirrors Export enabled-state onto the menu after a scan with results' {
+        InModuleScope woscap {
+            Mock Invoke-WoscapGuiScan {
+                & $OnComplete -Results @([pscustomobject]@{ Host='H1'; StigId='V-1'; Severity='high'; Status='Open'; Title='T1'; Exception=$null })
+            }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                $form.Tag['MenuExport'].Enabled | Should -BeTrue
+                $form.Tag['MenuRun'].Enabled    | Should -BeTrue
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'menu Run triggers a scan' {
+        InModuleScope woscap {
+            Mock Invoke-WoscapGuiScan { & $OnComplete -Results @() }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                $form.Tag['MenuRun'].PerformClick()
+                Should -Invoke Invoke-WoscapGuiScan -Times 1 -Exactly -Scope It
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'keeps every visible Scan-tab control inside its parent at default and minimum size, Advanced collapsed and expanded' {
+        InModuleScope woscap {
+            $form = New-WoscapMainForm
+            try {
+                $form.Show(); [System.Windows.Forms.Application]::DoEvents()
+                $walk = { param($c) foreach ($child in $c.Controls) { $child; & $walk $child } }
+                $bad = [System.Collections.Generic.List[string]]::new()
+                foreach ($size in $form.Size, $form.MinimumSize) {
+                    foreach ($expanded in $false, $true) {
+                        $form.Size = $size
+                        Set-WoscapGuiAdvanced -Tag $form.Tag -Expanded $expanded
+                        [System.Windows.Forms.Application]::DoEvents()
+                        foreach ($c in @(& $walk $form.Tag['ScanTab'])) {
+                            if (-not $c.Visible) { continue }
+                            $w = $c.Parent.ClientSize.Width
+                            if ($c.Left -lt 0 -or $c.Right -gt $w) {
+                                $bad.Add(('{0} "{1}" L={2} R={3} parentW={4} at {5}x{6} expanded={7}' -f
+                                    $c.GetType().Name, $c.Text, $c.Left, $c.Right, $w, $size.Width, $size.Height, $expanded))
+                            }
+                        }
+                    }
+                }
+                $bad | Should -BeNullOrEmpty -Because 'no Scan-tab control may overflow its parent'
+            } finally { $form.Close(); $form.Dispose() }
+        }
+    }
+
+    It 'keeps right-anchored controls at a constant gap from the right edge when resized' {
+        InModuleScope woscap {
+            $form = New-WoscapMainForm
+            try {
+                $form.Show(); [System.Windows.Forms.Application]::DoEvents()
+                Set-WoscapGuiAdvanced -Tag $form.Tag -Expanded $true
+                [System.Windows.Forms.Application]::DoEvents()
+                $walk = { param($c) foreach ($child in $c.Controls) { $child; & $walk $child } }
+                $A = [System.Windows.Forms.AnchorStyles]
+                $right = @(& $walk $form.Tag['ScanTab'] | Where-Object {
+                    ($_.Anchor -band $A::Right) -and -not ($_.Anchor -band $A::Left)
+                })
+                $right.Count | Should -BeGreaterThan 0
+                $gap = { param($c) $c.Parent.ClientSize.Width - $c.Right }
+                $baseline = @{}
+                foreach ($c in $right) { $baseline[$c] = & $gap $c }
+                foreach ($size in $form.MinimumSize, (New-Object System.Drawing.Size(1200, 800))) {
+                    $form.Size = $size
+                    [System.Windows.Forms.Application]::DoEvents()
+                    foreach ($c in $right) {
+                        & $gap $c | Should -Be $baseline[$c] -Because ('{0} "{1}" gap at {2}x{3}' -f $c.GetType().Name, $c.Text, $size.Width, $size.Height)
+                    }
+                }
+            } finally { $form.Close(); $form.Dispose() }
+        }
+    }
+
+    It 'menu Run is disabled while a scan is in flight' {
+        InModuleScope woscap {
+            Mock Invoke-WoscapGuiScan { }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                $form.Tag['Run'].Enabled     | Should -BeFalse
+                $form.Tag['MenuRun'].Enabled | Should -BeFalse
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'Profile Add uses the open-file seam and appends the chosen files' {
+        InModuleScope woscap {
+            Mock Get-WoscapGuiOpenPath { @('C:\p1.psd1', 'C:\p2.psd1') }
+            $form = New-WoscapMainForm
+            try {
+                Invoke-WoscapGuiProfileAdd -Tag $form.Tag
+                @($form.Tag['Profiles'].Items) | Should -Be @('C:\p1.psd1', 'C:\p2.psd1')
+                Should -Invoke Get-WoscapGuiOpenPath -Times 1 -Exactly -ParameterFilter { $Multiselect }
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'passes profiles in list order and the Advanced options into the scan splat' {
+        InModuleScope woscap {
+            $script:captured = $null
+            Mock Invoke-WoscapGuiScan { $script:captured = $ScanParameters; & $OnComplete -Results @() }
+            $existing = (Get-Module woscap).Path
+            $dir = Split-Path $existing -Parent
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = $existing
+                Add-WoscapGuiProfile -Tag $form.Tag -Path @($existing, (Join-Path $dir 'woscap.psd1'))
+                $form.Tag['ContentPath'].Text = $dir
+                $form.Tag['ThrottleLimit'].Value = 3
+                $form.Tag['JsonPath'].Text = Join-Path $dir 'out.json'
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                @($script:captured['ProfilePath']) | Should -Be @($existing, (Join-Path $dir 'woscap.psd1'))
+                $script:captured['ContentPath']   | Should -Be $dir
+                $script:captured['ThrottleLimit'] | Should -Be 3
+                $script:captured['JsonPath']      | Should -Be (Join-Path $dir 'out.json')
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'omits ThrottleLimit when left at the default' {
+        InModuleScope woscap {
+            $script:captured = $null
+            Mock Invoke-WoscapGuiScan { $script:captured = $ScanParameters; & $OnComplete -Results @() }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                $script:captured.ContainsKey('ThrottleLimit') | Should -BeFalse
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'refuses to scan when <Case>' -ForEach @(
+        @{ Case = 'the content path does not exist'; Field = 'ContentPath'; Value = 'C:\does\not\exist\pack'; Match = 'Content path' }
+        @{ Case = 'a profile file does not exist';   Field = 'Profiles';    Value = 'C:\does\not\exist\p.psd1'; Match = 'p\.psd1' }
+        @{ Case = 'the JSON output folder does not exist'; Field = 'JsonPath'; Value = 'C:\does\not\exist\out.json'; Match = 'JSON' }
+    ) {
+        InModuleScope woscap -Parameters @{ Field = $Field; Value = $Value; Match = $Match } {
+            param($Field, $Value, $Match)
+            Mock Invoke-WoscapGuiScan { }
+            $script:shown = @()
+            Mock Show-WoscapGuiMessage { $script:shown += $Text }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                if ($Field -eq 'Profiles') { Add-WoscapGuiProfile -Tag $form.Tag -Path @($Value) }
+                else { $form.Tag[$Field].Text = $Value }
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                Should -Not -Invoke Invoke-WoscapGuiScan -Scope It
+                @($script:shown).Count | Should -Be 1
+                $script:shown[0] | Should -Match $Match
+                $form.Tag['Run'].Enabled | Should -BeTrue
+            } finally { $form.Dispose() }
+        }
+    }
+
+    It 'validates paths before prompting for a credential' {
+        InModuleScope woscap {
+            Mock Invoke-WoscapGuiScan { }
+            Mock Show-WoscapGuiMessage { }
+            Mock Get-WoscapGuiCredential { [pscredential]::new('u', (ConvertTo-SecureString 'p' -AsPlainText -Force)) }
+            $form = New-WoscapMainForm
+            try {
+                $form.Tag['Xccdf'].Text = (Get-Module woscap).Path
+                $form.Tag['UseCred'].Checked = $true
+                $form.Tag['ContentPath'].Text = 'C:\does\not\exist\pack'
+                Invoke-WoscapGuiRun -Tag $form.Tag
+                Should -Not -Invoke Get-WoscapGuiCredential -Scope It
+                Should -Not -Invoke Invoke-WoscapGuiScan -Scope It
             } finally { $form.Dispose() }
         }
     }

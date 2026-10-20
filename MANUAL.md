@@ -336,27 +336,43 @@ is a thin launcher over the cmdlets.
 Show-WoscapGui
 ```
 
-The window lets an operator pick a benchmark + XCCDF, set targets (blank =
-local; comma-separated hosts = remote over WinRM) and an optional exception
-profile, tick **Use alternate credential** to prompt for credentials, then
-**Run** a scan with a live progress bar. Results land in a grid filterable by
-severity / status / free-text find, and **Export…** writes any supported format
-via `Export-WoscapResult`. Each result row is **color-coded by status** (Open =
-red, NotAFinding = green, Not_Applicable = gray, Not_Reviewed = amber) so
-findings stand out at a glance, and the grid **resizes with the window** — drag
-the frame larger to see more of the table. A **partial scan** (e.g. one
-unreachable host among several) still shows the results that came back and
-reports `Done (N warnings)` with the detail on hover — only a scan that returns
-nothing raises a `Scan failed` dialog. The GUI holds **no** evaluation,
-exception, or export logic of its own — every action calls the corresponding
-cmdlet, so it can never diverge from the CLI.
+The window has a **menu bar** (File / Scan / Content / Integrations / Help) over
+three **tabs**. The **Scan** tab lets an operator pick a benchmark + XCCDF, set
+targets (blank = local; comma-separated hosts = remote over WinRM), build an
+ordered list of **exception profiles** (**Add…** accepts several files at once;
+**Up** / **Down** set the order passed to `-ProfilePath`), tick **Use alternate
+credential** to prompt for credentials, then **Run** (F5, or Scan > Run) a scan
+with a live progress bar. The collapsed **Advanced** group (toggle it, or use
+Scan > Advanced options) sets `-ContentPath` (blank uses the bundled pack shown
+under the box), `-ThrottleLimit` (defaults to the cmdlet's own default), and
+`-JsonPath`. Profile, content and JSON-folder paths are checked before the scan
+starts — and before any credential prompt. Results land in a grid filterable by
+severity / status / free-text find, and **Export…** (Ctrl+E, or File > Export
+results…) writes any supported format via `Export-WoscapResult`. Each result row
+is **color-coded by status** (Open = red, NotAFinding = green, Not_Applicable =
+gray, Not_Reviewed = amber) so findings stand out at a glance, and the grid
+**resizes with the window** — drag the frame larger to see more of the table. A
+**partial scan** (e.g. one unreachable host among several) still shows the
+results that came back and reports `Done (N warnings)` with the detail on hover
+— only a scan that returns nothing raises a `Scan failed` dialog. The **Content**
+and **Integrations** tabs are placeholders until #17 / #18 land; remediation
+arrives with #16. Help > About shows the module version; Help > Open manual opens
+this file.
+
+The GUI holds **no** evaluation, exception, or export logic of its own — every
+action calls the corresponding cmdlet, so it can never diverge from the CLI.
+`Private/UI/WoscapGuiParity.psd1` records, for every public cmdlet parameter, the
+GUI control that drives it or why it is CLI-only; `tests/UI/WoscapGuiParity.Tests.ps1`
+fails if a parameter is added or removed without updating it.
 
 **Requirements & boundaries:** needs an interactive desktop session (STA); it is
 **not** available on Server Core / headless hosts. For unattended, headless, or
 CI use, call `Invoke-WoscapScan` / `Export-WoscapResult` directly. Internally
 the scan runs in a background runspace so the window stays responsive; the UI
-layer lives in `Private/UI/` (builder `New-WoscapMainForm`, handler logic in
-`WoscapGuiHandlers.ps1`) plus the public `Show-WoscapGui` launcher.
+layer lives in `Private/UI/` (builder `New-WoscapMainForm` with
+`New-WoscapGuiMenu` / `New-WoscapGuiScanTab`; handler logic in
+`WoscapGuiHandlers.ps1`, `WoscapGuiShell.ps1` and `WoscapGuiProfileList.ps1`)
+plus the public `Show-WoscapGui` launcher.
 
 ---
 
