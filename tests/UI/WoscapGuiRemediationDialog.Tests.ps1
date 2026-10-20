@@ -6,7 +6,7 @@ BeforeAll {
     Add-Type -AssemblyName System.Windows.Forms
     $script:Plan = @(
         [pscustomobject]@{ StigId = 'R-1'; StigIds = @('R-1'); Title = 'Reg'; CheckType = 'Registry'; Action = 'Set HKLM:\S\A = 1 (dword)'; State = 'Planned'; Detail = '' }
-        [pscustomobject]@{ StigId = 'A-1'; StigIds = @('A-1','A-2'); Title = 'Logon'; CheckType = 'AuditPolicy'; Action = "Set audit 'Logon' = success and failure"; State = 'Planned'; Detail = '' }
+        [pscustomobject]@{ StigId = 'A-1'; StigIds = @('A-1','A-2'); Title = 'Logon'; CheckType = 'AuditPolicy'; Action = "Enable audit 'Logon': success and failure"; State = 'Planned'; Detail = '' }
         [pscustomobject]@{ StigId = 'M-1'; StigIds = @('M-1'); Title = 'Svc'; CheckType = 'Service'; Action = 'Manual remediation required'; State = 'Manual'; Detail = 'no automation' }
     )
     $script:Manual = @($script:Plan[2])

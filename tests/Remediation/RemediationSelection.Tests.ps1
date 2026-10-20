@@ -29,7 +29,7 @@ Describe 'Remediation selection invariant' {
                 $d = @()
                 if ($Success) { $d += 'success' }
                 if ($Failure) { $d += 'failure' }
-                $script:writes.Add("Set audit '$Subcategory' = $($d -join ' and ')")
+                $script:writes.Add("Enable audit '$Subcategory': $($d -join ' and ')")
             }
 
             $ids = @('R-1', 'R-2', 'A-1', 'A-2', 'A-3', 'M-1')

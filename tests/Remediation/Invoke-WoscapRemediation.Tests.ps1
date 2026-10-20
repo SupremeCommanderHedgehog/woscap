@@ -26,6 +26,22 @@ Describe 'Invoke-WoscapRemediation' {
         }
     }
 
+    It 'describes an audit fix as enabling directions, since nothing is ever disabled' {
+        InModuleScope woscap {
+            Mock Import-ContentPack { @{
+                'A-1' = @{ Type = 'AuditPolicy'; Subcategory = 'Logon'; Expected = 'Success' }
+                'A-2' = @{ Type = 'AuditPolicy'; Subcategory = 'Logon'; Expected = 'Failure' }
+            } }
+            Mock Test-Path { $true }
+            Mock Set-WoscapRegValue {}
+            Mock Invoke-AuditPolSet {}
+            $rules = @('A-1', 'A-2' | ForEach-Object { [pscustomobject]@{ StigId = $_; Title = $_; Status = 'Open' } })
+            $out = @(Invoke-WoscapRemediation -Result $rules -ContentPath 'TestDrive:\pack' -WhatIf -Quiet)
+            $out[0].Action | Should -BeExactly "Enable audit 'Logon': success and failure"
+            Should -Invoke Invoke-AuditPolSet -Exactly 0
+        }
+    }
+
     It 'processes only Open rules' {
         InModuleScope woscap {
             Mock Import-ContentPack { @{

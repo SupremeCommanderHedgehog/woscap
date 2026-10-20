@@ -52,7 +52,7 @@ function Invoke-WoscapRemediation {
             $summary = if ($action.Type -eq 'Registry') {
                 "Set $($action.Registry.Path)\$($action.Registry.Name) = $($action.Registry.Data) ($($action.Registry.Kind))"
             } else {
-                "Set audit '$($action.Audit.Subcategory)' = $($action.Audit.Directions -join ' and ')"
+                "Enable audit '$($action.Audit.Subcategory)': $($action.Audit.Directions -join ' and ')"
             }
 
             if (-not $PSCmdlet.ShouldProcess("$env:COMPUTERNAME: $($action.StigId)", $summary)) {
