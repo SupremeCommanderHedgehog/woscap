@@ -9,6 +9,7 @@ function ConvertTo-AnsiblePlaybook {
     # remediation truth). This function only RENDERS the plan as an Ansible playbook.
     $plan = Get-WoscapRemediationPlan -FailedRule $FailedRule -ContentPack $ContentPack
 
+    $auditScript = (Get-WoscapAnsibleAuditScript).TrimEnd()
     $sb = [System.Text.StringBuilder]::new()
     [void]$sb.AppendLine('---')
     [void]$sb.AppendLine('- name: woscap STIG remediation')
@@ -27,21 +28,21 @@ function ConvertTo-AnsiblePlaybook {
                 [void]$sb.AppendLine("        type: $($reg.Kind)")
             }
             'AuditPolicy' {
-                $dirs = $action.Audit.Directions
-                $auditType = if (($dirs -contains 'success') -and ($dirs -contains 'failure')) {
-                    'success and failure'
-                } elseif ($dirs -contains 'failure') {
-                    'failure'
-                } else {
-                    'success'
+                # Enable-only win_powershell task (#21): win_audit_policy_system sets
+                # absolute state and would disable already-compliant directions.
+                $sub = [string]$action.Audit.Subcategory
+                [void]$sb.AppendLine("    - name: $(ConvertTo-WoscapYamlString "Audit policy: $sub")")
+                [void]$sb.AppendLine('      ansible.windows.win_powershell:')
+                [void]$sb.AppendLine('        parameters:')
+                [void]$sb.AppendLine("          Subcategory: $(ConvertTo-WoscapYamlString $sub)")
+                [void]$sb.AppendLine('          Directions:')
+                foreach ($dir in $action.Audit.Directions) {
+                    [void]$sb.AppendLine("            - $dir")
                 }
-                $sub = $action.Audit.Subcategory
-                # Quote the name: an unquoted "Audit policy: <sub>" embeds a ': ' which YAML
-                # reads as a mapping indicator, so ansible-playbook would refuse to parse it.
-                [void]$sb.AppendLine("    - name: `"Audit policy: $sub`"")
-                [void]$sb.AppendLine('      win_audit_policy_system:')
-                [void]$sb.AppendLine("        subcategory: $sub")
-                [void]$sb.AppendLine("        audit_type: $auditType")
+                [void]$sb.AppendLine('        script: |')
+                foreach ($line in ($auditScript -split '\r?\n')) {
+                    [void]$sb.AppendLine($(if ($line) { "          $line" } else { '' }))
+                }
             }
             'Manual' {
                 # Registry uses the planner's reason, which names the operator that blocked the write.

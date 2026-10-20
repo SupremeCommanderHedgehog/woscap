@@ -1,11 +1,40 @@
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
     $script:Expected = Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures/ansible/expected-playbook.yml'
+
+    # Returns the literal-block 'script: |' body of the first audit task, de-indented.
+    function Get-EmbeddedAuditScript([string] $Yaml) {
+        $lines = $Yaml -split "\r?\n"
+        $start = -1
+        for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -eq '        script: |') { $start = $i + 1; break } }
+        if ($start -lt 0) { throw 'no script block in YAML' }
+        $body = [System.Collections.Generic.List[string]]::new()
+        for ($i = $start; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -eq '') { $body.Add(''); continue }
+            if (-not $lines[$i].StartsWith('          ')) { break }
+            $body.Add($lines[$i].Substring(10))
+        }
+        ($body -join "`n").TrimEnd()
+    }
+
+    function New-AuditPlaybook([string] $Subcategory, [string[]] $Expected) {
+        InModuleScope woscap -Parameters @{ Sub = $Subcategory; Exp = $Expected } {
+            $i = 0
+            $failed = @(); $pack = @{}
+            foreach ($e in $Exp) {
+                $i++
+                $id = "WN11-AU-00090$i"
+                $failed += [pscustomobject]@{ StigId = $id; Title = "Rule $i"; Status = 'Open' }
+                $pack[$id] = @{ Type = 'AuditPolicy'; Subcategory = $Sub; Operator = 'includes'; Expected = $e }
+            }
+            ConvertTo-AnsiblePlaybook -FailedRule $failed -ContentPack $pack
+        }
+    }
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
 Describe 'ConvertTo-AnsiblePlaybook' {
-    It 'emits win_regedit and win_audit_policy_system tasks and a manual comment' {
+    It 'emits win_regedit and enable-only win_powershell audit tasks and a manual comment' {
         InModuleScope woscap -Parameters @{ Expected = $script:Expected } {
             $failed = @(
                 [pscustomobject]@{ StigId = 'WN11-00-000032'; Title = 'MinimumPIN'; Status = 'Open' },
@@ -60,10 +89,12 @@ Describe 'ConvertTo-AnsiblePlaybook' {
                 'WN11-AU-000101' = @{ Type = 'AuditPolicy'; Subcategory = 'Logon'; Operator = 'includes'; Expected = 'Failure' }
             }
             $text = ConvertTo-AnsiblePlaybook -FailedRule $failed -ContentPack $pack
-            @($text -split "`n" | Where-Object { $_ -match 'win_audit_policy_system' }).Count | Should -Be 1
+            @($text -split "`n" | Where-Object { $_ -match 'ansible\.windows\.win_powershell:' }).Count | Should -Be 1
             # The name carries a colon, so it MUST be quoted or the YAML is invalid.
             $text | Should -Match 'name: "Audit policy: Logon"'
-            $text | Should -Match 'audit_type: success and failure'
+            # Both directions travel as separate list items, never one 'success and failure' string.
+            $text | Should -Match '(?m)^          Directions:\r?\n            - success\r?\n            - failure\r?$'
+            $text | Should -Not -Match 'success and failure'
         }
     }
     It 'quotes an audit task name so the colon does not break YAML parsing' {
@@ -86,5 +117,110 @@ Describe 'ConvertTo-AnsiblePlaybook' {
             $text = ConvertTo-AnsiblePlaybook -FailedRule $failed -ContentPack $pack
             $text | Should -Match '# manual: WN11-XX-000002'
         }
+    }
+    It 'never emits a disable flag or win_audit_policy_system (<Label>)' -TestCases @(
+        @{ Label = 'success only'; Exp = @('Success') }
+        @{ Label = 'failure only'; Exp = @('Failure') }
+        @{ Label = 'both';         Exp = @('Success', 'Failure') }
+    ) {
+        $text = New-AuditPlaybook -Subcategory 'Logon' -Expected $Exp
+        $text | Should -Not -Match 'disable'
+        $text | Should -Not -Match 'win_audit_policy_system'
+        @($text -split "`n" | Where-Object { $_ -match '^    - name:' }).Count | Should -Be 1
+    }
+    It 'emits exactly the required directions as parameters (<Label>)' -TestCases @(
+        @{ Label = 'success only'; Exp = @('Success'); Want = @('success') }
+        @{ Label = 'failure only'; Exp = @('Failure'); Want = @('failure') }
+        @{ Label = 'both';         Exp = @('Failure', 'Success'); Want = @('success', 'failure') }
+    ) {
+        $text = New-AuditPlaybook -Subcategory 'Logon' -Expected $Exp
+        $got = @($text -split "\r?\n" | Where-Object { $_ -match '^            - (\S+)$' } | ForEach-Object { $_.Trim().Substring(2) })
+        $got | Should -Be $Want
+    }
+    It 'keeps a subcategory with quotes and a colon a quoted parameter value, never script text' {
+        $sub = 'It''s "odd": a\b # x'
+        $text = New-AuditPlaybook -Subcategory $sub -Expected @('Success')
+        $lines = $text -split "\r?\n"
+        $lines | Should -Contain '    - name: "Audit policy: It''s \"odd\": a\\b # x"'
+        $lines | Should -Contain '          Subcategory: "It''s \"odd\": a\\b # x"'
+        # The subcategory appears on exactly those two lines and nowhere in the script.
+        @($lines | Where-Object { $_.Contains('odd') }).Count | Should -Be 2
+        Get-EmbeddedAuditScript $text | Should -Not -Match 'odd'
+    }
+    It 'embeds the canonical enable-only script verbatim' {
+        $text = New-AuditPlaybook -Subcategory 'Logon' -Expected @('Success', 'Failure')
+        $canonical = InModuleScope woscap { Get-WoscapAnsibleAuditScript }
+        Get-EmbeddedAuditScript $text | Should -Be (($canonical -replace "\r\n", "`n").TrimEnd())
+    }
+}
+
+Describe 'Embedded Ansible audit script (auditpol mocked)' {
+    BeforeAll {
+        $script:AuditScript = Get-EmbeddedAuditScript (New-AuditPlaybook -Subcategory 'Logon' -Expected @('Success'))
+
+        # Runs the emitted script with a fake $Ansible and a local 'auditpol' function
+        # shadowing the real exe, so no real auditpol call is ever made.
+        function Invoke-AuditScript {
+            param([string] $Setting, [string[]] $Directions, [switch] $CheckMode, [int] $GetExit = 0, [int] $SetExit = 0)
+            $script:AuditCalls = [System.Collections.Generic.List[object]]::new()
+            $Ansible = [pscustomobject]@{ Changed = $null; CheckMode = [bool]$CheckMode }
+            function auditpol {
+                $script:AuditCalls.Add(@($args))
+                if ($args[0] -eq '/get') {
+                    $global:LASTEXITCODE = $GetExit
+                    ''
+                    'Machine Name,Policy Target,Subcategory,Subcategory GUID,Inclusion Setting,Exclusion Setting'
+                    "HOST,System,Logon,{0CCE9215-69AE-11D9-BED3-505054503030},$Setting,"
+                } else {
+                    $global:LASTEXITCODE = $SetExit
+                }
+            }
+            & ([scriptblock]::Create($script:AuditScript)) -Subcategory 'Logon' -Directions $Directions
+            $Ansible
+        }
+        # Each /set call as one space-joined string, so assertions compare whole argument lists.
+        function Get-SetCall { @($script:AuditCalls | Where-Object { $_[0] -eq '/set' } | ForEach-Object { $_ -join ' ' }) }
+    }
+    AfterAll { $global:LASTEXITCODE = 0 }
+
+    It 'enables only the missing direction and reports Changed' {
+        $a = Invoke-AuditScript -Setting 'Success' -Directions 'success', 'failure'
+        $a.Changed | Should -BeTrue
+        $set = @(Get-SetCall)
+        $set.Count | Should -Be 1
+        $set[0] | Should -BeExactly '/set /subcategory:Logon /failure:enable'
+    }
+    It 'enables both directions when nothing is audited' {
+        $a = Invoke-AuditScript -Setting 'No Auditing' -Directions 'success', 'failure'
+        $a.Changed | Should -BeTrue
+        @(Get-SetCall) | Should -BeExactly @('/set /subcategory:Logon /success:enable /failure:enable')
+    }
+    It 'makes no set call and reports unchanged when already enabled' {
+        $a = Invoke-AuditScript -Setting 'Success and Failure' -Directions 'success'
+        $a.Changed | Should -BeFalse
+        @(Get-SetCall).Count | Should -Be 0
+        @($script:AuditCalls | Where-Object { $_[0] -eq '/get' }).Count | Should -Be 1
+    }
+    It 'makes no set call in check mode but reports would-change' {
+        $a = Invoke-AuditScript -Setting 'No Auditing' -Directions 'success' -CheckMode
+        $a.Changed | Should -BeTrue
+        @(Get-SetCall).Count | Should -Be 0
+    }
+    It 'never disables an existing other direction' {
+        $a = Invoke-AuditScript -Setting 'Failure' -Directions 'success'
+        $a.Changed | Should -BeTrue
+        @(Get-SetCall) | Should -BeExactly @('/set /subcategory:Logon /success:enable')
+        @($script:AuditCalls | ForEach-Object { $_ } | Where-Object { $_ -match 'disable' }).Count | Should -Be 0
+    }
+    It 'fails the task on a non-zero auditpol /set exit code' {
+        { Invoke-AuditScript -Setting 'No Auditing' -Directions 'success' -SetExit 5 } | Should -Throw '*auditpol /set failed*'
+    }
+    It 'fails the task on a non-zero auditpol /get exit code without setting' {
+        { Invoke-AuditScript -Setting 'Success' -Directions 'success' -GetExit 87 } | Should -Throw '*auditpol /get failed*'
+        @(Get-SetCall).Count | Should -Be 0
+    }
+    It 'rejects an unknown direction before calling auditpol' {
+        { Invoke-AuditScript -Setting 'Success' -Directions 'disable' } | Should -Throw '*unknown audit direction*'
+        $script:AuditCalls.Count | Should -Be 0
     }
 }
