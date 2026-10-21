@@ -75,7 +75,9 @@ BeforeAll {
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
 Describe 'Registry descriptor kinds agree with DISA-stated registry types' {
-    It '<Pack>: every stated REG_ type is an allowed kind' -ForEach $script:auditCases -Skip:$Skip {
+    It '<Pack>: every stated REG_ type is an allowed kind' -ForEach $script:auditCases {
+        # -Skip:$Skip binds at discovery, before -ForEach data exists, so skip at run time.
+        if ($Skip) { Set-ItResult -Skipped -Because 'CI or local STIG archive missing'; return }
         $kindOf = @{ REG_DWORD = 'DWord'; REG_QWORD = 'QWord'; REG_SZ = 'String'; REG_EXPAND_SZ = 'ExpandString'; REG_MULTI_SZ = 'MultiString' }
         $checkText = Read-AuditCheckContent -Zip $Zip
         $packDir = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) "Content/$Pack"
