@@ -88,7 +88,7 @@ Describe 'Firefox pack shape' {
         $paths = foreach ($d in $pack.Values) {
             if ($d.Type -eq 'Registry') { $d.Path }
             elseif ($d.Type -eq 'All') { @($d.Checks).Path }
-            elseif ($d.Type -eq 'Manual') { $d.Evidence.Path }
+            elseif ($d.Type -eq 'Manual') { @($d.Evidence.Checks).Path }
         }
         foreach ($p in $paths) { $p | Should -Match '^HKLM:\\SOFTWARE\\Policies\\Mozilla\\Firefox(\\|$)' }
         foreach ($d in $pack.Values) { $d.ContainsKey('AbsentIsPass') | Should -BeFalse }
@@ -152,7 +152,7 @@ Describe 'Firefox nested-object rules' {
             param($P, $Rule)
             $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)[$Rule.Id]
             $d.Type | Should -Be 'All'
-            @($d.Checks | ForEach-Object { "$($_.Path)|$($_.Name)=$($_.Expected)|$($_.Operator)" }) |
+            @($d.Checks | Where-Object { -not $_.ContainsKey('AbsentIsPass') } | ForEach-Object { "$($_.Path)|$($_.Name)=$($_.Expected)|$($_.Operator)" }) |
                 Should -Be @($Rule.Expect.Keys | ForEach-Object { "$($Rule.Path)|$_=$($Rule.Expect[$_])|eq" })
             $script:reg = @{}
             Mock Get-RegValue { $k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null } }
@@ -175,17 +175,49 @@ Describe 'Firefox nested-object rules' {
     }
 }
 
+Describe 'Firefox FirefoxHome Stories override' {
+    It 'FFOX-00-000029 fails when Stories or SponsoredStories is on, passes when absent or 0' {
+        InModuleScope woscap -Parameters @{ P = $script:PackPath } {
+            $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)['FFOX-00-000029']
+            $k = 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox\FirefoxHome'
+            $script:reg = @{}
+            Mock Get-RegValue { $x = "$Path|$Name"; if ($script:reg.ContainsKey($x)) { $script:reg[$x] } else { $null } }
+            $base = @{ Search = 0; TopSites = 0; SponsoredTopSites = 0; Pocket = 0; SponsoredPocket = 0; Highlights = 0; Snippets = 0; Locked = 1 }
+            $cases = @(
+                @(@{}, 'Pass'), @(@{ Stories = 0; SponsoredStories = 0 }, 'Pass'),
+                @(@{ Stories = 1 }, 'Fail'), @(@{ SponsoredStories = 1 }, 'Fail')
+            )
+            $miss = foreach ($c in $cases) {
+                $script:reg = @{}
+                foreach ($n in $base.Keys) { $script:reg["$k|$n"] = $base[$n] }
+                foreach ($n in $c[0].Keys) { $script:reg["$k|$n"] = $c[0][$n] }
+                $got = (Test-Descriptor -Descriptor $d).Result
+                if ($got -ne $c[1]) { "$(($c[0].Keys | ForEach-Object { "$_=$($c[0][$_])" }) -join ',') expected $($c[1]), got $got" }
+            }
+            @($miss) | Should -BeNullOrEmpty
+        }
+    }
+}
 Describe 'Firefox Preferences rules' {
-    It '<Id> is Manual, names <Pref>, and reports the Preferences value as evidence' -ForEach $script:Manual {
+    It '<Id> is Manual, names <Pref>, and reports every Preferences source as evidence' -ForEach $script:Manual {
         InModuleScope woscap -Parameters @{ P = $script:PackPath; Id = $Id; Pref = $Pref } {
             $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)[$Id]
             $d.Type | Should -Be 'Manual'
             $d.Question | Should -Match ([regex]::Escape("`"$Pref`""))
-            $d.Question | Should -Match 'locked'
-            Mock Get-RegValue { '{"x":1}' } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox' -and $Name -eq 'Preferences' }
+            $d.Question | Should -Match 'Status "locked"'
+            # The subkey form overrides the JSON value, so the question must say so.
+            $d.Question | Should -Match 'ignores \(2\)'
+            $f = 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox'
+            Mock Test-PathPresence { $true }
+            Mock Get-RegValue { $null }
+            Mock Get-RegValue { 'JSON' } -ParameterFilter { $Path -eq $f -and $Name -eq 'Preferences' }
+            Mock Get-RegValue { 'PREF' } -ParameterFilter { $Path -eq "$f\Preferences" -and $Name -eq $Pref }
+            Mock Get-RegValue { 'CAT' } -ParameterFilter { $Path -eq "$f\EnableTrackingProtection" -and $Name -eq 'Category' }
             $r = Test-Descriptor -Descriptor $d
             $r.Result | Should -Be 'NotReviewed'
-            "$($r.Observed)" | Should -Be '{"x":1}'
+            $want = if ($Id -eq 'FFOX-00-000025') { 'True; JSON; PREF; CAT' } else { 'True; JSON; PREF' }
+            "$($r.Observed)" | Should -Be $want
+            if ($Id -eq 'FFOX-00-000025') { $d.Question | Should -Match 'absent or "strict"' }
         }
     }
 }

@@ -1078,24 +1078,34 @@ the registry location and type come from Mozilla's
 - **`FirefoxHome` (`000029`)** checks DISA's value names `Pocket`, `SponsoredPocket` and
   `Snippets`. Current ADMX templates write these names only through the legacy policy
   "Customize Firefox Home (Moved to category)". The newer per-section policies write
-  `Stories` and `SponsoredStories`. A host configured only with the newer policies reads
-  absent for DISA's names, and DISA's text treats that as a finding too.
+  `Stories` and `SponsoredStories` instead. Firefox applies those after `Pocket` and
+  `SponsoredPocket`, and they set the same prefs, so the later value wins. The rule therefore
+  also requires `FirefoxHome\Stories` and `FirefoxHome\SponsoredStories` to be absent or 0. A
+  host configured only with the newer policies reads absent for DISA's names and is reported
+  `Open`, which matches DISA's text.
 - **`Preferences` rules are `Manual`** (`000003`, `000004`, `000010`, `000011`, `000025`,
-  `000026`). The registry can hold `Preferences` as a JSON string (`REG_SZ`/`REG_MULTI_SZ`) or
-  as nested `Preferences\<pref>` subkeys. woscap does not parse JSON and does not try to match
-  substrings, so it reports the `Preferences` value as evidence and the reviewer confirms the
-  pref value and `locked` status in `about:policies`.
+  `000026`). `Preferences` can be a JSON value on the `Firefox` key (`REG_SZ`/`REG_MULTI_SZ`).
+  It can also be a `Firefox\Preferences` subkey. The legacy ADMX form puts a value named after
+  each pref in that subkey; the pref is set and locked, with no `Status`. When the subkey
+  exists, Firefox builds the policy from it and ignores the JSON value. woscap does not parse
+  JSON. The evidence lists, in order: whether the subkey exists, the JSON value, and the
+  pref-named value in the subkey. The reviewer confirms the pref value and `locked` status in
+  `about:policies`. For `000025`, Firefox applies `EnableTrackingProtection\Category` after
+  `Preferences`, so the evidence also shows `Category`. It must be absent or `strict`;
+  `standard` overrides the locked pref and is a finding.
 - **Not authored (`Not_Reviewed`).** `000001` (supported version), `000006` (MIME-type
   download actions in `about:preferences`; no policy exists for this) and `000016` (DoD root
   certificates; AO-approved alternatives and SIPRNet certificates are acceptable).
 - **No install gate.** As with the Edge and Chrome packs, there is no "Firefox installed"
   check. Scanning a host without Firefox reports the policy rules `Open`.
 - **Known limitations.** Registry comparisons ignore the value type (#29). A `REG_SZ "1"`
-  satisfies a boolean check, but Firefox rejects it and drops the whole policy. Registry value
-  names are matched without regard to case, but Firefox's property names are case-sensitive.
-  woscap also reads only the named values, so a malformed sibling value that makes Firefox
-  reject the whole object policy is not detected. Group Policy always writes correctly typed,
-  correctly cased values, so these cases need hand-edited registry data.
+  satisfies a boolean check, but Firefox rejects it and drops the whole policy. woscap matches
+  registry value and subkey names without regard to case, but Firefox matches them exactly. A
+  hand-edited `locked` where Firefox expects `Locked` can therefore `Pass` while Firefox
+  ignores it (tracked on #29). woscap also reads only the named values, so it does not detect a
+  malformed sibling value that makes Firefox reject the whole object policy. Group Policy
+  always writes correctly typed, correctly cased values, so all of these need hand-edited
+  registry data.
 
 Scan with `Invoke-WoscapScan -XccdfPath <firefox-xccdf> -Benchmark Firefox`; fetch the content
 via `Save-WoscapStigContent -Benchmark Firefox -AllowScrape`.
