@@ -1110,6 +1110,44 @@ the registry location and type come from Mozilla's
 Scan with `Invoke-WoscapScan -XccdfPath <firefox-xccdf> -Benchmark Firefox`; fetch the content
 via `Save-WoscapStigContent -Benchmark Firefox -AllowScrape`.
 
+### Adobe Acrobat Reader DC pack
+
+**`Content/AcrobatReader/checks.psd1`** — Adobe Acrobat Reader DC Continuous Track STIG V2R1
+(benchmark date 23 Jul 2021): **26 of 26 rules authored, 22 automated, 4 manual**; 19 of them
+have an automatic registry fix in `Invoke-WoscapRemediation`. Hand-authored from the Manual
+XCCDF check-content, not generated.
+
+- **Where the values live.** 21 rules read one `REG_DWORD` under
+  `HKLM\Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown` or its subkeys
+  `cCloud`, `cDefaultLaunchURLPerms`, `cServices`, `cSharePoint`, `cWebmailProfiles` and
+  `cWelcomeScreen`. `HKLM\SOFTWARE\Policies` is shared between the 32- and 64-bit registry
+  views, so these reads do not depend on Reader's or woscap's bitness.
+- **Value required; absence is a finding.** Every rule says "... or does not exist, then this
+  is a finding". No rule uses `AbsentIsPass`.
+- **`ARDC-CN-000070` (repair installation) picks the view by OS bitness.** DISA names
+  `HKLM\Software\Adobe\Acrobat Reader\DC\Installer` "for 32 bit" and
+  `HKLM\SOFTWARE\Wow6432Node\Adobe\Acrobat Reader\DC\Installer` "for 64 bit". Each branch is
+  gated on `Win32_OperatingSystem.OSArchitecture` (`64` or `32`), so the other view can never
+  satisfy the rule, and an unknown architecture is a finding. A 64-bit Reader that writes
+  `DisableMaintenance` to the native 64-bit key is reported `Open` on 64-bit Windows, which
+  matches DISA's text. The composite is never automatically remediated.
+- **NA and risk acceptance are not modelled.** `000025` (`iURLPerms`) accepts `0` only with a
+  documented ISSO risk acceptance, and `000100` (SharePoint) is NA when Reader is configured
+  for an approved DoD SharePoint server. woscap cannot see either, so both require `1` and
+  set `Remediate = $false`. Record the exception in an exception profile.
+- **HKCU rules are `Manual`** (`000330`, `000335`, `000345`). DISA checks
+  `HKCU\Software\Adobe\Acrobat Reader\DC\...`, and `HKCU` is the hive of the account running
+  the scan (see [Known limitation: `HKCU` rules](#known-limitation-hkcu-rules)). The scanning
+  account's value is reported as evidence; the reviewer confirms each Reader user's profile.
+- **`000340` (latest security updates) is `Manual`.**
+- **No install gate.** As with the other application packs, there is no "Reader installed"
+  check. Scanning a host without Reader reports the policy rules `Open`.
+- **Known limitation.** Registry comparisons ignore the value type (#29). DISA requires
+  `REG_DWORD`, but a hand-edited `REG_SZ "1"` also passes. Group Policy writes the correct type.
+
+Scan with `Invoke-WoscapScan -XccdfPath <reader-xccdf> -Benchmark AcrobatReader`; fetch the
+content via `Save-WoscapStigContent -Benchmark AcrobatReader -AllowScrape`.
+
 ---
 
 ## 10. Architecture & internals
@@ -1278,7 +1316,7 @@ today**. Do not assume they work:
 | **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering (`Invoke-WoscapIntegration`) shipped (#23). |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Partially shipped** (#22). `Invoke-WoscapRemediation` applies **Registry + AuditPolicy** fixes on the **local** host, `-WhatIf`/`-Confirm`-gated (`ConfirmImpact='High'`), with auto re-check; other check types report `Manual`. Ansible remediation-as-code (playbook emitter) shipped in #18. Remote fleet remediation, Service/UserRight/SecEdit application, and rollback remain Phase 4. |
 | **`Get-WoscapBenchmark`** (list cached downloaded STIG content) | **Shipped** (#53). Lists the operator-local download cache (`Save-WoscapStigContent` output) by benchmark + revision; supports `-Benchmark` / `-Destination` filters. |
-| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), application packs for **Edge** and **Chrome** (#21) ship, **Windows Defender Firewall** V2R2 ships at 21/21 rules (20 automated, 1 manual, #26), **Microsoft Defender Antivirus** V2R10 ships at 67/67 rules (66 automated, 1 manual, #26), and **Mozilla Firefox** V6R9 ships at 30/33 rules (24 automated, 6 manual, 3 not authored, #26); Windows Server MS/DC packs remain. |
+| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), application packs for **Edge** and **Chrome** (#21) ship, **Windows Defender Firewall** V2R2 ships at 21/21 rules (20 automated, 1 manual, #26), **Microsoft Defender Antivirus** V2R10 ships at 67/67 rules (66 automated, 1 manual, #26), **Mozilla Firefox** V6R9 ships at 30/33 rules (24 automated, 6 manual, 3 not authored, #26), and **Adobe Acrobat Reader DC** Continuous V2R1 ships at 26/26 rules (22 automated, 4 manual, #26); Windows Server MS/DC packs remain. |
 
 Per the roadmap, **Phase 2 is complete**: all five reporters, the
 exception/profile system, remote fleet execution over WinRM
