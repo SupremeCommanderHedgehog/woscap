@@ -31,9 +31,9 @@ Describe 'Windows 11 pack coverage' {
         $extra = @($script:Pack.Keys | Where-Object { -not $script:Manifest.ContainsKey($_) })
         $extra | Should -BeNullOrEmpty -Because 'an entry for a rule outside the benchmark is dead content'
     }
-    It 'covers all 256 rules of V2R8' {
-        $script:Manifest.Keys.Count | Should -Be 256
-        $script:Pack.Keys.Count     | Should -Be 256
+    It 'covers all 257 rules of V2R11' {
+        $script:Manifest.Keys.Count | Should -Be 257
+        $script:Pack.Keys.Count     | Should -Be 257
     }
     It 'agrees with the manifest on which rules are Manual' {
         $disagreements = foreach ($id in ($script:Manifest.Keys | Sort-Object)) {
@@ -43,7 +43,7 @@ Describe 'Windows 11 pack coverage' {
         }
         @($disagreements) | Should -BeNullOrEmpty
     }
-    It 'automates at least 240 of the 256 rules' {
+    It 'automates at least 240 of the 257 rules' {
         # A floor, not a target. It fails loudly if a future change quietly
         # downgrades a swathe of rules to Manual to make something else pass.
         $automated = @($script:Pack.Keys | Where-Object { [string]$script:Pack[$_].Type -ne 'Manual' })
@@ -96,10 +96,10 @@ Describe 'Windows 11 pack schema' {
 
 Describe 'Windows 11 manifest reconciles with the published benchmark' {
     BeforeAll {
-        $script:XccdfPath = Join-Path $script:RepoRoot 'STIG/_extracted/U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml'
+        $script:XccdfPath = Join-Path $script:RepoRoot 'STIG/_extracted/U_MS_Windows_11_STIG_V2R11_Manual-xccdf.xml'
         $script:HaveXccdf = Test-Path -LiteralPath $script:XccdfPath
     }
-    It 'lists exactly the rules the XCCDF defines' -Skip:(-not (Test-Path -LiteralPath (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'STIG/_extracted/U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml'))) {
+    It 'lists exactly the rules the XCCDF defines' -Skip:(-not (Test-Path -LiteralPath (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'STIG/_extracted/U_MS_Windows_11_STIG_V2R11_Manual-xccdf.xml'))) {
         # Skipped where the licensed XCCDF is absent (CI). Locally this is what
         # catches a manifest that has drifted from the benchmark, including a
         # future revision that adds or renames rules.
