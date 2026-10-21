@@ -1,5 +1,6 @@
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
     $script:PackPath = Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'Content/Edge'
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
@@ -40,6 +41,7 @@ Describe 'Edge content pack' {
         InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
             $p = Import-ContentPack -Path $PackPath
             Mock Get-RegValue { 1 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) }
             (Test-Descriptor -Descriptor $p['EDGE-00-000050']).Result | Should -Be 'Pass'   # SmartScreenEnabled=1
         }
     }
@@ -47,6 +49,7 @@ Describe 'Edge content pack' {
         InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
             $p = Import-ContentPack -Path $PackPath
             Mock Get-RegValue { 0 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (0) }
             (Test-Descriptor -Descriptor $p['EDGE-00-000050']).Result | Should -Be 'Fail'   # SmartScreenEnabled=0
         }
     }

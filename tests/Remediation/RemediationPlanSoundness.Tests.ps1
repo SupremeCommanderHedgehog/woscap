@@ -19,6 +19,7 @@ BeforeDiscovery {
 
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
@@ -63,7 +64,9 @@ Describe 'Remediation plan soundness over shipped content' {
             $script:regPath = $action.Registry.Path
             $script:regName = $action.Registry.Name
             Mock Get-RegValue { $null }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ($null) }
             Mock Get-RegValue { $script:readBack } -ParameterFilter { $Path -eq $script:regPath -and $Name -eq $script:regName }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ($script:readBack) } -ParameterFilter { $Path -eq $script:regPath -and $Name -eq $script:regName }
             Mock Test-WoscapApplicability { [pscustomobject]@{ Applies = $true; Unreadable = $false; Reason = '' } }
 
             $verdict = Test-Descriptor -Descriptor $Descriptor

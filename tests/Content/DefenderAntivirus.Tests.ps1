@@ -97,6 +97,7 @@ BeforeAll {
     $script:RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     $script:PackPath = Join-Path $script:RepoRoot 'Content/DefenderAntivirus'
     Import-Module (Join-Path $script:RepoRoot 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
@@ -153,6 +154,7 @@ Describe 'Defender Antivirus single-value rules' {
             $script:val = $null
             $script:key = "$($Rule.Path)|$($Rule.Name)"
             Mock Get-RegValue { if ("$Path|$Name" -eq $script:key) { $script:val } else { $null } }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $(if ("$Path|$Name" -eq $script:key) { $script:val } else { $null }) }
             Mock Get-WoscapMachineFact { 22631 } -ParameterFilter { $Fact -eq 'OsBuild' }
 
             $got = @{}
@@ -185,6 +187,7 @@ Describe 'Defender Antivirus GPO-or-Intune rules' {
             $gk = "$($Rule.GpoPath)|$($Rule.GpoName)"; $pk = "$($Rule.PmPath)|$($Rule.PmName)"
             $script:reg = @{}
             Mock Get-RegValue { $k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null } }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $($k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null }) }
             Mock Get-WoscapMachineFact { 22631 } -ParameterFilter { $Fact -eq 'OsBuild' }
             $bad = New-WoscapUnreadable -Reason 'test: access denied'
             $absent = [object]::new()
@@ -218,6 +221,7 @@ Describe 'Defender Antivirus applicability' {
         InModuleScope woscap -Parameters @{ P = $script:PackPath; Id = $Id; Gated = $Gated } {
             $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)[$Id]
             Mock Get-RegValue { $null }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ($null) }
             Mock Get-WoscapMachineFact { 15063 } -ParameterFilter { $Fact -eq 'OsBuild' }
             $old = (Test-Descriptor -Descriptor $d).Result
             Mock Get-WoscapMachineFact { New-WoscapUnreadable -Reason 'test: CIM down' } -ParameterFilter { $Fact -eq 'OsBuild' }
@@ -238,6 +242,7 @@ Describe 'Defender Antivirus applicability' {
         InModuleScope woscap -Parameters @{ P = $script:PackPath } {
             $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)['WNDF-AV-000068']
             Mock Get-RegValue { 1 } -ParameterFilter { $Name -eq 'AllowNetworkProtectionOnWinServer' }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) } -ParameterFilter { $Name -eq 'AllowNetworkProtectionOnWinServer' }
             $r = Test-Descriptor -Descriptor $d
             $r.Result | Should -Be 'NotReviewed'
             "$($r.Observed)" | Should -Be '1'

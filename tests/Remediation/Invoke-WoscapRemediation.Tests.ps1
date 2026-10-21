@@ -1,5 +1,6 @@
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
@@ -206,7 +207,7 @@ Describe 'Invoke-WoscapRemediation' {
                 Mock Test-Path { $true }
                 $script:regFixed = $false
                 Mock Set-WoscapRegValue { $script:regFixed = $true }
-                Mock Get-ItemProperty { if ($script:regFixed) { [pscustomobject]@{ N = 1 } } else { [pscustomobject]@{ N = 0 } } }
+                Mock Get-RegValueEntry { New-WoscapTestRegEntry $(if ($script:regFixed) { 1 } else { 0 }) }
 
                 $rules = @([pscustomobject]@{ StigId='R-1'; Title='Reg'; Status='Open' })
                 $out = @($rules | Invoke-WoscapRemediation -ContentPath 'TestDrive:\pack' -Force -Quiet)

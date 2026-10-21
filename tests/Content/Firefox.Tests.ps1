@@ -64,6 +64,7 @@ BeforeAll {
     $script:RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     $script:PackPath = Join-Path $script:RepoRoot 'Content/Firefox'
     Import-Module (Join-Path $script:RepoRoot 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
@@ -129,6 +130,7 @@ Describe 'Firefox single-value rules' {
             $script:val = $null
             $script:key = "$($Rule.Path)|$($Rule.Name)"
             Mock Get-RegValue { if ("$Path|$Name" -eq $script:key) { $script:val } else { $null } }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $(if ("$Path|$Name" -eq $script:key) { $script:val } else { $null }) }
 
             $got = [ordered]@{}
             foreach ($v in $Rule.Good) { $script:val = $v; $got["good '$v'"] = (Test-Descriptor -Descriptor $d).Result }
@@ -156,6 +158,7 @@ Describe 'Firefox nested-object rules' {
                 Should -Be @($Rule.Expect.Keys | ForEach-Object { "$($Rule.Path)|$_=$($Rule.Expect[$_])|eq" })
             $script:reg = @{}
             Mock Get-RegValue { $k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null } }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $($k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null }) }
             $setGood = { $script:reg = @{}; foreach ($n in $Rule.Expect.Keys) { $script:reg["$($Rule.Path)|$n"] = $Rule.Expect[$n] } }
 
             $miss = [System.Collections.Generic.List[string]]::new()
@@ -182,6 +185,7 @@ Describe 'Firefox FirefoxHome Stories override' {
             $k = 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox\FirefoxHome'
             $script:reg = @{}
             Mock Get-RegValue { $x = "$Path|$Name"; if ($script:reg.ContainsKey($x)) { $script:reg[$x] } else { $null } }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $($x = "$Path|$Name"; if ($script:reg.ContainsKey($x)) { $script:reg[$x] } else { $null }) }
             $base = @{ Search = 0; TopSites = 0; SponsoredTopSites = 0; Pocket = 0; SponsoredPocket = 0; Highlights = 0; Snippets = 0; Locked = 1 }
             $cases = @(
                 @(@{}, 'Pass'), @(@{ Stories = 0; SponsoredStories = 0 }, 'Pass'),
@@ -210,9 +214,13 @@ Describe 'Firefox Preferences rules' {
             $f = 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox'
             Mock Test-PathPresence { $true }
             Mock Get-RegValue { $null }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ($null) }
             Mock Get-RegValue { 'JSON' } -ParameterFilter { $Path -eq $f -and $Name -eq 'Preferences' }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ('JSON') } -ParameterFilter { $Path -eq $f -and $Name -eq 'Preferences' }
             Mock Get-RegValue { 'PREF' } -ParameterFilter { $Path -eq "$f\Preferences" -and $Name -eq $Pref }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ('PREF') } -ParameterFilter { $Path -eq "$f\Preferences" -and $Name -eq $Pref }
             Mock Get-RegValue { 'CAT' } -ParameterFilter { $Path -eq "$f\EnableTrackingProtection" -and $Name -eq 'Category' }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ('CAT') } -ParameterFilter { $Path -eq "$f\EnableTrackingProtection" -and $Name -eq 'Category' }
             $r = Test-Descriptor -Descriptor $d
             $r.Result | Should -Be 'NotReviewed'
             $want = if ($Id -eq 'FFOX-00-000025') { 'True; JSON; PREF; CAT' } else { 'True; JSON; PREF' }
