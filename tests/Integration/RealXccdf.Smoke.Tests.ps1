@@ -69,3 +69,32 @@ Describe 'Real Defender Antivirus XCCDF smoke' -Skip:(-not (Test-Path (Join-Path
         ($res | Where-Object StigId -eq 'WNDF-AV-000003').Status | Should -BeIn @('Open', 'NotAFinding')
     }
 }
+
+Describe 'Real Mozilla Firefox XCCDF smoke' -Skip:(-not (Test-Path (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'STIG/U_MOZ_Firefox_V6R9_STIG.zip'))) {
+    BeforeAll {
+        # Read from the licensed archive; the XCCDF is copied only into TestDrive.
+        Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+        $zipPath = Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'STIG/U_MOZ_Firefox_V6R9_STIG.zip'
+        $script:FfXccdf = Join-Path $TestDrive 'U_MOZ_Firefox_STIG_V6R9_Manual-xccdf.xml'
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+        try {
+            $entry = @($zip.Entries | Where-Object { $_.FullName -like '*Manual-xccdf.xml' })[0]
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $script:FfXccdf, $true)
+        } finally { $zip.Dispose() }
+    }
+    It 'parses the real benchmark into 33 rules' {
+        InModuleScope woscap -Parameters @{ Xccdf = $script:FfXccdf } {
+            (Import-Xccdf -Path $Xccdf).Count | Should -Be 33
+        }
+    }
+    It 'runs a read-only scan with no Error and only the Manual and omitted rules unreviewed' {
+        $res = Invoke-WoscapScan -XccdfPath $script:FfXccdf -Benchmark Firefox -Quiet
+        @($res).Count | Should -Be 33
+        @($res | Where-Object Result -eq 'Error') | Should -BeNullOrEmpty
+        # Six Preferences rules are Manual; version, MIME-action and DoD-root rules have no descriptor.
+        @($res | Where-Object Result -eq 'NotReviewed' | ForEach-Object StigId | Sort-Object) | Should -Be @(
+            'FFOX-00-000001', 'FFOX-00-000003', 'FFOX-00-000004', 'FFOX-00-000006', 'FFOX-00-000010',
+            'FFOX-00-000011', 'FFOX-00-000016', 'FFOX-00-000025', 'FFOX-00-000026')
+        ($res | Where-Object StigId -eq 'FFOX-00-000014').Status | Should -BeIn @('Open', 'NotAFinding')
+    }
+}

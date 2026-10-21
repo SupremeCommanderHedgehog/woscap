@@ -44,4 +44,11 @@
         Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Defender_Antivirus_V2R10_STIG.zip'
         ScrapePattern = 'Defender[ _]Antivirus'
     }
+
+    # Mozilla Firefox STIG, V6R9 (benchmark date 2026-09-30). Pack: Content\Firefox. The Url
+    # uses the host/path scheme above with the local archive's file name; it was NOT verified online.
+    Firefox = @{
+        Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MOZ_Firefox_V6R9_STIG.zip'
+        ScrapePattern = 'Mozilla[ _]Firefox|MOZ_Firefox'
+    }
 }
