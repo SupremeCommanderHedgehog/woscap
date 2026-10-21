@@ -14,7 +14,7 @@ function ConvertTo-AnsiblePlaybook {
     .OUTPUTS
         [string] The playbook.
     .EXAMPLE
-        ConvertTo-AnsiblePlaybook -FailedRule $open -ContentPack $pack | Set-Content .\fix.yml
+        $yaml = ConvertTo-AnsiblePlaybook -FailedRule $open -ContentPack $pack
     #>
     [CmdletBinding()]
     param(
