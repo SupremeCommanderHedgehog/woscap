@@ -56,7 +56,7 @@ surfaces — exactly the surfaces DISA STIG check text is written against:
 
 | Policy area | Read via | Helper |
 |---|---|---|
-| Administrative Templates | Registry (`HKLM`/`HKCU\...\Policies`) | `Get-RegValue` |
+| Administrative Templates | Registry (`HKLM`/`HKCU\...\Policies`) | `Get-RegValueEntry` (value and kind) |
 | Account policy / security options | `secedit.exe /export` → parsed INF | `Get-SecEditSetting` |
 | User Rights Assignment | `secedit` INF `[Privilege Rights]` | `Get-UserRight` |
 | Advanced Audit Policy | `auditpol /get /category:*` | `Get-AuditPolicy` |
@@ -823,7 +823,7 @@ Each entry is a hashtable. Keys vary by `Type`; all types compare via an
 
 | Type | Read helper | Descriptor keys |
 |---|---|---|
-| `Registry` | `Get-RegValue` | `Path`, `Name`; optional `AbsentIsPass`, `Kind` (`'dword'`/`'string'`, the type remediation writes), `Remediate`, `RemediateReason` (see below) |
+| `Registry` | `Get-RegValueEntry` | `Path`, `Name`; optional `AbsentIsPass`, `Kind` and `NameCase` (see [Registry value kinds](#registry-value-kinds-kind-and-namecase)), `Remediate`, `RemediateReason` (see below) |
 | `SecEdit` | `Get-SecEditSetting` | `Name`, `Section` (default `System Access`) |
 | `UserRight` | `Get-UserRight` | `Privilege` (a `Se*` right); `Expected` is a principal list, compared **as SIDs** via `Resolve-PrincipalSid` |
 | `AuditPolicy` | `Get-AuditPolicy` | `Subcategory` |
@@ -841,6 +841,56 @@ Each entry is a hashtable. Keys vary by `Type`; all types compare via an
 `LocalAccount` pairs `Scope` with `Property`, and the two are cross-validated:
 `User` accepts `EnabledNames`, `NonExpiringNames`, `StaleNames` and
 `PasswordAgeDays`; `Group` accepts `Members` and requires `Name`.
+
+#### Registry value kinds (`Kind` and `NameCase`)
+
+A `Registry` check reads the stored value **and its kind**. A present value of the wrong
+kind is a `Fail`, never a `Pass` or `NA`, whatever its data. For example, a `REG_SZ "1"`
+fails a rule that needs `REG_DWORD 1`. The `Observed` column shows the stored kind and what
+was required, e.g. `String '1' (requires DWord)`. An absent value is still absent (a `Fail`,
+or a `Pass` with `AbsentIsPass`), and an unreadable one is still `Error`. `AbsentIsPass` covers
+only a missing value. A present value of the wrong kind is a `Fail` even on a rule where absence
+is compliant, because Windows reads that value, and it is not the configuration DISA describes.
+
+A declared `Kind` sets the required kind:
+
+| `Kind` | Required stored kind |
+|---|---|
+| `dword` | `REG_DWORD` |
+| `qword` | `REG_QWORD` |
+| `string` | `REG_SZ` or `REG_EXPAND_SZ`. With an integer `Expected` it is a `REG_SZ` holding a number: `eq`/`ne`/`in`/`notin` compare the text, `ge`/`le` compare numerically |
+| `expandstring` | `REG_EXPAND_SZ` |
+| `multistring` | `REG_MULTI_SZ` |
+
+Without `Kind`, the kind is inferred from `Operator` and `Expected`:
+
+| Operator | `Expected` (every element) | Required stored kind |
+|---|---|---|
+| `exists` | anything | any kind |
+| `eq` `ne` `ge` `le` `in` `notin` | integers | `REG_DWORD` |
+| `eq` `ne` `in` `notin` `regex` | strings | `REG_SZ` or `REG_EXPAND_SZ` |
+| `setequals` `subsetof` `supersetof` `sequence` `includes` | anything | `REG_MULTI_SZ` |
+
+"Integers" means any .NET integer type (`Int16` to `UInt64`, `Byte`, `SByte`). The same test
+classifies `Expected`, gate values and remediation data. `exists` and the set operators accept
+an empty `Expected`, but the other operators need at least one element.
+
+Any other combination is a pack defect. Examples are `ge` with a string `Expected`, mixed
+integer and string elements, or `Kind='qword'` with a string. The schema check reports it at
+load. The rule evaluates to `Error` whatever is stored, including when the value is absent and
+`AbsentIsPass` is set. `REG_BINARY` is never accepted.
+
+A `Manual` rule's `Evidence` reports the value as read, with ` [<Kind>]` appended only when the
+kind is wrong. Evidence has no `Operator`, so it may declare `Kind` to say which kind is
+expected. Without one, no kind annotation is shown.
+
+Remediation writes only `REG_DWORD` or `REG_SZ`, and only the kind the check requires. A rule
+that requires `REG_QWORD`, `REG_EXPAND_SZ` or `REG_MULTI_SZ` is reported `Manual`.
+
+`NameCase = 'Exact'` makes the value read as absent unless the value name and every subkey
+below the hive root match the stored case exactly. Windows itself ignores case, but some
+applications do not. The Firefox pack sets it on every `Registry` descriptor. It is valid only
+on `Registry` descriptors, and `'Exact'` is the only accepted value.
 
 #### Composites (`All` / `Any`)
 
@@ -874,7 +924,12 @@ An optional `Applicability` hashtable marks a rule Not Applicable from
 | `DomainJoined`, `TpmPresent`, `CameraPresent`, `BluetoothPresent`, `HypervisorPresent`, `LocalAdminEnabled` | `$true` / `$false` |
 | `OsBuildAtLeast`, `OsBuildBelow` | a build number |
 | `RegistryValueEquals` | `@{ Path; Name; Value }` — a **negative** gate: NA *when* the value matches |
-| `RegistryValueIn` | `@{ Path; Name; Values }` — a **negative** gate over a set: NA *when* the value is one of `Values` (compared as strings). Absent applies; unreadable is `Error` |
+| `RegistryValueIn` | `@{ Path; Name; Values }` — a **negative** gate over a set: NA *when* the value is one of `Values`. Absent applies; unreadable is `Error` |
+
+Both registry gates match only a value of the right kind. Integer gate values need a
+`REG_DWORD`, and string gate values need a `REG_SZ` or `REG_EXPAND_SZ`. Any other stored kind
+does not match, so the rule applies. A wrong-kind value can never make a rule NA. Gate values
+must be all integers or all strings, and the schema check rejects a mix.
 
 #### Remediation opt-out (`Remediate`)
 
@@ -1108,14 +1163,13 @@ the registry location and type come from Mozilla's
   certificates; AO-approved alternatives and SIPRNet certificates are acceptable).
 - **No install gate.** As with the Edge and Chrome packs, there is no "Firefox installed"
   check. Scanning a host without Firefox reports the policy rules `Open`.
-- **Known limitations.** Registry comparisons ignore the value type (#29). A `REG_SZ "1"`
-  satisfies a boolean check, but Firefox rejects it and drops the whole policy. woscap matches
-  registry value and subkey names without regard to case, but Firefox matches them exactly. A
-  hand-edited `locked` where Firefox expects `Locked` can therefore `Pass` while Firefox
-  ignores it (tracked on #29). woscap also reads only the named values, so it does not detect a
-  malformed sibling value that makes Firefox reject the whole object policy. Group Policy
-  always writes correctly typed, correctly cased values, so all of these need hand-edited
-  registry data.
+- **Value kind and name case are enforced.** A `REG_SZ "1"` where Firefox needs a
+  `REG_DWORD` is a `Fail`, as Firefox rejects it. Every `Registry` descriptor sets
+  `NameCase = 'Exact'`, because Firefox matches value and subkey names case-sensitively. A
+  hand-edited `locked` where Firefox expects `Locked` therefore reads as absent and is `Open`.
+- **Known limitation.** woscap reads only the named values, so it does not detect a malformed
+  sibling value that makes Firefox reject the whole object policy. Group Policy writes
+  well-formed values, so this needs hand-edited registry data.
 
 Scan with `Invoke-WoscapScan -XccdfPath <firefox-xccdf> -Benchmark Firefox`; fetch the content
 via `Save-WoscapStigContent -Benchmark Firefox -AllowScrape`.
@@ -1179,15 +1233,9 @@ silent false Pass, so verify against the official release.
 - **`000340` (latest security updates) is `Manual`.**
 - **No install gate.** As with the other application packs, there is no "Reader installed"
   check. Scanning a host without Reader reports the policy rules `Open`.
-- **Known limitation: value type is ignored (#29).** DISA requires `REG_DWORD`, but all 22
-  automated rules also pass on:
-  - a `REG_SZ` that is exactly the required digit (`"0"`, `"1"`, `"2"` or `"3"`);
-  - a `REG_QWORD` with the required value;
-  - a `REG_MULTI_SZ` containing that digit;
-  - a `REG_BINARY` with a byte equal to the required value. For `Expected = 0` it needs at
-    least two zero bytes, because a single matching `0` is falsy.
-
-  Group Policy writes `REG_DWORD`, so this exposure needs a hand edit.
+- **Value kind is enforced.** DISA requires `REG_DWORD`. A `REG_SZ`, `REG_QWORD`,
+  `REG_MULTI_SZ` or `REG_BINARY` holding the required value is a `Fail`, with the stored kind
+  shown in `Observed`.
 
 Scan with `Invoke-WoscapScan -XccdfPath <reader-xccdf> -Benchmark AcrobatReader`; fetch the
 content via `Save-WoscapStigContent -Benchmark AcrobatReader -AllowScrape`.
@@ -1211,7 +1259,7 @@ woscap/
 │   ├─ Checks/                        # descriptor evaluator + read helpers
 │   │   ├─ Test-Descriptor.ps1        #   interprets one descriptor
 │   │   ├─ Compare-WoscapValue.ps1    #   the operator set
-│   │   ├─ Get-RegValue / Get-SecEditSetting / Get-AuditPolicy /
+│   │   ├─ Get-RegValueEntry / Get-SecEditSetting / Get-AuditPolicy /
 │   │   │   Get-UserRight / Get-ServiceState / Get-AclSetting
 │   │   ├─ Invoke-SecEditExport / ConvertFrom-SecEditInf
 │   │   ├─ Invoke-AuditPol / ConvertFrom-AuditPolCsv
@@ -1280,8 +1328,13 @@ benchmark title/version.
 
 ### Read helpers (all read-only)
 
-- `Get-RegValue` — `Get-ItemProperty`; returns `$null` if the key/value is
-  absent (drives `exists`/`eq` semantics).
+- `Get-RegValueEntry` — the one registry reader. It opens the key with `Get-Item -LiteralPath`
+  and returns `{ Value; Kind }` (`RegistryKey.GetValue`/`GetValueKind`). It returns `$null` if
+  the key or value is absent, which drives the `exists`/`eq` semantics, and the unreadable
+  sentinel on any other failure. It disposes every key it opens. `-ExactNameCase` implements
+  `NameCase = 'Exact'`.
+- `Get-RegValue` — a thin wrapper that returns `(Get-RegValueEntry).Value`. It is for
+  scriptblock evidence that reports a value without judging it.
 - `Get-SecEditSetting` / `Get-UserRight` — `secedit /export` to a temp INF
   (`Invoke-SecEditExport`), parsed by `ConvertFrom-SecEditInf`; user rights come
   from the `[Privilege Rights]` section.
