@@ -38,6 +38,7 @@ function New-WoscapMainForm {
 
     $tag = @{
         Menu = $menu.Menu; MenuRun = $menu.Run; MenuExport = $menu.Export; MenuRemediate = $menu.Remediate
+        MenuResetSettings = $menu.ResetSettings
         MenuContentDownload = $menu.ContentDownload; MenuContentUpdate = $menu.ContentUpdate
         MenuContentRemove = $menu.ContentRemove; MenuContentUseForScan = $menu.ContentUseForScan
         MenuContentRefresh = $menu.ContentRefresh
@@ -186,6 +187,10 @@ function New-WoscapMainForm {
     $menu.Run.Add_Click({ Invoke-WoscapGuiRun -Tag $script:WoscapGuiTag })
     $menu.Export.Add_Click({ Invoke-WoscapGuiExport -Tag $script:WoscapGuiTag })
     $menu.Remediate.Add_Click({ Invoke-WoscapGuiRemediate -Tag $script:WoscapGuiTag })
+    $menu.ResetSettings.Add_Click({
+        $t = $script:WoscapGuiTag
+        [void](Reset-WoscapGuiSettings -Tag $t -Form $t['Tabs'].FindForm())
+    })
     $menu.Exit.Add_Click({ $script:WoscapGuiTag['Tabs'].FindForm().Close() })
     $menu.Advanced.Add_Click({ Show-WoscapGuiAdvancedOption -Tag $script:WoscapGuiTag })
     $menu.OpenContent.Add_Click({ $t = $script:WoscapGuiTag; $t['Tabs'].SelectedTab = $t['ContentTab'] })

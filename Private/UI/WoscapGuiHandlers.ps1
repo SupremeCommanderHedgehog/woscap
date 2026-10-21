@@ -1,7 +1,13 @@
 function Show-WoscapGuiMessage {
-    <# Thin seam over MessageBox so handlers are testable (mock this in tests). #>
+    <# Thin seam over MessageBox so handlers are testable (mock this in tests). With -YesNo it
+       asks a question and returns $true only for Yes; callers must treat anything else as No. #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string] $Text, [string] $Caption = 'woscap')
+    param([Parameter(Mandatory)][string] $Text, [string] $Caption = 'woscap', [switch] $YesNo)
+    if ($YesNo) {
+        $answer = [System.Windows.Forms.MessageBox]::Show($Text, $Caption,
+            [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
+        return $answer -eq [System.Windows.Forms.DialogResult]::Yes
+    }
     [void][System.Windows.Forms.MessageBox]::Show($Text, $Caption)
 }
 

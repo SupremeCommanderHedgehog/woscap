@@ -208,3 +208,50 @@ function Export-WoscapGuiSettings {
         Write-Warning "Could not save GUI settings: $($_.Exception.Message)"
     }
 }
+
+function Reset-WoscapGuiSettings {
+    <#
+        .SYNOPSIS
+        File > Reset settings: restores the GUI defaults and deletes the saved settings file.
+        .DESCRIPTION
+        Asks for confirmation through Show-WoscapGuiMessage -YesNo; only an explicit $true
+        proceeds, so a closed or mocked dialog changes nothing. On Yes it deletes the settings
+        file (a failure is a warning) and applies $Tag['SettingsDefaults'], the values captured
+        when the form was built. The window returns to its default size, not maximized,
+        centered on its current screen. Closing the form afterwards saves these defaults again.
+        .PARAMETER Tag
+        The main form's Tag hashtable.
+        .PARAMETER Form
+        The main form.
+        .OUTPUTS
+        System.Boolean. $true when the reset was confirmed and applied.
+        .EXAMPLE
+        Reset-WoscapGuiSettings -Tag $form.Tag -Form $form
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][hashtable] $Tag, [Parameter(Mandatory)][System.Windows.Forms.Form] $Form)
+    $answer = Show-WoscapGuiMessage -Text 'Reset all GUI settings to their defaults and delete the saved settings file?' `
+        -Caption 'Reset settings' -YesNo
+    if (-not ($answer -is [bool] -and $answer)) { return $false }
+
+    [void](Remove-WoscapGuiSettingsFile)
+    try {
+        $defaults = $Tag['SettingsDefaults']
+        Set-WoscapGuiSettingsValue -Tag $Tag -Values $defaults
+        $w = $defaults['Window']
+        $Form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+        $areas = @(Get-WoscapGuiScreenArea)
+        $area = @($areas | Where-Object { $_.IntersectsWith($Form.Bounds) }) + $areas | Select-Object -First 1
+        if ($area) {
+            $x = $area.X + [int][Math]::Floor(($area.Width - $w['Width']) / 2)
+            $y = $area.Y + [int][Math]::Floor(($area.Height - $w['Height']) / 2)
+            $Form.Bounds = New-Object System.Drawing.Rectangle($x, $y, $w['Width'], $w['Height'])
+        } else {
+            $Form.Size = New-Object System.Drawing.Size($w['Width'], $w['Height'])
+        }
+    } catch {
+        Write-Warning "Could not reset all GUI settings: $($_.Exception.Message)"
+    }
+    $true
+}

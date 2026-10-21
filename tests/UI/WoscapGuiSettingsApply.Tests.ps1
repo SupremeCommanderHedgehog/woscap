@@ -323,4 +323,110 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
             (Get-Content -LiteralPath $script:SettingsFile -Raw | ConvertFrom-Json).Targets | Should -Be 'closed-host'
         }
     }
+
+    Context 'Reset settings' {
+        BeforeEach {
+            # Every field away from its default, so a reset has something to undo.
+            Save-TestSettings @{
+                Benchmark = 'Edge'; XccdfPath = $script:Xccdf; Targets = 'saved-host'; Profiles = @($script:ProfB, $script:ProfA)
+                AdvancedExpanded = $true; ContentPath = $script:Dir; ThrottleLimit = 3; JsonPath = (Join-Path $script:Dir 'o.json')
+                ExportFormat = 'Html'; ContentDestination = $script:Dir; IntegrationPath = $script:Dir
+                Window = @{ X = 20; Y = 30; Width = 1200; Height = 900; Maximized = $true }
+            }
+        }
+
+        It 'is a File menu item mapped as MenuResetSettings, next to Export and Exit' {
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try {
+                    $item = $form.Tag['MenuResetSettings']
+                    $item | Should -BeOfType [System.Windows.Forms.ToolStripMenuItem]
+                    $item.Text | Should -Be 'Reset &settings...'
+                    $item.OwnerItem.Text | Should -Be '&File'
+                } finally { $form.Dispose() }
+            }
+        }
+
+        It 'menu click asks through the message seam with Yes/No' {
+            Mock -ModuleName woscap Show-WoscapGuiMessage { $false }
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try { $form.Tag['MenuResetSettings'].PerformClick() } finally { $form.Dispose() }
+            }
+            Should -Invoke -ModuleName woscap Show-WoscapGuiMessage -Times 1 -Exactly -Scope It -ParameterFilter { $YesNo }
+        }
+
+        It 'changes nothing and keeps the file when the answer is <Shown>' -ForEach @(
+            @{ Shown = 'No'; Answer = $false }
+            @{ Shown = 'a closed or mocked dialog ($null)'; Answer = $null }
+            @{ Shown = 'a non-bool truthy value'; Answer = 'Yes' }
+        ) {
+            $script:answer = $Answer
+            Mock -ModuleName woscap Show-WoscapGuiMessage { $script:answer }
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try {
+                    $before = Get-WoscapGuiSettingsState -Tag $form.Tag -Form $form
+                    Reset-WoscapGuiSettings -Tag $form.Tag -Form $form | Should -BeFalse
+                    $after = Get-WoscapGuiSettingsState -Tag $form.Tag -Form $form
+                    ($after | ConvertTo-Json -Depth 4) | Should -Be ($before | ConvertTo-Json -Depth 4)
+                    $form.Tag['Targets'].Text | Should -Be 'saved-host'
+                } finally { $form.Dispose() }
+            }
+            Test-Path -LiteralPath $script:SettingsFile | Should -BeTrue
+        }
+
+        It 'deletes the file and returns every field to SettingsDefaults when confirmed' {
+            Mock -ModuleName woscap Show-WoscapGuiMessage { $true }
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try {
+                    $form.Tag['Targets'].Text | Should -Be 'saved-host'
+                    $form.WindowState | Should -Be 'Maximized'
+                    Reset-WoscapGuiSettings -Tag $form.Tag -Form $form | Should -BeTrue
+                    Test-Path -LiteralPath (Get-WoscapGuiSettingsPath) | Should -BeFalse
+                    $d = $form.Tag['SettingsDefaults']
+                    $now = Get-WoscapGuiSettingsState -Tag $form.Tag -Form $form
+                    foreach ($k in @($d.Keys | Where-Object { $_ -ne 'Window' })) {
+                        ($now[$k] | ConvertTo-Json -Compress) | Should -Be ($d[$k] | ConvertTo-Json -Compress) -Because $k
+                    }
+                    $now.Window.Width | Should -Be $d.Window.Width
+                    $now.Window.Height | Should -Be $d.Window.Height
+                    $now.Window.Maximized | Should -BeFalse
+                    # Centered on the (mocked) 1920x1040 screen, as CenterScreen would place it.
+                    $now.Window.X | Should -Be ([int][Math]::Floor((1920 - $d.Window.Width) / 2))
+                    $now.Window.Y | Should -Be ([int][Math]::Floor((1040 - $d.Window.Height) / 2))
+                    # Derived UI follows, as after user edits.
+                    $form.Tag['AdvancedGroup'].Visible | Should -BeFalse
+                    $form.Tag['AdvancedToggle'].Text | Should -Be '[+] Advanced'
+                    $form.Tag['ContentPathDefault'].Text | Should -Match 'Windows11$'
+                    $form.Tag['ProfileRemove'].Enabled | Should -BeFalse
+                } finally { $form.Dispose() }
+            }
+        }
+
+        It 'still resets the fields, with a warning, when the delete fails' {
+            Mock -ModuleName woscap Show-WoscapGuiMessage { $true }
+            Mock -ModuleName woscap Remove-Item { throw 'locked' }
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try {
+                    { $script:r = Reset-WoscapGuiSettings -Tag $form.Tag -Form $form -WarningAction SilentlyContinue } | Should -Not -Throw
+                    $form.Tag['Targets'].Text | Should -BeExactly ''
+                } finally { $form.Dispose() }
+            }
+        }
+
+        It 'saves the defaults again on the next close' {
+            Mock -ModuleName woscap Show-WoscapGuiMessage { $true }
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try {
+                    [void](Reset-WoscapGuiSettings -Tag $form.Tag -Form $form)
+                    [void](Invoke-FormClosing $form)
+                } finally { $form.Dispose() }
+            }
+            (Get-Content -LiteralPath $script:SettingsFile -Raw | ConvertFrom-Json).Targets | Should -BeExactly ''
+        }
+    }
 }

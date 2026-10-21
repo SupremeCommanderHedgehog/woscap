@@ -8,7 +8,11 @@ BeforeDiscovery {
     $script:Cmdlets = @(Get-Command -Module woscap | Where-Object Name -ne 'Show-WoscapGui' | Sort-Object Name | ForEach-Object {
         @{ Name = $_.Name; Params = @($_.Parameters.Keys | Where-Object { $_ -notin $common } | Sort-Object) }
     })
-    $script:Entries = @(foreach ($cmd in $script:Manifest.Keys) {
+    # GuiOnly is the one reserved non-cmdlet key: GUI items with no cmdlet parameter.
+    $script:GuiOnly = @(if ($script:Manifest.ContainsKey('GuiOnly')) {
+        foreach ($k in $script:Manifest['GuiOnly'].Keys) { @{ Key = $k; Reason = $script:Manifest['GuiOnly'][$k] } }
+    })
+    $script:Entries = @(foreach ($cmd in @($script:Manifest.Keys | Where-Object { $_ -ne 'GuiOnly' })) {
         foreach ($p in $script:Manifest[$cmd].Keys) {
             @{ Cmdlet = $cmd; Param = $p; Entry = $script:Manifest[$cmd][$p] }
         }
@@ -29,7 +33,7 @@ Describe 'GUI / CLI parity manifest' {
     It 'covers exactly the exported cmdlets (except Show-WoscapGui)' {
         # Discovery-phase variables are not visible at run time; recompute here.
         $exported = @(Get-Command -Module woscap | Where-Object Name -ne 'Show-WoscapGui' | ForEach-Object Name | Sort-Object)
-        @($script:Manifest.Keys | Sort-Object) | Should -Be $exported
+        @($script:Manifest.Keys | Where-Object { $_ -ne 'GuiOnly' } | Sort-Object) | Should -Be $exported
     }
 
     It '<Name>: every parameter is declared and none are stale' -ForEach $script:Cmdlets {
@@ -51,6 +55,28 @@ Describe 'GUI / CLI parity manifest' {
             param($Control)
             $form = New-WoscapMainForm
             try { $form.Tag.ContainsKey($Control) | Should -BeTrue -Because "Tag has no '$Control'" }
+            finally { $form.Dispose() }
+        }
+    }
+
+    It 'maps the GUI-only Reset settings menu item' {
+        $script:Manifest.ContainsKey('GuiOnly') | Should -BeTrue
+        $script:Manifest['GuiOnly'].ContainsKey('MenuResetSettings') | Should -BeTrue
+    }
+
+    It 'has no Pending entries' {
+        $text = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'Private/UI/WoscapGuiParity.psd1') -Raw
+        $text | Should -Not -Match 'Pending'
+    }
+
+    It 'GuiOnly <Key>: exists on the main form and states a reason' -ForEach $script:GuiOnly {
+        $Reason | Should -BeOfType [string]
+        [string]::IsNullOrWhiteSpace($Reason) | Should -BeFalse
+        if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') { Set-ItResult -Skipped -Because 'WinForms needs STA'; return }
+        InModuleScope woscap -Parameters @{ Key = $Key } {
+            param($Key)
+            $form = New-WoscapMainForm
+            try { $form.Tag.ContainsKey($Key) | Should -BeTrue -Because "Tag has no '$Key'" }
             finally { $form.Dispose() }
         }
     }

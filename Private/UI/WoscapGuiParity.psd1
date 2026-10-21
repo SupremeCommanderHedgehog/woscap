@@ -2,7 +2,11 @@
 # states why the GUI does not expose it (CliOnly). Enforced by tests/UI/WoscapGuiParity.Tests.ps1.
 # Common parameters (incl. WhatIf/Confirm) are excluded; remediation's confirmation is the
 # Remediate flow (Force -> Remediate); content Update/Remove confirm in their own dialogs.
+# GuiOnly is reserved, not a cmdlet: GUI items with no cmdlet parameter, Tag key -> reason.
 @{
+    'GuiOnly' = @{
+        MenuResetSettings = 'File > Reset settings restores the GUI defaults and deletes the per-user GUI settings file; no cmdlet has GUI settings'
+    }
     'Invoke-WoscapScan' = @{
         XccdfPath     = @{ Control = 'Xccdf' }
         Benchmark     = @{ Control = 'Benchmark' }
