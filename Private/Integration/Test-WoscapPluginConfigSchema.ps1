@@ -37,6 +37,15 @@ function Test-WoscapPluginConfigSchema {
             }
         }
 
+        # Optional Browse hint for Path options.
+        if ($opt.ContainsKey('PathKind')) {
+            $kind = $opt['PathKind']
+            if ($type -ne 'Path') { $errors.Add("Option $label PathKind applies only to Type Path.") }
+            elseif ($kind -isnot [string] -or $kind -notin @('File', 'Folder', 'SaveFile')) {
+                $errors.Add("Option $label PathKind must be File, Folder or SaveFile.")
+            }
+        }
+
         if ($opt.ContainsKey('Required') -and $opt['Required'] -isnot [bool]) {
             $errors.Add("Option $label Required must be a boolean.")
         }

@@ -50,4 +50,16 @@ Describe 'Bundled plugin config schemas' {
         }
         $missing | Should -BeNullOrEmpty
     }
+    It 'declares the Browse kind of every bundled Path option' {
+        $want = @{ 'Ansible/ContentPath' = 'Folder'; 'Ansible/FactsPath' = 'SaveFile' }
+        $got = @{}
+        foreach ($name in 'OpenVAS', 'Ansible', 'Zabbix') {
+            $m = Import-PowerShellDataFile -LiteralPath (Join-Path $script:Repo "Integrations/$name/plugin.psd1")
+            foreach ($o in @($m.ConfigOptions | Where-Object { $_.Type -eq 'Path' })) {
+                $got["$name/$($o.Name)"] = if ($o.ContainsKey('PathKind')) { $o.PathKind } else { '' }
+            }
+        }
+        @($got.Keys | Sort-Object) | Should -Be @($want.Keys | Sort-Object)
+        foreach ($k in $want.Keys) { $got[$k] | Should -Be $want[$k] -Because "$k Browse kind" }
+    }
 }

@@ -302,6 +302,48 @@ Describe 'Config form values' -Skip:(-not $script:IsSta) {
             } finally { $d.Close(); $d.Dispose() }
         }
     }
+    It 'Browse uses the <Seam> seam for PathKind <Kind>' -ForEach @(
+        @{ Kind = 'File'; Seam = 'Get-WoscapGuiOpenPath' }
+        @{ Kind = 'Folder'; Seam = 'Get-WoscapGuiFolderPath' }
+        @{ Kind = 'SaveFile'; Seam = 'Get-WoscapGuiSavePath' }
+        @{ Kind = $null; Seam = 'Get-WoscapGuiOpenPath' }
+    ) {
+        InModuleScope woscap -Parameters @{ Kind = $Kind; Seam = $Seam } {
+            param($Kind, $Seam)
+            Mock Get-WoscapGuiOpenPath { @('C:\picked\open.txt') }
+            Mock Get-WoscapGuiFolderPath { 'C:\picked\folder' }
+            Mock Get-WoscapGuiSavePath { 'C:\picked\save.json' }
+            $want = @{ 'Get-WoscapGuiOpenPath' = 'C:\picked\open.txt'; 'Get-WoscapGuiFolderPath' = 'C:\picked\folder'; 'Get-WoscapGuiSavePath' = 'C:\picked\save.json' }
+            $opt = @{ Name = 'P'; Type = 'Path'; Hooks = @('h') }
+            if ($Kind) { $opt['PathKind'] = $Kind }
+            $d = New-WoscapGuiConfigForm -Options @($opt) -Title 't'
+            try {
+                $d.Tag['Fields']['P'].Control.Text = 'C:\before'
+                Invoke-WoscapGuiConfigBrowse -Field $d.Tag['Fields']['P']
+                $d.Tag['Fields']['P'].Control.Text | Should -BeExactly $want[$Seam]
+                foreach ($s in $want.Keys) {
+                    $n = if ($s -eq $Seam) { 1 } else { 0 }
+                    Should -Invoke $s -Times $n -Exactly -Because "PathKind '$Kind' must use only $Seam"
+                }
+            } finally { $d.Dispose() }
+        }
+    }
+    It 'a cancelled <Kind> Browse leaves the Path field unchanged' -ForEach @(
+        @{ Kind = 'File' }, @{ Kind = 'Folder' }, @{ Kind = 'SaveFile' }
+    ) {
+        InModuleScope woscap -Parameters @{ Kind = $Kind } {
+            param($Kind)
+            Mock Get-WoscapGuiOpenPath { @() }
+            Mock Get-WoscapGuiFolderPath { $null }
+            Mock Get-WoscapGuiSavePath { $null }
+            $d = New-WoscapGuiConfigForm -Options @(@{ Name = 'P'; Type = 'Path'; PathKind = $Kind; Hooks = @('h') }) -Title 't'
+            try {
+                $d.Tag['Fields']['P'].Control.Text = 'C:\before'
+                Invoke-WoscapGuiConfigBrowse -Field $d.Tag['Fields']['P']
+                $d.Tag['Fields']['P'].Control.Text | Should -BeExactly 'C:\before'
+            } finally { $d.Dispose() }
+        }
+    }
     It 'never makes Run the accept button; Cancel is the cancel button' {
         InModuleScope woscap {
             $d = New-WoscapGuiConfigForm -Options @(@{ Name = 'X'; Type = 'Text'; Hooks = @('h') }) -Title 't'

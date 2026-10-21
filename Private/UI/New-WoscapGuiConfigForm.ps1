@@ -4,14 +4,15 @@ function New-WoscapGuiConfigForm {
         Builds (does not show) the plugin config form for one hook.
     .DESCRIPTION
         -Options is the schema list from Get-WoscapGuiConfigOptions. One row per option:
-        Text/Path text box (+Browse for Path), Number NumericUpDown, Bool check box,
+        Text/Path text box (+Browse for Path: open file, folder or save-as per the option's PathKind,
+        File by default), Number NumericUpDown, Bool check box,
         Credential "Set..." via Get-WoscapGuiCredential (shown only as "(not set)"/"(set)"),
         Secret masked text box, List multi-line text (one item per line), Table Key/Value grid.
         $null -Options means the plugin has no schema: a generic Key/Type/Value grid instead.
         Run validates before closing (Confirm-WoscapGuiConfigForm) and is not the AcceptButton;
         Cancel is the CancelButton. Nothing entered here is persisted.
     .PARAMETER Options
-        Schema entries (@{ Name; Type; Required?; Default?; Hooks; Help? }), an empty list
+        Schema entries (@{ Name; Type; Required?; Default?; Hooks; Help?; PathKind? }), an empty list
         for a hook with no options, or $null for the generic grid.
     .PARAMETER Title
         Form caption.
@@ -186,11 +187,17 @@ function Invoke-WoscapGuiConfigCredential {
 }
 
 function Invoke-WoscapGuiConfigBrowse {
-    <# Path "Browse..." click: fills the text box from the open-file seam. #>
+    <# Path "Browse..." click: the option's PathKind picks the seam (File default, Folder, SaveFile); cancel keeps the text. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable] $Field)
-    $p = @(Get-WoscapGuiOpenPath -Filter 'All files (*.*)|*.*')
-    if ($p.Count -gt 0) { $Field['Control'].Text = [string]$p[0] }
+    $o = $Field['Option']
+    $kind = if ($o.ContainsKey('PathKind') -and $o['PathKind']) { [string]$o['PathKind'] } else { 'File' }
+    $p = switch ($kind) {
+        'Folder'   { Get-WoscapGuiFolderPath }
+        'SaveFile' { Get-WoscapGuiSavePath }
+        default    { @(Get-WoscapGuiOpenPath -Filter 'All files (*.*)|*.*') | Select-Object -First 1 }
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$p)) { $Field['Control'].Text = [string]$p }
 }
 
 function Read-WoscapGuiConfigForm {

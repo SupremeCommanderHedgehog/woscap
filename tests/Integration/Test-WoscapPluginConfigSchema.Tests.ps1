@@ -39,10 +39,20 @@ Describe 'Test-WoscapPluginConfigSchema' {
         @{ Why = 'List Default not array'; Opt = @{ Name = 'a'; Type = 'List'; Hooks = @('Get-Targets'); Default = 'x' } }
         @{ Why = 'Table Default not hashtable'; Opt = @{ Name = 'a'; Type = 'Table'; Hooks = @('Get-Targets'); Default = @(1) } }
         @{ Why = 'Credential with Default'; Opt = @{ Name = 'a'; Type = 'Credential'; Hooks = @('Get-Targets'); Default = 'x' } }
+        @{ Why = 'unknown PathKind'; Opt = @{ Name = 'a'; Type = 'Path'; Hooks = @('Get-Targets'); PathKind = 'Drive' } }
+        @{ Why = 'non-string PathKind'; Opt = @{ Name = 'a'; Type = 'Path'; Hooks = @('Get-Targets'); PathKind = 1 } }
+        @{ Why = 'PathKind on a non-Path option'; Opt = @{ Name = 'a'; Type = 'Text'; Hooks = @('Get-Targets'); PathKind = 'File' } }
     ) {
         InModuleScope woscap -Parameters @{ Opt = $Opt } {
             $m = @{ Capabilities = @('Get-Targets'); ConfigOptions = @($Opt) }
             @(Test-WoscapPluginConfigSchema -Manifest $m).Count | Should -BeGreaterThan 0
+        }
+    }
+    It 'accepts PathKind <_> on a Path option' -ForEach @('File', 'Folder', 'SaveFile') {
+        InModuleScope woscap -Parameters @{ Kind = $_ } {
+            param($Kind)
+            $m = @{ Capabilities = @('Get-Targets'); ConfigOptions = @(@{ Name = 'p'; Type = 'Path'; Hooks = @('Get-Targets'); PathKind = $Kind }) }
+            @(Test-WoscapPluginConfigSchema -Manifest $m).Count | Should -Be 0
         }
     }
     It 'rejects duplicate Names' {
