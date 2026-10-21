@@ -29,6 +29,9 @@ BeforeAll {
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
 Describe 'Content tab' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         # Never pop a real modal, and never list the real cache: a blank Destination fails loudly.
         Mock -ModuleName woscap Show-WoscapGuiMessage { }

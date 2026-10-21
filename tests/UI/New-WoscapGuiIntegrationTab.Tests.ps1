@@ -28,6 +28,9 @@ BeforeAll {
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
 Describe 'Integrations tab' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         # No real modal, no network, no real file/folder dialog.
         Mock -ModuleName woscap Show-WoscapGuiMessage { }
@@ -461,6 +464,9 @@ Describe 'Integrations tab' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Busy interplay with the Integration job' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Mock -ModuleName woscap Show-WoscapGuiMessage { }
         Mock -ModuleName woscap Get-WoscapGuiCredential { }
@@ -511,6 +517,9 @@ Describe 'Busy interplay with the Integration job' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Relative Plugin folder' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Mock -ModuleName woscap Show-WoscapGuiMessage { }
         Mock -ModuleName woscap Get-WoscapGuiCredential { }

@@ -77,6 +77,8 @@ function New-WoscapMainForm {
     Update-WoscapGuiContentHint -Tag $tag
     Update-WoscapGuiContentSelection -Tag $tag
     Update-WoscapGuiIntegrationSelection -Tag $tag
+    # Build-time values, captured before import, for Reset settings.
+    $tag['SettingsDefaults'] = Get-WoscapGuiSettingsState -Tag $tag -Form $form
 
     # Single-window: the current form's controls, for the plain event scriptblocks below.
     $script:WoscapGuiTag = $tag
@@ -190,6 +192,12 @@ function New-WoscapMainForm {
     $menu.OpenIntegrations.Add_Click({ $t = $script:WoscapGuiTag; $t['Tabs'].SelectedTab = $t['IntegrationsTab'] })
     $menu.Manual.Add_Click({ Open-WoscapGuiManual })
     $menu.About.Add_Click({ Show-WoscapGuiAbout })
+
+    # Plain scriptblock; $this.Tag is this form's own tag even when a later form replaced WoscapGuiTag.
+    $form.Add_FormClosing({
+        try { Export-WoscapGuiSettings -Tag $this.Tag -Form $this } catch { Write-Warning "Could not save GUI settings: $($_.Exception.Message)" }
+    })
+    Import-WoscapGuiSettings -Tag $tag -Form $form
 
     # Release the module-scoped reference when the window closes so the form and results
     # do not stay reachable for the rest of the session.

@@ -108,6 +108,9 @@ BeforeAll {
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
 Describe 'Invoke-WoscapGuiContentDownload' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-ContentFlowMocks
         $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
@@ -301,6 +304,9 @@ Describe 'Invoke-WoscapGuiContentDownload' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Invoke-WoscapGuiContentUpdate' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-ContentFlowMocks
         $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
@@ -518,6 +524,9 @@ Describe 'Invoke-WoscapGuiContentUpdate' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Invoke-WoscapGuiContentRemove' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-ContentFlowMocks
         $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
@@ -625,6 +634,9 @@ Describe 'Invoke-WoscapGuiContentRemove' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Invoke-WoscapGuiContentUseForScan' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-ContentFlowMocks
         $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
@@ -680,6 +692,9 @@ Describe 'Invoke-WoscapGuiContentUseForScan' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Shared busy state across scan, remediation and content jobs' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-ContentFlowMocks -RealRun
         $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
@@ -804,6 +819,9 @@ Describe 'Shared busy state across scan, remediation and content jobs' -Skip:(-n
 }
 
 Describe 'Content actions target the listed cache root' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-ContentFlowMocks
         $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
@@ -884,6 +902,9 @@ Describe 'Content actions target the listed cache root' -Skip:(-not $script:IsSt
 }
 
 Describe 'Follow-up failures after a successful content job' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-ContentFlowMocks
         $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
@@ -940,6 +961,9 @@ Describe 'Follow-up failures after a successful content job' -Skip:(-not $script
 }
 
 Describe 'DISA terms dialog failure' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-ContentFlowMocks
         $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))

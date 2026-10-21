@@ -23,6 +23,9 @@ BeforeAll {
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
 Describe 'GUI / CLI parity manifest' {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     It 'covers exactly the exported cmdlets (except Show-WoscapGui)' {
         # Discovery-phase variables are not visible at run time; recompute here.
         $exported = @(Get-Command -Module woscap | Where-Object Name -ne 'Show-WoscapGui' | ForEach-Object Name | Sort-Object)
