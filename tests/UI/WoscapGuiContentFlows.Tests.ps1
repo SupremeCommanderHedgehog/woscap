@@ -88,6 +88,14 @@ BeforeAll {
                 $T['ResultsStale'] = $Stale
                 Set-WoscapGuiActionEnabled -Tag $T -Action Remediate -Enabled (-not $Stale)
             }
+            # Mock bodies do not see common parameters such as -Confirm; read them from the mock's own frame.
+            function script:Save-TestRemoveArgs {
+                $frame = @(Get-PSCallStack | Where-Object { $_.InvocationInfo.MyCommand.Name -like 'PesterMock_*Remove-WoscapBenchmark*' })[0]
+                $script:removeArgs = @{}
+                foreach ($k in $frame.InvocationInfo.BoundParameters.Keys) {
+                    if ($k -notin 'ErrorAction', 'WarningAction') { $script:removeArgs[$k] = $frame.InvocationInfo.BoundParameters[$k] }
+                }
+            }
             function script:Assert-TestIdle([hashtable] $T) {
                 foreach ($k in 'ContentDownload','ContentUpdate','MenuContentDownload','MenuContentUpdate','Run','MenuRun') {
                     $T[$k].Enabled | Should -BeTrue -Because "$k must be restored after the content job"
@@ -505,6 +513,165 @@ Describe 'Invoke-WoscapGuiContentUpdate' -Skip:(-not $script:IsSta) {
             Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
             Should -Invoke Show-WoscapGuiUpdateDialog -Times 0 -Exactly
             Should -Invoke Invoke-WoscapGuiScan -Times 0 -Exactly
+        }
+    }
+}
+
+Describe 'Invoke-WoscapGuiContentRemove' -Skip:(-not $script:IsSta) {
+    BeforeEach {
+        Set-ContentFlowMocks
+        $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
+        New-ContentFlowForm $script:Cache
+        InModuleScope woscap { Update-WoscapGuiContentView -Tag $script:form.Tag }
+    }
+    AfterEach { InModuleScope woscap { $script:form.Dispose() } }
+
+    It 'does nothing without a selected row' {
+        InModuleScope woscap {
+            Invoke-WoscapGuiContentRemove -Tag $script:form.Tag
+            Should -Invoke Show-WoscapGuiRemoveDialog -Times 0 -Exactly
+            Should -Invoke Remove-WoscapBenchmark -Times 0 -Exactly
+        }
+    }
+
+    It 'never removes when the dialog is cancelled' {
+        InModuleScope woscap -Parameters @{ Cache = $script:Cache } {
+            param($Cache)
+            $null = Select-TestRow $script:form.Tag 'Windows11' 'V1R5'
+            Invoke-WoscapGuiContentRemove -Tag $script:form.Tag
+            Should -Invoke Show-WoscapGuiRemoveDialog -Times 1 -Exactly -ParameterFilter {
+                $Benchmark -eq 'Windows11' -and $Revision -eq 'V1R5' -and $CacheRoot -eq $Cache }
+            Should -Invoke Remove-WoscapBenchmark -Times 0 -Exactly
+            $script:form.Tag['ContentGrid'].Rows.Count | Should -Be 3
+        }
+    }
+
+    It 'removes exactly the selected revision with -Confirm:$false and the Cache folder' {
+        InModuleScope woscap -Parameters @{ Cache = $script:Cache } {
+            param($Cache)
+            $null = Select-TestRow $script:form.Tag 'Windows11' 'V1R5'
+            Mock Show-WoscapGuiRemoveDialog { @{ AllRevisions = $false } }
+            Mock Remove-WoscapBenchmark { Save-TestRemoveArgs; 'removed' }
+            Invoke-WoscapGuiContentRemove -Tag $script:form.Tag
+            Should -Invoke Remove-WoscapBenchmark -Times 1 -Exactly
+            @($script:removeArgs.Keys | Sort-Object) | Should -Be @('Benchmark', 'Confirm', 'Destination', 'Revision')
+            $script:removeArgs['Benchmark'] | Should -Be 'Windows11'
+            $script:removeArgs['Revision'] | Should -Be 'V1R5'
+            $script:removeArgs['Destination'] | Should -Be $Cache
+            [bool]$script:removeArgs['Confirm'] | Should -BeFalse
+        }
+    }
+
+    It 'removes every revision of the benchmark without -Revision when chosen' {
+        InModuleScope woscap {
+            $null = Select-TestRow $script:form.Tag 'Windows11' 'V1R5'
+            Mock Show-WoscapGuiRemoveDialog { @{ AllRevisions = $true } }
+            Mock Remove-WoscapBenchmark { Save-TestRemoveArgs; 'removed' }
+            Invoke-WoscapGuiContentRemove -Tag $script:form.Tag
+            @($script:removeArgs.Keys | Sort-Object) | Should -Be @('Benchmark', 'Confirm', 'Destination')
+            $script:removeArgs['Benchmark'] | Should -Be 'Windows11'
+        }
+    }
+
+    It 'passes no Destination when the Cache folder is blank' {
+        InModuleScope woscap {
+            $null = Select-TestRow $script:form.Tag 'Edge' 'V2R1'
+            $script:form.Tag['ContentDestination'].Text = '  '
+            Mock Show-WoscapGuiRemoveDialog { @{ AllRevisions = $false } }
+            Mock Remove-WoscapBenchmark { Save-TestRemoveArgs }
+            Invoke-WoscapGuiContentRemove -Tag $script:form.Tag
+            Should -Invoke Remove-WoscapBenchmark -Times 1 -Exactly
+            $script:removeArgs.ContainsKey('Destination') | Should -BeFalse
+            Should -Invoke Show-WoscapGuiRemoveDialog -Times 1 -Exactly -ParameterFilter { $CacheRoot -eq (Get-WoscapContentCacheRoot) }
+        }
+    }
+
+    It 'shows a removal error and does not throw' {
+        InModuleScope woscap {
+            $null = Select-TestRow $script:form.Tag 'Edge' 'V2R1'
+            Mock Show-WoscapGuiRemoveDialog { @{ AllRevisions = $false } }
+            Mock Remove-WoscapBenchmark { throw 'access denied' }
+            { Invoke-WoscapGuiContentRemove -Tag $script:form.Tag } | Should -Not -Throw
+            Should -Invoke Show-WoscapGuiMessage -Times 1 -Exactly -ParameterFilter { $Text -match 'access denied' }
+        }
+    }
+
+    It 'removes only the chosen revision from a real cache and leaves its sibling (real Remove-/Get-WoscapBenchmark)' {
+        InModuleScope woscap -Parameters @{ Cache = $script:Cache } {
+            param($Cache)
+            Mock Remove-WoscapBenchmark {
+                Save-TestRemoveArgs
+                $splat = $script:removeArgs
+                if (-not $splat['Destination']) { throw 'test tried to remove from the real content cache' }
+                # Without -Confirm:$false the real cmdlet would block on a console prompt.
+                if (-not $splat.ContainsKey('Confirm') -or $splat['Confirm']) { throw 'Remove-WoscapBenchmark would prompt' }
+                & (Get-Item -LiteralPath function:Remove-WoscapBenchmark) @splat
+            }
+            $null = Select-TestRow $script:form.Tag 'Windows11' 'V1R5'
+            Mock Show-WoscapGuiRemoveDialog { @{ AllRevisions = $false } }
+            Invoke-WoscapGuiContentRemove -Tag $script:form.Tag
+            Test-Path -LiteralPath (Join-Path $Cache 'Windows11\V1R5') | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $Cache 'Windows11\V1R6') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $Cache 'Edge\V2R1') | Should -BeTrue
+            $t = $script:form.Tag
+            @($t['ContentGrid'].Rows | ForEach-Object { '{0}/{1}' -f $_.Tag.Benchmark, $_.Tag.Revision } | Sort-Object) |
+                Should -Be @('Edge/V2R1', 'Windows11/V1R6')
+            $t['ContentStatus'].Text | Should -Match 'Removed Windows11 V1R5'
+            $t['ContentRemove'].Enabled | Should -BeFalse -Because 'the removed row is gone and nothing is selected'
+        }
+    }
+}
+
+Describe 'Invoke-WoscapGuiContentUseForScan' -Skip:(-not $script:IsSta) {
+    BeforeEach {
+        Set-ContentFlowMocks
+        $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
+        $null = Add-TestRevision -Root $script:Cache -Bench 'Firewall' -Rev 'V1R1' -Hash ('E' * 64) -Title 'Firewall STIG'
+        New-ContentFlowForm $script:Cache
+        InModuleScope woscap {
+            Update-WoscapGuiContentView -Tag $script:form.Tag
+            $script:form.Tag['Tabs'].SelectedTab = $script:form.Tag['ContentTab']
+        }
+    }
+    AfterEach { InModuleScope woscap { $script:form.Dispose() } }
+
+    It 'sets the exact Path, selects the matching pack, switches to the Scan tab and never scans' {
+        InModuleScope woscap {
+            $t = $script:form.Tag
+            $t['Benchmark'].SelectedItem = 'Windows11'
+            $row = Select-TestRow $t 'Edge' 'V2R1'
+            Invoke-WoscapGuiContentUseForScan -Tag $t
+            $t['Xccdf'].Text | Should -BeExactly ([string]$row.Tag.Path)
+            $t['Benchmark'].SelectedItem | Should -Be 'Edge'
+            $t['Tabs'].SelectedTab | Should -Be $t['ScanTab']
+            $t['Status'].Text | Should -Not -Match 'Not_Reviewed'
+            Should -Invoke Invoke-WoscapGuiRun -Times 0 -Exactly
+            Should -Invoke Invoke-WoscapGuiScan -Times 0 -Exactly
+        }
+    }
+
+    It 'warns about Not_Reviewed results and leaves the pack alone when no pack matches' {
+        InModuleScope woscap {
+            $t = $script:form.Tag
+            $t['Benchmark'].SelectedItem = 'Windows11'
+            $row = Select-TestRow $t 'Firewall' 'V1R1'
+            Invoke-WoscapGuiContentUseForScan -Tag $t
+            $t['Xccdf'].Text | Should -BeExactly ([string]$row.Tag.Path)
+            $t['Benchmark'].SelectedItem | Should -Be 'Windows11'
+            $t['Status'].Text | Should -Be "No content pack for 'Firewall'; results would be Not_Reviewed."
+            $t['Tabs'].SelectedTab | Should -Be $t['ScanTab']
+            Should -Invoke Invoke-WoscapGuiRun -Times 0 -Exactly
+            Should -Invoke Invoke-WoscapGuiScan -Times 0 -Exactly
+        }
+    }
+
+    It 'does nothing without a selected row' {
+        InModuleScope woscap {
+            $t = $script:form.Tag
+            $t['Xccdf'].Text = 'C:\keep.xml'
+            Invoke-WoscapGuiContentUseForScan -Tag $t
+            $t['Xccdf'].Text | Should -Be 'C:\keep.xml'
+            $t['Tabs'].SelectedTab | Should -Be $t['ContentTab']
         }
     }
 }

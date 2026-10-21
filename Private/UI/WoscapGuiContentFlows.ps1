@@ -249,3 +249,60 @@ function Start-WoscapGuiContentUpdateApply {
         Set-WoscapGuiContentBusy -Tag $Tag -Busy $false -Status 'Update failed.'
     }
 }
+
+function Invoke-WoscapGuiContentRemove {
+    <#
+        Remove action: the Remove dialog picks this revision or every revision; then
+        Remove-WoscapBenchmark runs on the UI thread (local and fast) with -Confirm:$false,
+        which stands in for the console prompt the dialog already answered.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable] $Tag)
+    $script:WoscapGuiTag = $Tag
+    if ($Tag['ContentBusy']) { return }
+    $row = Get-WoscapGuiContentSelectedRow -Tag $Tag
+    if (-not $row) { return }
+
+    $destination = Get-WoscapGuiContentDestination -Tag $Tag
+    $root = Get-WoscapContentCacheRoot -Destination $destination
+    $choice = Show-WoscapGuiRemoveDialog -Benchmark ([string](Get-WoscapObjectProperty $row 'Benchmark' '')) `
+        -Revision ([string](Get-WoscapObjectProperty $row 'Revision' '')) -CacheRoot $root
+    if ($null -eq $choice) { return }
+
+    try {
+        $splat = Get-WoscapGuiRemoveScope -Row $row -AllRevisions:([bool]$choice.AllRevisions)
+        $what = if ($splat.ContainsKey('Revision')) { "$($splat.Benchmark) $($splat.Revision)" } else { "all revisions of $($splat.Benchmark)" }
+        $splat['Confirm'] = $false
+        if ($destination) { $splat['Destination'] = $destination }
+        $removed = @(Remove-WoscapBenchmark @splat -ErrorAction Stop -WarningAction SilentlyContinue)
+    } catch {
+        Show-WoscapGuiMessage -Text "Remove failed: $($_.Exception.Message)"
+        Update-WoscapGuiContentView -Tag $Tag
+        $Tag['ContentStatus'].Text = 'Remove failed.'
+        return
+    }
+    Update-WoscapGuiContentView -Tag $Tag
+    $Tag['ContentStatus'].Text = if ($removed.Count -gt 0) { "Removed $what from $root." } else { "Nothing to remove for $what in $root." }
+}
+
+function Invoke-WoscapGuiContentUseForScan {
+    <#
+        Use for scan: hands the selected revision's XCCDF to the Scan tab and selects the
+        matching content pack; without one, warns that results would be Not_Reviewed.
+        Never starts a scan.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable] $Tag)
+    $row = Get-WoscapGuiContentSelectedRow -Tag $Tag
+    if (-not $row) { return }
+    $benchmark = [string](Get-WoscapObjectProperty $row 'Benchmark' '')
+    $Tag['Xccdf'].Text = [string](Get-WoscapObjectProperty $row 'Path' '')
+    $pack = Find-WoscapGuiContentPack -Benchmark $benchmark -Available @($Tag['Benchmark'].Items | ForEach-Object { [string]$_ })
+    if ($pack) {
+        $Tag['Benchmark'].SelectedItem = $pack
+        $Tag['Status'].Text = "Ready to scan with $benchmark $([string](Get-WoscapObjectProperty $row 'Revision' ''))."
+    } else {
+        $Tag['Status'].Text = "No content pack for '$benchmark'; results would be Not_Reviewed."
+    }
+    $Tag['Tabs'].SelectedTab = $Tag['ScanTab']
+}
