@@ -44,7 +44,7 @@ function Test-WoscapDescriptorSchema {
     # Types whose verdict comes from the type itself, not from Compare-WoscapValue.
     $noOperator = @('ScriptBlock','Manual','All','Any','Acl')
     $validOperators = @('eq','ne','ge','le','in','notin','includes','regex','exists','setequals','subsetof','supersetof','sequence')
-    $validPredicates = @('DomainJoined','TpmPresent','CameraPresent','BluetoothPresent','HypervisorPresent','LocalAdminEnabled','OsBuildAtLeast','OsBuildBelow','RegistryValueEquals')
+    $validPredicates = @('DomainJoined','TpmPresent','CameraPresent','BluetoothPresent','HypervisorPresent','LocalAdminEnabled','OsBuildAtLeast','OsBuildBelow','RegistryValueEquals','RegistryValueIn')
 
     if (-not $Descriptor.ContainsKey('Type') -or [string]::IsNullOrWhiteSpace([string]$Descriptor.Type)) {
         $problems.Add("$Context is missing Type")
@@ -88,6 +88,11 @@ function Test-WoscapDescriptorSchema {
         if ($scope -eq 'Group' -and -not $Descriptor.ContainsKey('Name')) {
             $problems.Add("$Context of Type 'LocalAccount' with Scope 'Group' is missing required key 'Name'")
         }
+    }
+
+    # A non-boolean opt-out ('no', 0) would be read by intent, not by value; reject it.
+    if ($Descriptor.ContainsKey('Remediate') -and $Descriptor.Remediate -isnot [bool]) {
+        $problems.Add("$Context has a non-boolean Remediate")
     }
 
     if ($Descriptor.ContainsKey('Applicability')) {

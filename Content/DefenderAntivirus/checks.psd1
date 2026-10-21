@@ -9,14 +9,15 @@
 # "Alternate Check (if Microsoft Intune applied this setting)" reads the
 # ...\Windows Defender\Policy Manager value only when the GPO value is absent:
 # Any(GPO ok, All(GPO absent, Intune ok)), so a present non-compliant GPO value
-# can never be outvoted by a compliant Intune value. Where one GPO value is the
-# only compliant one, the fallback is gated NA when the GPO value already
-# matches, so an unreadable Policy Manager key (non-elevated scan) cannot turn
-# a compliant GPO into Error. NA never votes Pass in a composite.
+# can never be outvoted by a compliant Intune value. The fallback is gated NA when
+# the GPO value is already compliant, so an unreadable Policy Manager key
+# (non-elevated scan) cannot turn a compliant GPO into Error. NA never votes Pass.
 #
 # Not modelled (no machine fact): "NA for classified systems" (000008-000011) and
 # "NA if third-party antivirus is installed" (000028/000029). Record those NAs in an
 # exception profile. "NA before Windows 10 v1709" uses OsBuildAtLeast 16299.
+# 000008/000009/000011 also opt out of automatic remediation (Remediate = $false),
+# so a classified host scanned without its profile is never rewritten.
 @{
     'WNDF-AV-000001' = @{ Type = 'Any'; Checks = @(
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender'; Name = 'PUAProtection'; Operator = 'eq'; Expected = 1 }
@@ -28,14 +29,17 @@
     'WNDF-AV-000003' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender'; Name = 'DisableRoutinelyTakingAction'; Operator = 'eq'; Expected = 0; AbsentIsPass = $true }
     # "Not Configured" is the only compliant state, so any value present is a finding.
     'WNDF-AV-000004' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender'; Name = 'DisableAntiSpyware'; Operator = 'exists'; Expected = $false }
-    # Only absence is stated as compliant; a "Disabled" policy value reads Open (never a false Pass).
-    'WNDF-AV-000005' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Exclusions'; Name = 'Exclusions_Paths'; Operator = 'exists'; Expected = $false }
-    'WNDF-AV-000006' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Exclusions'; Name = 'Exclusions_Processes'; Operator = 'exists'; Expected = $false }
+    # "Disabled" (0) and "Not Configured" (absent) are both compliant.
+    'WNDF-AV-000005' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Exclusions'; Name = 'Exclusions_Paths'; Operator = 'eq'; Expected = 0; AbsentIsPass = $true }
+    'WNDF-AV-000006' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Exclusions'; Name = 'Exclusions_Processes'; Operator = 'eq'; Expected = 0; AbsentIsPass = $true }
     'WNDF-AV-000007' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Exclusions'; Name = 'DisableAutoExclusions'; Operator = 'eq'; Expected = 0 }
-    'WNDF-AV-000008' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet'; Name = 'LocalSettingOverrideSpynetReporting'; Operator = 'eq'; Expected = 0; AbsentIsPass = $true }
-    'WNDF-AV-000009' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet'; Name = 'DisableBlockAtFirstSeen'; Operator = 'eq'; Expected = 0 }
+    'WNDF-AV-000008' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet'; Name = 'LocalSettingOverrideSpynetReporting'; Operator = 'eq'; Expected = 0; AbsentIsPass = $true
+        Remediate = $false; RemediateReason = 'NA on classified systems, which woscap cannot detect' }
+    'WNDF-AV-000009' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet'; Name = 'DisableBlockAtFirstSeen'; Operator = 'eq'; Expected = 0
+        Remediate = $false; RemediateReason = 'NA on classified systems, which woscap cannot detect' }
     'WNDF-AV-000010' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet'; Name = 'SpynetReporting'; Operator = 'in'; Expected = @(1, 2) }
-    'WNDF-AV-000011' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet'; Name = 'SubmitSamplesConsent'; Operator = 'eq'; Expected = 1 }
+    'WNDF-AV-000011' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet'; Name = 'SubmitSamplesConsent'; Operator = 'eq'; Expected = 1
+        Remediate = $false; RemediateReason = 'NA on classified systems, which woscap cannot detect' }
     'WNDF-AV-000012' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\NIS'; Name = 'DisableProtocolRecognition'; Operator = 'eq'; Expected = 0; AbsentIsPass = $true }
     'WNDF-AV-000013' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection'; Name = 'LocalSettingOverrideDisableOnAccessProtection'; Operator = 'eq'; Expected = 0; AbsentIsPass = $true }
     'WNDF-AV-000014' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection'; Name = 'LocalSettingOverrideRealtimeScanDirection'; Operator = 'eq'; Expected = 0; AbsentIsPass = $true }
@@ -97,7 +101,7 @@
     # 0 (every day) through 7 pass; 8 (never) and absence fail.
     'WNDF-AV-000026' = @{ Type = 'Any'; Checks = @(
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Scan'; Name = 'ScheduleDay'; Operator = 'in'; Expected = @(0, 1, 2, 3, 4, 5, 6, 7) }
-        @{ Type = 'All'; Checks = @(
+        @{ Applicability = @{ RegistryValueIn = @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Scan'; Name = 'ScheduleDay'; Values = @(0, 1, 2, 3, 4, 5, 6, 7) } }; Type = 'All'; Checks = @(
             @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Scan'; Name = 'ScheduleDay'; Operator = 'exists'; Expected = $false }
             @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Policy Manager'; Name = 'ScheduleScanDay'; Operator = 'in'; Expected = @(0, 1, 2, 3, 4, 5, 6, 7) }
         )}
@@ -116,7 +120,7 @@
     # Threat-level values are REG_SZ named by severity (5 Severe, 4 High, 2 Medium, 1 Low).
     'WNDF-AV-000031' = @{ Type = 'Any'; Checks = @(
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Threats\ThreatSeverityDefaultAction'; Name = '5'; Operator = 'in'; Expected = @('2', '3'); Kind = 'string' }
-        @{ Type = 'All'; Checks = @(
+        @{ Applicability = @{ RegistryValueIn = @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Threats\ThreatSeverityDefaultAction'; Name = '5'; Values = @('2', '3') } }; Type = 'All'; Checks = @(
             @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Threats\ThreatSeverityDefaultAction'; Name = '5'; Operator = 'exists'; Expected = $false }
             @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Policy Manager'; Name = 'ThreatSeverityDefaultAction'; Operator = 'in'; Expected = @(1, 2) }
         )}

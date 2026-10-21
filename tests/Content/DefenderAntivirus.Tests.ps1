@@ -12,8 +12,8 @@ BeforeDiscovery {
         # Id, Path, Name, Good values, Bad values, AbsentPass, Build-gated
         ,@('WNDF-AV-000003', $d, 'DisableRoutinelyTakingAction', @(0), @(1), $true, $false)
         ,@('WNDF-AV-000004', $d, 'DisableAntiSpyware', @(), @(0, 1), $true, $false)
-        ,@('WNDF-AV-000005', "$d\Exclusions", 'Exclusions_Paths', @(), @(0, 1), $true, $false)
-        ,@('WNDF-AV-000006', "$d\Exclusions", 'Exclusions_Processes', @(), @(0, 1), $true, $false)
+        ,@('WNDF-AV-000005', "$d\Exclusions", 'Exclusions_Paths', @(0), @(1, 2), $true, $false)
+        ,@('WNDF-AV-000006', "$d\Exclusions", 'Exclusions_Processes', @(0), @(1, 2), $true, $false)
         ,@('WNDF-AV-000007', "$d\Exclusions", 'DisableAutoExclusions', @(0), @(1), $false, $false)
         ,@('WNDF-AV-000008', "$d\Spynet", 'LocalSettingOverrideSpynetReporting', @(0), @(1), $true, $false)
         ,@('WNDF-AV-000009', "$d\Spynet", 'DisableBlockAtFirstSeen', @(0), @(1), $false, $false)
@@ -132,6 +132,13 @@ Describe 'Defender Antivirus pack shape' {
             foreach ($id in 'WNDF-AV-000001', 'WNDF-AV-000004', 'WNDF-AV-000010', 'WNDF-AV-000028', 'WNDF-AV-000040', 'WNDF-AV-000068') {
                 ($plan | Where-Object StigId -eq $id).Automatable | Should -BeFalse
             }
+            # Unclassified-only rules: a classified host scanned without its exception profile must not be rewritten.
+            foreach ($id in 'WNDF-AV-000008', 'WNDF-AV-000009', 'WNDF-AV-000011') {
+                $a = $plan | Where-Object StigId -eq $id
+                $a.Automatable | Should -BeFalse
+                $a.ManualReason | Should -Match 'classified'
+            }
+            @($plan | Where-Object { $_.Automatable }).Count | Should -Be 44
         }
     }
 }
@@ -183,12 +190,9 @@ Describe 'Defender Antivirus GPO-or-Intune rules' {
             $absent = [object]::new()
 
             $cases = [System.Collections.Generic.List[object]]::new()
-            # Only a single compliant GPO value can gate the fallback NA; a set (0-7, 2 or 3) cannot.
-            $gated = $Rule.GpoGood.Count -eq 1
-            $fallback = @($d.Checks)[1]
-            $fallback.ContainsKey('Applicability') | Should -Be $gated
-            $gpoGoodPmUnreadable = if ($gated) { 'Pass' } else { 'Error' }
-            foreach ($g in $Rule.GpoGood) { $cases.Add(@($g, $absent, 'Pass')); $cases.Add(@($g, $Rule.PmBad[0], 'Pass')); $cases.Add(@($g, $bad, $gpoGoodPmUnreadable)) }
+            # A compliant GPO value gates the fallback NA, so an unreadable Intune key cannot make it Error.
+            @($d.Checks)[1].ContainsKey('Applicability') | Should -BeTrue
+            foreach ($g in $Rule.GpoGood) { $cases.Add(@($g, $absent, 'Pass')); $cases.Add(@($g, $Rule.PmBad[0], 'Pass')); $cases.Add(@($g, $bad, 'Pass')) }
             foreach ($g in $Rule.GpoBad)  { $cases.Add(@($g, $absent, 'Fail')); $cases.Add(@($g, $Rule.PmGood[0], 'Fail')) }
             foreach ($m in $Rule.PmGood)  { $cases.Add(@($absent, $m, 'Pass')) }
             foreach ($m in $Rule.PmBad)   { $cases.Add(@($absent, $m, 'Fail')) }
@@ -295,5 +299,7 @@ Describe 'Defender Antivirus spec reconciles with the V2R10 XCCDF' -Skip:$script
         $script:Rules['WNDF-AV-000068'] | Should -Match 'not applicable to desktops'
         foreach ($id in 'WNDF-AV-000008', 'WNDF-AV-000009', 'WNDF-AV-000010', 'WNDF-AV-000011') { $script:Rules[$id] | Should -Match 'applicable to unclassified systems' }
         foreach ($id in 'WNDF-AV-000028', 'WNDF-AV-000029') { $script:Rules[$id] | Should -Match 'third-party' }
+        # "Disabled" (value 0) is as compliant as "Not Configured" (absent).
+        foreach ($id in 'WNDF-AV-000005', 'WNDF-AV-000006') { $script:Rules[$id] | Should -Match 'is set to "Disabled" or "Not Configured' }
     }
 }

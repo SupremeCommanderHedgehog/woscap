@@ -13,6 +13,13 @@ function Get-WoscapRemediationPlan {
         }
     }
 
+    # A pack may opt a rule out (Remediate = $false), e.g. when it is NA on hosts woscap cannot
+    # identify. Anything but a literal $true counts as opted out, so a typo never enables a write.
+    $isOptedOut = {
+        param($d)
+        $d -is [hashtable] -and $d.ContainsKey('Remediate') -and -not ($d.Remediate -is [bool] -and $d.Remediate)
+    }
+
     # First pass: union of required audit directions per subcategory across ALL open
     # AuditPolicy rules, so paired Success/Failure rules for one subcategory combine into
     # a single action. Both renderers (Invoke-AuditPolSet, the Ansible task) only enable.
@@ -21,7 +28,7 @@ function Get-WoscapRemediationPlan {
     foreach ($rule in $FailedRule) {
         $stig = [string](Get-WoscapObjectProperty $rule 'StigId' '')
         $desc = if ($ContentPack.ContainsKey($stig)) { $ContentPack[$stig] } else { $null }
-        if ($desc -is [hashtable] -and $desc.ContainsKey('Type') -and [string]$desc.Type -eq 'AuditPolicy' `
+        if ($desc -is [hashtable] -and -not (& $isOptedOut $desc) -and $desc.ContainsKey('Type') -and [string]$desc.Type -eq 'AuditPolicy' `
                 -and $desc.ContainsKey('Subcategory') -and $desc.ContainsKey('Expected') `
                 -and @('success', 'failure') -contains ([string]$desc.Expected).ToLowerInvariant()) {
             $sub = [string]$desc.Subcategory
@@ -42,6 +49,12 @@ function Get-WoscapRemediationPlan {
         $title = [string](Get-WoscapObjectProperty $rule 'Title' '')
         $desc  = if ($ContentPack.ContainsKey($stig)) { $ContentPack[$stig] } else { $null }
         $checkType = if ($desc -is [hashtable] -and $desc.ContainsKey('Type')) { [string]$desc.Type } else { '' }
+
+        if (& $isOptedOut $desc) {
+            $why = if ($desc.ContainsKey('RemediateReason') -and $desc.RemediateReason) { ": $($desc.RemediateReason)" } else { '.' }
+            $actions.Add((& $newManual $stig $title $checkType "The content pack opts this rule out of automatic remediation$why"))
+            continue
+        }
 
         switch ($checkType) {
             'Registry' {

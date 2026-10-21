@@ -56,6 +56,29 @@ Describe 'Test-WoscapApplicability' {
             (Test-WoscapApplicability -Applicability $b).Applies | Should -BeTrue
         }
     }
+    It 'honours RegistryValueIn: NA only when the value is one of the set' {
+        InModuleScope woscap {
+            $a = @{ RegistryValueIn = @{ Path='HKLM:\X'; Name='V'; Values=@('2', '3') } }
+            Mock Get-RegValue { '3' }
+            (Test-WoscapApplicability -Applicability $a).Applies | Should -BeFalse
+            Mock Get-RegValue { 3 }
+            (Test-WoscapApplicability -Applicability $a).Applies | Should -BeFalse
+            Mock Get-RegValue { '6' }
+            (Test-WoscapApplicability -Applicability $a).Applies | Should -BeTrue
+            Mock Get-RegValue { ' 3' }
+            (Test-WoscapApplicability -Applicability $a).Applies | Should -BeTrue
+            Mock Get-RegValue { $null }
+            (Test-WoscapApplicability -Applicability $a).Applies | Should -BeTrue
+        }
+    }
+    It 'flags Unreadable when a RegistryValueIn gate cannot read the value' {
+        InModuleScope woscap {
+            Mock Get-RegValue { New-WoscapUnreadable -Reason 'access denied' }
+            $r = Test-WoscapApplicability -Applicability @{ RegistryValueIn = @{ Path='HKLM:\X'; Name='V'; Values=@(0, 1) } }
+            $r.Unreadable | Should -BeTrue
+            $r.Applies | Should -BeFalse
+        }
+    }
     It 'treats an unknown predicate as a hard error, not as applicable' {
         InModuleScope woscap {
             { Test-WoscapApplicability -Applicability @{ Nonsense = $true } } | Should -Throw

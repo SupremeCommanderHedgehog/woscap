@@ -77,6 +77,24 @@ function Test-WoscapApplicability {
                 }
                 break
             }
+            'RegistryValueIn' {
+                # Negative gate over a set: NA WHEN the value is one of Values (string compare).
+                $observed = Get-RegValue -Path $arg.Path -Name $arg.Name
+                if (Test-WoscapUnreadable -Value $observed) {
+                    return [pscustomobject]@{
+                        Applies = $false; Unreadable = $true
+                        Reason  = (Get-WoscapUnreadableReason -Value $observed)
+                    }
+                }
+                $set = @(@($arg.Values) | ForEach-Object { "$_" })
+                if ($null -ne $observed -and $set -contains "$observed") {
+                    return [pscustomobject]@{
+                        Applies = $false; Unreadable = $false
+                        Reason  = "Not applicable: $($arg.Path)\$($arg.Name) is $observed."
+                    }
+                }
+                break
+            }
             default {
                 throw "woscap: unknown applicability predicate '$name'."
             }

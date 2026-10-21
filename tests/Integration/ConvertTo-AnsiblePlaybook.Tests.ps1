@@ -69,6 +69,16 @@ Describe 'ConvertTo-AnsiblePlaybook' {
             $text | Should -Not -Match 'win_regedit'
         }
     }
+    It 'emits a # manual line with the reason, not a win_regedit task, for a rule opted out with Remediate = $false' {
+        InModuleScope woscap {
+            $failed = @([pscustomobject]@{ StigId = 'WNDF-AV-000011'; Title = 'Safe samples'; Status = 'Open' })
+            $pack = @{ 'WNDF-AV-000011' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet'; Name = 'SubmitSamplesConsent'
+                                             Operator = 'eq'; Expected = 1; Remediate = $false; RemediateReason = 'NA on classified systems' } }
+            $text = ConvertTo-AnsiblePlaybook -FailedRule $failed -ContentPack $pack
+            $text | Should -Match '# manual: WNDF-AV-000011 .*NA on classified systems'
+            $text | Should -Not -Match 'win_regedit'
+        }
+    }
     It 'emits a # manual line, not a win_regedit task, for a Registry rule whose operator has no safe write' {
         InModuleScope woscap {
             $failed = @([pscustomobject]@{ StigId = 'WN11-CC-000055'; Title = 'Multiple connections'; Status = 'Open' })
