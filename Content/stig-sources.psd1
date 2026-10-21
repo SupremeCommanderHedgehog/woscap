@@ -8,11 +8,12 @@
 # revisions publish, or just pass -Url. Keys must be safe path segments (letters, digits,
 # dot, dash, underscore) and should match the Content\<benchmark> pack names.
 @{
-    # Windows 11 manual STIG. Verified current at V2R8 (released 2026-05-19) on 2026-07-16.
+    # Windows 11 manual STIG, V2R11 (benchmark date 2026-09-30). The Url follows the V2R8
+    # host/path scheme with the local archive's file name; it was NOT verified online.
     # Hashtable form: pinned Url (best-effort, goes stale) + ScrapePattern used only when the
     # operator passes -AllowScrape to resolve the newest revision from the DISA downloads page.
     Windows11 = @{
-        Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_11_V2R8_STIG.zip'
+        Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_11_V2R11_STIG.zip'
         ScrapePattern = 'Microsoft Windows 11 STIG'
     }
 

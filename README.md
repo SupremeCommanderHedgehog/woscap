@@ -9,7 +9,7 @@ metadata and applies hand-coded PowerShell check logic, so it stays aligned with
 the authoritative rule set while remaining maintainable.
 
 > **Status:** Pre-release (`0.1.0`). Phases 0-3 are implemented: the engine,
-> Windows 11 automated coverage (256/256 rules), reporting, exception profiles,
+> Windows 11 coverage (257/257 rules of STIG V2R11), reporting, exception profiles,
 > remote fleet scanning, the WinForms GUI, and the OpenVAS/Ansible/Zabbix
 > integration layer. Phase 4 (additional benchmarks) is in progress. Interfaces
 > may still change before `1.0.0`.

@@ -61,12 +61,12 @@ function Invoke-WoscapRemediation {
         Planned (-WhatIf) or Skipped (declined at the prompt). For a Manual row,
         Detail gives the reason.
     .EXAMPLE
-        Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml |
+        Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R11_Manual-xccdf.xml |
             Invoke-WoscapRemediation -WhatIf
 
         Shows what would change and writes nothing.
     .EXAMPLE
-        $fixes = Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml |
+        $fixes = Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R11_Manual-xccdf.xml |
             Invoke-WoscapRemediation -Force
         $fixes | Format-Table StigId, State, Before, After, Detail
 

@@ -1,4 +1,4 @@
-# Windows 11 STIG V2R8 content pack. Every descriptor is derived from the rule's
+# Windows 11 STIG V2R11 content pack. Every descriptor is derived from the rule's
 # DISA check-content and adversarially re-derived against it after authoring: a
 # wrong path or SID list produces a silent false Pass, the worst outcome this
 # tool has. A rule whose check-content cannot be expressed faithfully is authored
@@ -96,7 +96,6 @@
     'WN11-CC-000215' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'; Name='NoDataExecutionPrevention'; Operator='eq'; Expected=0 }
     'WN11-CC-000220' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'; Name='NoHeapTerminationOnCorruption'; Operator='eq'; Expected=0 }
     'WN11-CC-000225' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer'; Name='PreXPSP2ShellProtocolBehavior'; Operator='eq'; Expected=0 }
-    'WN11-CC-000252' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR'; Name='AllowGameDVR'; Operator='eq'; Expected=0 }
     'WN11-CC-000255' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork'; Name='RequireSecurityDevice'; Operator='eq'; Expected=1 }
     'WN11-CC-000260' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork\PINComplexity'; Name='MinimumPINLength'; Operator='ge'; Expected=6 }
     'WN11-CC-000270' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'; Name='DisablePasswordSaving'; Operator='eq'; Expected=1 }
@@ -111,7 +110,6 @@
     'WN11-CC-000315' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'; Name='AlwaysInstallElevated'; Operator='eq'; Expected=0 }
     'WN11-CC-000325' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name='DisableAutomaticRestartSignOn'; Operator='eq'; Expected=1 }
     'WN11-CC-000326' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging'; Name='EnableScriptBlockLogging'; Operator='eq'; Expected=1 }
-    'WN11-CC-000327' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription'; Name='EnableTranscripting'; Operator='eq'; Expected=1 }
     'WN11-CC-000330' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client'; Name='AllowBasic'; Operator='eq'; Expected=0 }
     'WN11-CC-000335' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client'; Name='AllowUnencryptedTraffic'; Operator='eq'; Expected=0 }
     'WN11-CC-000345' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service'; Name='AllowBasic'; Operator='eq'; Expected=0 }
@@ -119,7 +117,6 @@
     'WN11-CC-000355' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service'; Name='DisableRunAs'; Operator='eq'; Expected=1 }
     'WN11-CC-000360' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Client'; Name='AllowDigest'; Operator='eq'; Expected=0 }
     'WN11-CC-000370' = @{ Type='Registry'; Path='HKLM:\Software\Policies\Microsoft\Windows\System'; Name='AllowDomainPINLogon'; Operator='eq'; Expected=0 }
-    'WN11-CC-000390' = @{ Type='Registry'; Path='HKCU:\SOFTWARE\Policies\Microsoft\Windows\CloudContent'; Name='DisableThirdPartySuggestions'; Operator='eq'; Expected=1 }
     'WN11-EP-000310' = @{ Type='Registry'; Path='HKLM:\Software\Policies\Microsoft\Windows\Kernel DMA Protection'; Name='DeviceEnumerationPolicy'; Operator='eq'; Expected=0 }
     'WN11-SO-000015' = @{ Type='Registry'; Path='HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'; Name='LimitBlankPasswordUse'; Operator='eq'; Expected=1 }
     'WN11-SO-000030' = @{ Type='Registry'; Path='HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'; Name='SCENoApplyLegacyAuditPolicy'; Operator='eq'; Expected=1 }
@@ -152,7 +149,6 @@
     'WN11-SO-000265' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name='EnableSecureUIAPaths'; Operator='eq'; Expected=1 }
     'WN11-SO-000270' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name='EnableLUA'; Operator='eq'; Expected=1 }
     'WN11-SO-000275' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name='EnableVirtualization'; Operator='eq'; Expected=1 }
-    'WN11-UC-000015' = @{ Type='Registry'; Path='HKCU:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications'; Name='NoToastApplicationNotificationOnLockScreen'; Operator='eq'; Expected=1 }
     # --- User Rights Assignment (Se* privileges; exact set match) ---
     'WN11-UR-000005' = @{ Type = 'UserRight'; Privilege = 'SeTrustedCredManAccessPrivilege'; Operator = 'subsetof' ; Expected = @() }
     'WN11-UR-000015' = @{ Type = 'UserRight'; Privilege = 'SeTcbPrivilege';                   Operator = 'subsetof' ; Expected = @() }
@@ -194,10 +190,10 @@
     )}
     'WN11-AC-000015' = @{ Type = 'SecEdit'; Name = 'ResetLockoutCount';     Operator = 'ge'; Expected = 15 }
     'WN11-AC-000020' = @{ Type = 'SecEdit'; Name = 'PasswordHistorySize';   Operator = 'ge'; Expected = 24 }
-    # 0 (never expires) is a finding as well as > 60.
+    # 0 (never expires) is a finding as well as > 180.
     'WN11-AC-000025' = @{ Type = 'All'; Checks = @(
         @{ Type = 'SecEdit'; Name = 'MaximumPasswordAge'; Operator = 'ne'; Expected = 0 }
-        @{ Type = 'SecEdit'; Name = 'MaximumPasswordAge'; Operator = 'le'; Expected = 60 }
+        @{ Type = 'SecEdit'; Name = 'MaximumPasswordAge'; Operator = 'le'; Expected = 180 }
     )}
     'WN11-AC-000030' = @{ Type = 'SecEdit'; Name = 'MinimumPasswordAge';    Operator = 'ge'; Expected = 1 }
     'WN11-AC-000035' = @{ Type = 'SecEdit'; Name = 'MinimumPasswordLength'; Operator = 'ge'; Expected = 14 }
@@ -256,15 +252,17 @@
     # 7 ("All", including bad) is the finding; the value must exist.
     'WN11-CC-000085' = @{ Type = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Policies\EarlyLaunch'
         Name = 'DriverLoadPolicy'; Operator = 'in'; Expected = @(1,3,8) }
-    # GPO path or Intune path, and the two GPO value names the STIG lists.
+    # GPO path with EnhancedAntiSpoofing, or Intune path with
+    # FacialFeaturesUseEnhancedAntiSpoofing (V2R11 pairs that name with Intune).
     'WN11-CC-000195' = @{ Type = 'Any'; Checks = @(
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Biometrics\FacialFeatures'; Name = 'EnhancedAntiSpoofing'; Operator = 'eq'; Expected = 1 }
-        @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Biometrics\FacialFeatures'; Name = 'FacialFeaturesUseEnhancedAntiSpoofing'; Operator = 'eq'; Expected = 1 }
-        @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Policies\PassportForWork\Biometrics'; Name = 'EnhancedAntiSpoofing'; Operator = 'eq'; Expected = 1 }
+        @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Policies\PassportForWork\Biometrics'; Name = 'FacialFeaturesUseEnhancedAntiSpoofing'; Operator = 'eq'; Expected = 1 }
     )}
     'WN11-CC-000205' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'
         Name = 'AllowTelemetry'; Operator = 'in'; Expected = @(0,1) }
     # Policy path or the standalone Settings path; 3 (Internet) is the finding.
+    # V2R11 dropped "Value Name" from the policy block; DODownloadMode is the
+    # value behind the "Download Mode" policy its fix text names.
     'WN11-CC-000206' = @{ Type = 'Any'; Checks = @(
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'; Name = 'DODownloadMode'; Operator = 'in'; Expected = @(0,1,2,99,100) }
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config'; Name = 'DODownloadMode'; Operator = 'in'; Expected = @(0,1) }
@@ -273,12 +271,23 @@
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System'; Name = 'EnableSmartScreen';     Operator = 'eq'; Expected = 1 }
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System'; Name = 'ShellSmartScreenLevel'; Operator = 'eq'; Expected = 'Block' }
     )}
+    # GPO path or the Intune PolicyManager path.
+    'WN11-CC-000252' = @{ Type = 'Any'; Checks = @(
+        @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR'; Name = 'AllowGameDVR'; Operator = 'eq'; Expected = 0 }
+        @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\ApplicationManagement'; Name = 'AllowGameDVR'; Operator = 'eq'; Expected = 0 }
+    )}
+    # V2R11 adds a directory ACL requirement whose "standard user accounts" vary
+    # per host, and the preferred network share cannot be judged locally.
+    'WN11-CC-000327' = @{ Type = 'Manual'
+        Question = 'Is EnableTranscripting = 1 under HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription, and does the Transcript output directory (and any log files in it) grant Full Control to Administrators and SYSTEM, write-only (WD,AD) access to standard user accounts, and no read or modify access to nonprivileged users?'
+        Evidence = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription'; Name = 'OutputDirectory' } }
     'WN11-CC-000320' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'
         Name = 'SafeForScripting'; Operator = 'ne'; Expected = 1; AbsentIsPass = $true }
-    # NA when voice activation is disallowed for all users.
-    'WN11-CC-000365' = @{ Applicability = @{ RegistryValueEquals = @{ Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy'; Name = 'LetAppsActivateWithVoice'; Value = 2 } }
-        Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy'
+    # V2R11 dropped the NA clause; LetAppsActivateWithVoice is now CC-000366.
+    'WN11-CC-000365' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy'
         Name = 'LetAppsActivateWithVoiceAboveLock'; Operator = 'eq'; Expected = 2 }
+    'WN11-CC-000366' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy'
+        Name = 'LetAppsActivateWithVoice'; Operator = 'eq'; Expected = 2 }
     'WN11-CC-000385' = @{ Type = 'Any'; Checks = @(
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsInkWorkspace'; Name = 'AllowWindowsInkWorkspace'; Operator = 'eq'; Expected = 1 }
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\WindowsInkWorkspace'; Name = 'AllowWindowsInkWorkspace'; Operator = 'eq'; Expected = 1 }
@@ -286,20 +295,11 @@
     'WN11-CC-000391' = @{ Type = 'OptionalFeature'; FeatureName = 'Internet-Explorer-Optional-*'; Operator = 'notin'; Expected = @('Enabled') }
 
     # --- WN11-PK-*: certificates ---
-    # PK-000005/000010 require CURRENT roots, so RequireUnexpired is on.
+    # PK-000005 requires a CURRENT root, so RequireUnexpired is on. PK-000010,
+    # 015 and 020 also make any expired listed certificate a finding, which a
+    # match count cannot express; they live in checks.overrides.ps1.
     'WN11-PK-000005' = @{ Type = 'Certificate'; Store = 'root'; RequireUnexpired = $true
         Match = @{ Subject = 'CN=DoD Root CA' }; Operator = 'ge'; Expected = 1 }
-    'WN11-PK-000010' = @{ Type = 'Certificate'; Store = 'root'; RequireUnexpired = $true
-        Match = @{ Subject = 'CN=ECA Root CA' }; Operator = 'ge'; Expected = 1 }
-    # PK-000015/000020 name cross-certificates that must be PRESENT in the
-    # untrusted store even though their NotAfter has passed, so no unexpired
-    # requirement here - that is the point of the disallowed store.
-    'WN11-PK-000015' = @{ Type = 'Certificate'; Store = 'disallowed'
-        Match = @{ Issuer = 'CN=DoD Interoperability Root CA'; Subject = 'CN=DoD Root CA' }
-        Operator = 'ge'; Expected = 1 }
-    'WN11-PK-000020' = @{ Type = 'Certificate'; Store = 'disallowed'
-        Match = @{ Issuer = 'CCEB Interoperability Root CA' }
-        Operator = 'ge'; Expected = 1 }
 
     # --- WN11-RG-000005: HKLM hive ACLs ---
     # Non-privileged groups must not hold more than Read. The app-container SID
@@ -328,9 +328,6 @@
     'WN11-SO-000075' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
         Name = 'LegalNoticeText'; Operator = 'regex'
         Expected = 'You are accessing a U\.S\. Government \(USG\) Information System \(IS\) that is provided for USG-authorized use only' }
-    # A site-defined title is permitted, so this only requires a non-empty one.
-    'WN11-SO-000080' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
-        Name = 'LegalNoticeCaption'; Operator = 'regex'; Expected = '\S' }
     # REG_SZ holding a number; 'le' compares numerically. Kind keeps a fix REG_SZ.
     'WN11-SO-000085' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
         Name = 'CachedLogonsCount'; Operator = 'le'; Expected = 10; Kind = 'string' }
@@ -345,11 +342,19 @@
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Cryptography\Calais\SmartCards'; Name = '(default)'; Operator = 'exists'; Expected = $true }
     )}
 
-    # --- WN11-UC-000020 ---
-    # HKCU reads the SCANNING account's hive, not the audited user's. Recorded
-    # as a known limitation in MANUAL.md; CC-000390 carries the same caveat.
-    'WN11-UC-000020' = @{ Type = 'Registry'; Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Attachments'
-        Name = 'SaveZoneInformation'; Operator = 'ne'; Expected = 1; AbsentIsPass = $true }
+    # --- HKCU rules: CC-000390, UC-000015, UC-000020 ---
+    # V2R11 checks these per interactive user profile. HKCU is only the scanning
+    # account's hive and an unloaded hive cannot be read without loading it, so
+    # a human answers; the scanning account's value is reported as evidence.
+    'WN11-CC-000390' = @{ Type = 'Manual'
+        Question = 'For every interactive user profile (not service accounts), is DisableThirdPartySuggestions = 1 (REG_DWORD) under HKCU\SOFTWARE\Policies\Microsoft\Windows\CloudContent? The evidence shown is the scanning account only.'
+        Evidence = @{ Type = 'Registry'; Path = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\CloudContent'; Name = 'DisableThirdPartySuggestions' } }
+    'WN11-UC-000015' = @{ Type = 'Manual'
+        Question = 'For every interactive user profile (not service accounts), is NoToastApplicationNotificationOnLockScreen = 1 (REG_DWORD) under HKCU\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications? The evidence shown is the scanning account only.'
+        Evidence = @{ Type = 'Registry'; Path = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\PushNotifications'; Name = 'NoToastApplicationNotificationOnLockScreen' } }
+    'WN11-UC-000020' = @{ Type = 'Manual'
+        Question = 'For every interactive user profile (not service accounts), is SaveZoneInformation under HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Attachments absent or set to something other than 1? (1 is a finding.) The evidence shown is the scanning account only.'
+        Evidence = @{ Type = 'Registry'; Path = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Attachments'; Name = 'SaveZoneInformation' } }
 
     # --- WN11-UR-*: user rights ---
     # "only assigned to" -> subsetof. Deny rights say the listed principals MUST
@@ -414,22 +419,29 @@
             @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\FVE'; Name = 'UseTPMKeyPIN'; Operator = 'in'; Expected = @(1,2) }
         )}
     )}
-    # 22H2 build 22621.380 or greater. UBR is compared separately only when the
-    # build is exactly 22621; a later build satisfies the requirement outright.
-    'WN11-00-000040' = @{ Type = 'Any'; Checks = @(
-        @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; Name = 'CurrentBuild'; Operator = 'ge'; Expected = 22622 }
-        @{ Type = 'All'; Checks = @(
-            @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; Name = 'CurrentBuild'; Operator = 'eq'; Expected = 22621 }
-            @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; Name = 'UBR';          Operator = 'ge'; Expected = 380 }
-        )}
+    # V2R11 judges against Microsoft's published end-of-support date for the
+    # version and servicing option, which the host does not carry.
+    'WN11-00-000040' = @{ Type = 'Manual'
+        Question = "Is the end-of-support date for this system's Windows 11 version and servicing option (per Microsoft's Windows 11 release information page) in the future? A past end-of-support date is a finding."
+        Evidence = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'; Name = 'DisplayVersion' } }
+    # Installed AND active: Defender real-time protection on, or a Security
+    # Center product in one of the two active productState values V2R11 lists.
+    'WN11-00-000045' = @{ Type = 'Any'; Checks = @(
+        @{ Type = 'Cim'; Namespace = 'root\Microsoft\Windows\Defender'; ClassName = 'MSFT_MpComputerStatus'
+           Property = 'RealTimeProtectionEnabled'; Operator = 'eq'; Expected = $true }
+        @{ Type = 'Cim'; Namespace = 'root\SecurityCenter2'; ClassName = 'AntiVirusProduct'
+           Property = 'productState'; Operator = 'includes'; Expected = 397568 }
+        @{ Type = 'Cim'; Namespace = 'root\SecurityCenter2'; ClassName = 'AntiVirusProduct'
+           Property = 'productState'; Operator = 'includes'; Expected = 397584 }
     )}
-    'WN11-00-000045' = @{ Type = 'Cim'; Namespace = 'root\SecurityCenter2'; ClassName = 'AntiVirusProduct'
-        Property = 'displayName'; Operator = 'exists'; Expected = $true }
     # Only system-created shares is NA per the check text, which the reviewer
     # decides; the share inventory is supplied so they need not go look.
     'WN11-00-000060' = @{ Type = 'Manual'
         Question = 'Do any non-system-created shares exist, and if so are their share and NTFS permissions restricted to the groups that require access? (ADMIN$, C$ and IPC$ alone are Not Applicable.)'
         Evidence = @{ Type = 'Cim'; ClassName = 'Win32_Share'; Property = 'Name' } }
+    # Stricter than V2R11, which also excludes the built-in Administrator, Guest
+    # and DefaultAccount (SID 500/501/503) and the local administrator account:
+    # those are not excluded here, so an idle one reports Open, never Pass.
     'WN11-00-000065' = @{ Type = 'LocalAccount'; Scope = 'User'; Property = 'StaleNames'; ThresholdDays = 35
         Operator = 'setequals'; Expected = @() }
     'WN11-00-000070' = @{ Type = 'Manual'
@@ -444,6 +456,8 @@
         Type = 'Manual'
         Question = 'Are all members of the Hyper-V Administrators group authorized to create or run virtual machines, and documented with the ISSM/ISSO?'
         Evidence = @{ Type = 'LocalAccount'; Scope = 'Group'; Name = 'Hyper-V Administrators'; Property = 'Members' } }
+    # V2R11 drops the separate built-in Administrator line but still permits
+    # "Local administrator account(s)", which the built-in one is.
     'WN11-00-000085' = @{ Applicability = @{ DomainJoined = $true }
         Type = 'LocalAccount'; Scope = 'User'; Property = 'EnabledNames'
         Operator = 'subsetof'; Expected = @('Administrator','Guest','DefaultAccount','defaultuser0','WDAGUtilityAccount') }
@@ -490,7 +504,7 @@
     # checked alongside the password age the STIG names.
     'WN11-SO-000280' = @{ Applicability = @{ LocalAdminEnabled = $true }
         Type = 'All'; Checks = @(
-        @{ Type = 'LocalAccount'; Scope = 'User'; Name = 'Administrator'; Property = 'PasswordAgeDays'; Operator = 'le'; Expected = 60 }
-        @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\LAPS\Config'; Name = 'PasswordAgeDays'; Operator = 'le'; Expected = 60 }
+        @{ Type = 'LocalAccount'; Scope = 'User'; Name = 'Administrator'; Property = 'PasswordAgeDays'; Operator = 'le'; Expected = 180 }
+        @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\LAPS\Config'; Name = 'PasswordAgeDays'; Operator = 'le'; Expected = 180 }
     )}
 }

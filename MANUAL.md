@@ -109,7 +109,7 @@ Import-Module .\woscap.psd1 -Force
 
 # 1. Run a scan against the bundled Windows 11 content pack.
 #    -XccdfPath is the DISA "manual" XCCDF you downloaded.
-$results = Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml
+$results = Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R11_Manual-xccdf.xml
 
 # 2. The console prints a status summary; $results is RuleResult[] for pipelines.
 $results | Where-Object Status -eq 'Open' | Format-Table StigId, Severity, Title
@@ -142,7 +142,7 @@ content.
 3. Pass that path to `-XccdfPath`.
 
 The bundled content pack (`Content/Windows11/`) was authored against **DISA
-Windows 11 STIG V2R8**. Use a matching XCCDF version for best rule coverage;
+Windows 11 STIG V2R11**. Use a matching XCCDF version for best rule coverage;
 rules present in the XCCDF but without an authored check are reported
 `Not_Reviewed` (never silently passed).
 
@@ -198,7 +198,7 @@ Manifest entries may be either a direct URL string or a hashtable:
 ```powershell
 @{
     Windows11 = @{
-        Url           = 'https://.../U_MS_Windows_11_V2R8_STIG.zip'  # pinned, best-effort
+        Url           = 'https://.../U_MS_Windows_11_V2R11_STIG.zip' # pinned, best-effort
         ScrapePattern = 'Microsoft Windows 11 STIG'                  # used only with -AllowScrape
     }
 }
@@ -474,14 +474,14 @@ Every other Registry rule is reported `State='Manual'` with a reason in `Detail`
 
 - **Paths under HKCU.** An elevated fix would write the operator's own hive,
   not the audited user's, and the re-check reads that same hive, so the fix
-  would falsely report success (WN11-CC-000390, WN11-UC-000015, WN11-UC-000020).
+  would falsely report success. (The Windows 11 pack's HKCU rules are `Manual`
+  as of V2R11, so none reaches this path.)
 - **Other operators.** For `ne`, `notin`, `regex`, `sequence` and `exists`
   there is no single value that is safe to write: `ne` would write the
   forbidden value, and `regex` would write the pattern text into a logon
   banner. For `in`, woscap does not choose which allowed value to enforce;
   that is a site decision. In the shipped Windows 11 pack these are
-  WN11-CC-000052/055/085/205/320, WN11-SO-000075/080/095 and WN11-UC-000020
-  (#23).
+  WN11-CC-000052/055/085/205/320 and WN11-SO-000075/095 (#23).
 - **No `Operator`, or an `Expected` that is not a string or an Int32.**
 
 The reason names the operator or the HKCU path. The Ansible playbook emitter
@@ -515,11 +515,11 @@ permission error on a single rule surfaces as `State='Failed'` (with the error i
 
 ```powershell
 # Plan only — show what would change, write nothing:
-Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml |
+Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R11_Manual-xccdf.xml |
     Invoke-WoscapRemediation -WhatIf
 
 # Apply unattended (run from an elevated shell), then review the report:
-$fixes = Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml |
+$fixes = Invoke-WoscapScan -XccdfPath .\U_MS_Windows_11_STIG_V2R11_Manual-xccdf.xml |
     Invoke-WoscapRemediation -Force
 $fixes | Format-Table StigId, State, Before, After, Detail
 ```
@@ -618,7 +618,7 @@ them, and a plugin failure only warns — it never aborts a scan.
 $hosts = Import-WoscapIntegration -Integration Ansible -Targets `
     -Source .\inventory.ini -Config @{ Group = 'windows' }
 $r = Invoke-WoscapScan -Benchmark Windows11 `
-    -XccdfPath .\U_MS_Windows_11_STIG_V2R8_Manual-xccdf.xml -ComputerName $hosts
+    -XccdfPath .\U_MS_Windows_11_STIG_V2R11_Manual-xccdf.xml -ComputerName $hosts
 Export-WoscapIntegration -Integration Zabbix -Result $r -Config @{ Server = 'zbx.example.com' }
 
 # Emit an Ansible remediation playbook for the open findings
@@ -836,10 +836,10 @@ GPO-or-Intune alternate paths, policies written to several hives, and numeric
 ranges that exclude a sentinel value:
 
 ```powershell
-# "60 days or less, and 0 (never expires) is also a finding"
+# "180 days or less, and 0 (never expires) is also a finding"
 'WN11-AC-000025' = @{ Type='All'; Checks=@(
     @{ Type='SecEdit'; Name='MaximumPasswordAge'; Operator='ne'; Expected=0 }
-    @{ Type='SecEdit'; Name='MaximumPasswordAge'; Operator='le'; Expected=60 }
+    @{ Type='SecEdit'; Name='MaximumPasswordAge'; Operator='le'; Expected=180 }
 )}
 ```
 
@@ -913,12 +913,14 @@ The scriptblock uses the same read-only helpers and returns a status string.
 
 ### Current Windows 11 coverage
 
-**All 256 rules of the DISA Win11 STIG V2R8 have a deliberate entry: 248
-automated and 8 explicitly `Manual`.**
+**All 257 rules of the DISA Win11 STIG V2R11 have a deliberate entry: 244
+automated and 13 explicitly `Manual`.**
 
-The 8 manual rules are the ones whose finding condition cannot be read from the
-machine — whether a camera is physically covered, whether the members of the
-local Administrators group are authorized, an all-drive `.p12` search, and so on.
+The 13 manual rules are the ones whose finding condition cannot be read from the
+machine — whether the members of the local Administrators group are
+authorized, an all-drive `.p12` search, Microsoft's published end-of-support
+date for the OS version, the permissions on the PowerShell transcript
+directory, per-user-profile settings, and so on.
 Each carries the interview question, and most also carry automated evidence (a
 share list, a group's membership) so the reviewer does not have to go and look
 it up. **A deliberately-manual rule is not the same as an unauthored one**, and
@@ -934,10 +936,12 @@ drift is caught on any machine that has the content.
 
 #### Known limitation: `HKCU` rules
 
-`WN11-UC-000020` and `WN11-CC-000390` read `HKCU`, which resolves to the hive of
-the account **running the scan**, not the audited user's. Reading every loaded
-user hive is a separate change; until then, treat those two results as applying
-to the scanning account only.
+`HKCU` resolves to the hive of the account **running the scan**, not the
+audited user's. V2R11 requires `WN11-CC-000390`, `WN11-UC-000015` and
+`WN11-UC-000020` to hold for every interactive user profile, so those three are
+`Manual`: the scanning account's value is reported as evidence, and the
+reviewer confirms the other profiles. Reading every user hive (including
+unloaded ones) is a separate change.
 
 ### Application packs (Edge, Chrome)
 
@@ -1129,7 +1133,7 @@ today**. Do not assume they work:
 | **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering (`Invoke-WoscapIntegration`) shipped (#23). |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Partially shipped** (#22). `Invoke-WoscapRemediation` applies **Registry + AuditPolicy** fixes on the **local** host, `-WhatIf`/`-Confirm`-gated (`ConfirmImpact='High'`), with auto re-check; other check types report `Manual`. Ansible remediation-as-code (playbook emitter) shipped in #18. Remote fleet remediation, Service/UserRight/SecEdit application, and rollback remain Phase 4. |
 | **`Get-WoscapBenchmark`** (list cached downloaded STIG content) | **Shipped** (#53). Lists the operator-local download cache (`Save-WoscapStigContent` output) by benchmark + revision; supports `-Benchmark` / `-Destination` filters. |
-| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 256/256 rules** (248 automated, 8 manual, #70), and application packs for **Edge** and **Chrome** (#21) ship; Windows Server MS/DC packs remain. |
+| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (244 automated, 13 manual, #70, #26), and application packs for **Edge** and **Chrome** (#21) ship; Windows Server MS/DC packs remain. |
 
 Per the roadmap, **Phase 2 is complete**: all five reporters, the
 exception/profile system, remote fleet execution over WinRM
@@ -1141,7 +1145,7 @@ bundled OpenVAS (#17), Ansible (#18), and Zabbix (#19) plugins are all shipped.
 Phase 4 is underway: gated in-place remediation for Registry/AuditPolicy on the
 local host (`Invoke-WoscapRemediation`, #22) and live OpenVAS GMP triggering
 (`Invoke-WoscapIntegration`, #23) are shipped. Windows 11 content
-coverage is complete (256/256 rules, #70). Remaining Phase 4 work is content-pack
+coverage is complete (257/257 rules of V2R11, #70, #26). Remaining Phase 4 work is content-pack
 breadth for Server 2019/2022 and remote / rollback remediation.
 
 ---

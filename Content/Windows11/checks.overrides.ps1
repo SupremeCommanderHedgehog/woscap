@@ -165,6 +165,64 @@
         }
     }
 
+    # WN11-00-000400 (CAT II) - Wi-Fi Direct adapters. Hidden adapters are only
+    # returned with -IncludeHidden, which a plain MSFT_NetAdapter query omits.
+    # The check text calls any listed adapter a finding while the title and fix
+    # accept a disabled one, so an all-disabled set is left to a reviewer.
+    'WN11-00-000400' = @{
+        Type   = 'ScriptBlock'
+        Script = {
+            try {
+                $adapters = @(Get-NetAdapter -InterfaceDescription 'Microsoft Wi-Fi Direct*' -IncludeHidden -ErrorAction Stop)
+                if ($adapters.Count -eq 0) { return 'Pass' }
+                $active = @($adapters | Where-Object { [string]$_.Status -ne 'Disabled' })
+                if ($active.Count -gt 0) { 'Fail' } else { 'NotReviewed' }
+            } catch { 'Error' }
+        }
+    }
+
+    # WN11-PK-000010 (CAT II) - an unexpired ECA Root CA in the Trusted Root
+    # store, and (V2R11) no listed "*ECA*" certificate expired or not named
+    # "ECA Root CA".
+    'WN11-PK-000010' = @{
+        Type   = 'ScriptBlock'
+        Script = {
+            $listed = @(Get-CertificateSetting -Store 'root' -Match @{ Subject = 'ECA' })
+            $valid  = @(Get-CertificateSetting -Store 'root' -Match @{ Subject = 'ECA' } -RequireUnexpired)
+            if ((Test-WoscapUnreadable -Value $listed) -or (Test-WoscapUnreadable -Value $valid)) { return 'Error' }
+            $misnamed = @($listed | Where-Object { $_ -notmatch 'CN=ECA Root CA' })
+            if ($valid.Count -eq 0 -or $valid.Count -ne $listed.Count -or $misnamed.Count -gt 0) { 'Fail' } else { 'Pass' }
+        }
+    }
+
+    # WN11-PK-000015 (CAT II) - an unexpired DoD Interoperability cross-cert in
+    # the Untrusted store, and (V2R11) none of the listed ones expired.
+    'WN11-PK-000015' = @{
+        Type   = 'ScriptBlock'
+        Script = {
+            $match  = @{ Issuer = 'DoD Interoperability'; Subject = 'DoD' }
+            $listed = @(Get-CertificateSetting -Store 'disallowed' -Match $match)
+            $valid  = @(Get-CertificateSetting -Store 'disallowed' -Match $match -RequireUnexpired)
+            if ((Test-WoscapUnreadable -Value $listed) -or (Test-WoscapUnreadable -Value $valid)) { return 'Error' }
+            if ($valid.Count -eq 0 -or $valid.Count -ne $listed.Count) { 'Fail' } else { 'Pass' }
+        }
+    }
+
+    # WN11-PK-000020 (CAT II) - an unexpired US DoD CCEB Interoperability
+    # cross-cert in the Untrusted store, and (V2R11) none of the listed ones
+    # expired. The text's "DoD Interoperability Root CA" name test is a copy of
+    # PK-000015 that no CCEB certificate can meet, so the filter's issuer is used.
+    'WN11-PK-000020' = @{
+        Type   = 'ScriptBlock'
+        Script = {
+            $match  = @{ Issuer = 'CCEB Interoperability' }
+            $listed = @(Get-CertificateSetting -Store 'disallowed' -Match $match)
+            $valid  = @(Get-CertificateSetting -Store 'disallowed' -Match $match -RequireUnexpired)
+            if ((Test-WoscapUnreadable -Value $listed) -or (Test-WoscapUnreadable -Value $valid)) { return 'Error' }
+            if ($valid.Count -eq 0 -or $valid.Count -ne $listed.Count) { 'Fail' } else { 'Pass' }
+        }
+    }
+
     # WN11-CC-000063 (CAT II) - the system must receive policy from Group Policy
     # or from a running MDM.
     'WN11-CC-000063' = @{

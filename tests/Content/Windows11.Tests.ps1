@@ -30,6 +30,87 @@ Describe 'Windows11 content pack' {
             (Test-Descriptor -Descriptor $p['WN11-00-000170']).Result | Should -Be 'Pass'
         }
     }
+    It 'WN11-00-000400 reads hidden Wi-Fi Direct adapters: <Case>' -ForEach @(
+        @{ Case = 'none';         Adapters = @();                                              Expected = 'Pass' }
+        @{ Case = 'one enabled';  Adapters = @(@{ Status = 'Disconnected' });                  Expected = 'Fail' }
+        @{ Case = 'mixed';        Adapters = @(@{ Status = 'Disabled' }, @{ Status = 'Up' });  Expected = 'Fail' }
+        @{ Case = 'all disabled'; Adapters = @(@{ Status = 'Disabled' });                      Expected = 'NotReviewed' }
+    ) {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath; Adapters = $Adapters; Expected = $Expected } {
+            $script:fake = @($Adapters | ForEach-Object { [pscustomobject]$_ })
+            Mock Get-NetAdapter { $script:fake }
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            (Test-Descriptor -Descriptor $p['WN11-00-000400']).Result | Should -Be $Expected
+            Should -Invoke Get-NetAdapter -ParameterFilter { $IncludeHidden -and $InterfaceDescription -eq 'Microsoft Wi-Fi Direct*' }
+        }
+    }
+    It 'WN11-00-000400 is Error, not Pass, when the adapter read fails' {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
+            Mock Get-NetAdapter { throw 'access denied' }
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            (Test-Descriptor -Descriptor $p['WN11-00-000400']).Result | Should -Be 'Error'
+        }
+    }
+    It '<Id> (V2R11): <Case>' -ForEach @(
+        @{ Id = 'WN11-PK-000010'; Case = 'one current ECA root';      All = @('CN=ECA Root CA 4, OU=ECA');                               Valid = @('CN=ECA Root CA 4, OU=ECA');  Expected = 'Pass' }
+        @{ Id = 'WN11-PK-000010'; Case = 'an expired ECA root too';   All = @('CN=ECA Root CA 4, OU=ECA','CN=ECA Root CA 2, OU=ECA');    Valid = @('CN=ECA Root CA 4, OU=ECA');  Expected = 'Fail' }
+        @{ Id = 'WN11-PK-000010'; Case = 'a non-root ECA match';      All = @('CN=ECA Root CA 4, OU=ECA','CN=TrustCor ECA-1');           Valid = @('CN=ECA Root CA 4, OU=ECA','CN=TrustCor ECA-1'); Expected = 'Fail' }
+        @{ Id = 'WN11-PK-000010'; Case = 'none';                      All = @();                                                          Valid = @();                            Expected = 'Fail' }
+        @{ Id = 'WN11-PK-000015'; Case = 'one current cross-cert';    All = @('CN=DoD Interoperability Root CA 2');                      Valid = @('CN=DoD Interoperability Root CA 2'); Expected = 'Pass' }
+        @{ Id = 'WN11-PK-000015'; Case = 'only an expired cross-cert'; All = @('CN=DoD Root CA 3');                                      Valid = @();                            Expected = 'Fail' }
+        @{ Id = 'WN11-PK-000015'; Case = 'current plus expired';      All = @('CN=DoD Root CA 6','CN=DoD Root CA 3');                    Valid = @('CN=DoD Root CA 6');          Expected = 'Fail' }
+        @{ Id = 'WN11-PK-000020'; Case = 'one current CCEB cert';     All = @('CN=DoD Root CA 6');                                        Valid = @('CN=DoD Root CA 6');          Expected = 'Pass' }
+        @{ Id = 'WN11-PK-000020'; Case = 'only an expired CCEB cert'; All = @('CN=DoD Root CA 3');                                        Valid = @();                            Expected = 'Fail' }
+    ) {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath; Id = $Id; All = $All; Valid = $Valid; Expected = $Expected } {
+            $script:all = $All; $script:valid = $Valid
+            Mock Get-CertificateSetting { $script:all }
+            Mock Get-CertificateSetting { $script:valid } -ParameterFilter { $RequireUnexpired }
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            (Test-Descriptor -Descriptor $p[$Id]).Result | Should -Be $Expected
+        }
+    }
+    It '<Id> is Error, not Pass, when the store cannot be read' -ForEach @(
+        @{ Id = 'WN11-PK-000010' }, @{ Id = 'WN11-PK-000015' }, @{ Id = 'WN11-PK-000020' }
+    ) {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath; Id = $Id } {
+            Mock Get-CertificateSetting { New-WoscapUnreadable -Reason 'denied' }
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            (Test-Descriptor -Descriptor $p[$Id]).Result | Should -Be 'Error'
+        }
+    }
+    It 'WN11-00-000045 passes only on an ACTIVE antivirus (V2R11): <Case>' -ForEach @(
+        @{ Case = 'Defender real-time on';            Rtp = $true;  States = @(393472); Expected = 'Pass' }
+        @{ Case = 'third-party active, out of date';  Rtp = $false; States = @(397584); Expected = 'Pass' }
+        @{ Case = 'registered but disabled';          Rtp = $false; States = @(393472, 393488); Expected = 'Fail' }
+        @{ Case = 'nothing registered';               Rtp = $false; States = @();       Expected = 'Fail' }
+    ) {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath; Rtp = $Rtp; States = $States; Expected = $Expected } {
+            $script:rtp = $Rtp; $script:states = $States
+            Mock Get-CimSetting { $script:rtp } -ParameterFilter { $ClassName -eq 'MSFT_MpComputerStatus' }
+            Mock Get-CimSetting { ,@($script:states) } -ParameterFilter { $ClassName -eq 'AntiVirusProduct' }
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            (Test-Descriptor -Descriptor $p['WN11-00-000045']).Result | Should -Be $Expected
+        }
+    }
+    It 'carries the V2R11 thresholds and paths' {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            @($p['WN11-AC-000025'].Checks | Where-Object { $_.Operator -eq 'le' })[0].Expected | Should -Be 180
+            @($p['WN11-SO-000280'].Checks | ForEach-Object { $_.Expected }) | Should -Be @(180, 180)
+            $p['WN11-CC-000365'].ContainsKey('Applicability') | Should -BeFalse
+            $p['WN11-CC-000366'].Name     | Should -Be 'LetAppsActivateWithVoice'
+            $p['WN11-CC-000366'].Expected | Should -Be 2
+            $pairs = @($p['WN11-CC-000195'].Checks | ForEach-Object { "$($_.Path)|$($_.Name)" })
+            $pairs | Should -Be @(
+                'HKLM:\SOFTWARE\Policies\Microsoft\Biometrics\FacialFeatures|EnhancedAntiSpoofing'
+                'HKLM:\SOFTWARE\Microsoft\Policies\PassportForWork\Biometrics|FacialFeaturesUseEnhancedAntiSpoofing')
+            @($p['WN11-CC-000252'].Checks | ForEach-Object { $_.Path }) |
+                Should -Contain 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\ApplicationManagement'
+            $p.ContainsKey('WN11-SO-000080') | Should -BeFalse
+            foreach ($id in 'WN11-CC-000390','WN11-UC-000015','WN11-UC-000020') { $p[$id].Type | Should -Be 'Manual' }
+        }
+    }
     It 'provides broad coverage (>120 declarative descriptors)' {
         InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
             (Import-ContentPack -Path $PackPath).Keys.Count | Should -BeGreaterThan 120
