@@ -54,9 +54,10 @@
 
     # Adobe Acrobat Reader DC Continuous Track STIG, V2R1 (benchmark date 2021-07-23). Pack:
     # Content\AcrobatReader. The Url uses the host/path scheme above with the local archive's
-    # file name; it was NOT verified online. The pattern excludes the Acrobat Pro STIG.
+    # file name; it was NOT verified online. The pattern takes only the Continuous manual STIG:
+    # not Acrobat Pro, the Classic Track, or any SCAP/Benchmark archive.
     AcrobatReader = @{
         Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_Adobe_Acrobat_Reader_DC_Continuous_V2R1_STIG.zip'
-        ScrapePattern = 'Acrobat[ _]Reader'
+        ScrapePattern = '(?is)^(?!.*(?:SCAP|Benchmark)).*Acrobat[ _]Reader[ _]DC[ _]Continuous'
     }
 }

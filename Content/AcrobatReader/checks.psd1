@@ -1,26 +1,6 @@
-# Adobe Acrobat Reader DC Continuous Track STIG V2R1 content pack (benchmark date 23 Jul 2021).
-# NOT DISA content; verify against the official release before relying on results.
-# Hand-authored from each rule's Manual XCCDF check-content; a wrong path or value here is
-# a silent false Pass. No rule says absent is compliant, so a missing value is a finding.
-#
-# Unified app: 64-bit Reader is the single Acrobat app in Reader mode, which reads the
-# "Adobe Acrobat\DC" root, not DISA's "Acrobat Reader\DC" (Adobe single-installer guide).
-# Each rule requires DISA's literal value and, when an "Adobe Acrobat\DC\Installer" key
-# exists in either view, the same value under the Adobe Acrobat root too. The key test
-# plus an Is64BitProduct read fail closed: unreadable is Error. Acrobat Pro alongside a
-# classic Reader also triggers it (a possible false Open, never a false Pass).
-#
-# HKLM\SOFTWARE\Policies is shared by both registry views. ARDC-CN-000070 names a view by
-# OS bitness, gated on Win32_OperatingSystem.OSArchitecture.
-#
-# Every rule is a composite, so remediation reports all of them Manual: no single write
-# provably passes on every host. HKCU rules (000330/000335/000345) and 000340 are Manual.
-# Not modelled: 000025 "0 with ISSO risk acceptance" and 000100 "NA with an approved DoD
-# SharePoint server"; record those in an exception profile.
-#
-# Comparisons ignore the registry value type (#29). DISA requires REG_DWORD, but these also
-# pass: REG_SZ exactly the digit, REG_QWORD, REG_MULTI_SZ containing it, REG_BINARY with a
-# byte equal to it (two zero bytes for Expected 0). Needs a hand edit; GPO writes DWORD.
+# Adobe Acrobat Reader DC Continuous Track STIG V2R1 pack (23 Jul 2021). NOT DISA content; verify
+# against the official release. Unified-app detection, the 000070 view choice, Manual rules and
+# the #29 type exposure are documented in MANUAL.md, "Adobe Acrobat Reader DC pack".
 @{
     'ARDC-CN-000005' = @{ Type = 'All'; Checks = @(
         @{ Type = 'Registry'; Path = 'HKLM:\Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown'; Name = 'bEnhancedSecurityStandalone'; Operator = 'eq'; Expected = 1 }
@@ -169,7 +149,7 @@
         )}
     )}
     # DISA: "For 32 bit" the native key, "For 64 bit" Wow6432Node; unknown bitness fails.
-    # The unified app also needs DisableMaintenance in its own Installer key.
+    # A detected unified app also needs it in its Installer key: native when that exists, else Wow6432Node.
     'ARDC-CN-000070' = @{ Type = 'All'; Checks = @(
         @{ Type = 'Any'; Checks = @(
             @{ Type = 'All'; Checks = @(
@@ -183,6 +163,11 @@
         )}
         @{ Type = 'Any'; Checks = @(
             @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer'; Name = 'DisableMaintenance'; Operator = 'eq'; Expected = 1 }
+            @{ Type = 'All'; Checks = @(
+                @{ Type = 'Path'; Path = 'HKLM:\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer'; Operator = 'eq'; Expected = $false }
+                @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer'; Name = 'Is64BitProduct'; Operator = 'exists'; Expected = $false }
+                @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Wow6432Node\Adobe\Adobe Acrobat\DC\Installer'; Name = 'DisableMaintenance'; Operator = 'eq'; Expected = 1 }
+            )}
             @{ Type = 'All'; Checks = @(
                 @{ Type = 'Path'; Path = 'HKLM:\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer'; Operator = 'eq'; Expected = $false }
                 @{ Type = 'Path'; Path = 'HKLM:\SOFTWARE\Wow6432Node\Adobe\Adobe Acrobat\DC\Installer'; Operator = 'eq'; Expected = $false }

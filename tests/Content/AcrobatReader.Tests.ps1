@@ -166,6 +166,8 @@ Describe 'AcrobatReader repair installation (ARDC-CN-000070)' {
             $ukey = 'HKLM:\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer'
             $uni = "$ukey|DisableMaintenance"
             $u64 = "$ukey|Is64BitProduct"
+            $wkey = 'HKLM:\SOFTWARE\Wow6432Node\Adobe\Adobe Acrobat\DC\Installer'
+            $wuni = "$wkey|DisableMaintenance"
             $script:arch = $null; $script:reg = @{}; $script:paths = @()
             Mock Get-CimSetting { $script:arch }
             Mock Get-RegValue { $k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null } }
@@ -186,6 +188,16 @@ Describe 'AcrobatReader repair installation (ARDC-CN-000070)' {
                 ,@('64-bit', @($ukey), @{ $uni = 1; $u64 = 1 }, 'Fail')
                 ,@('64-bit', @($ukey), @{ $wow = 1; $uni = 0 }, 'Fail')
                 ,@('64-bit', @($ukey), @{ $wow = 1; $uni = 2 }, 'Fail')
+                # Wow6432Node Installer only: its value counts; with both keys native is required.
+                ,@('64-bit', @($wkey), @{ $wow = 1; $wuni = 1 }, 'Pass')
+                ,@('64-bit', @($wkey), @{ $wow = 1 }, 'Fail')
+                ,@('64-bit', @($wkey), @{ $wow = 1; $wuni = 0 }, 'Fail')
+                ,@('64-bit', @($wkey), @{ $wow = 1; $wuni = 2 }, 'Fail')
+                ,@('64-bit', @($wkey), @{ $wuni = 1 }, 'Fail')
+                ,@('64-bit', @($ukey, $wkey), @{ $wow = 1; $wuni = 1; $u64 = 1 }, 'Fail')
+                ,@('64-bit', @($ukey, $wkey), @{ $wow = 1; $uni = 1; $wuni = 1; $u64 = 1 }, 'Pass')
+                ,@('64-bit', @($wkey), @{ $wow = 1; $wuni = 1; $u64 = $unread }, 'Error')
+                ,@('64-bit', @($wkey), @{ $wow = 1; $wuni = $unread }, 'Error')
                 ,@('64-bit', @(), @{ $wow = 1; $u64 = $unread }, 'Error')
                 ,@('64-bit', @(), @{ $wow = $unread }, 'Error')
                 ,@($unread, @(), @{ $wow = 1 }, 'Error')
@@ -226,6 +238,25 @@ Describe 'AcrobatReader HKCU and manual rules' {
             $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)['ARDC-CN-000340']
             $d.Type | Should -Be 'Manual'
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'NotReviewed'
+        }
+    }
+}
+
+Describe 'AcrobatReader stig-sources ScrapePattern' {
+    It 'resolves the Continuous manual STIG, not Classic, Pro or SCAP archives' {
+        InModuleScope woscap -Parameters @{ Root = $script:RepoRoot } {
+            param($Root)
+            $pattern = (Import-PowerShellDataFile -LiteralPath (Join-Path $Root 'Content/stig-sources.psd1')).AcrobatReader.ScrapePattern
+            $u = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip'
+            # Decoys carry higher revisions, so only the pattern can reject them.
+            $html = @(
+                "<a href=`"$u/U_Adobe_Acrobat_Reader_DC_Continuous_V2R1_STIG.zip`">Adobe Acrobat Reader DC Continuous Track STIG - Ver 2, Rel 1</a>"
+                "<a href=`"$u/U_Adobe_Acrobat_Reader_DC_Classic_V2R9_STIG.zip`">Adobe Acrobat Reader DC Classic Track STIG - Ver 2, Rel 9</a>"
+                "<a href=`"$u/U_Adobe_Acrobat_Reader_DC_Continuous_V2R2_STIG_SCAP_1-2_Benchmark.zip`">Adobe Acrobat Reader DC Continuous Track STIG Benchmark - Ver 2, Rel 2</a>"
+                "<a href=`"$u/U_Adobe_Acrobat_Reader_DC_Continuous_V2R3_STIG_SCAP_1-3_Benchmark.zip`">Download</a>"
+                "<a href=`"$u/U_Adobe_Acrobat_Pro_DC_Continuous_V2R8_STIG.zip`">Adobe Acrobat Pro DC Continuous Track STIG - Ver 2, Rel 8</a>"
+            ) -join "`n"
+            Resolve-WoscapStigUrlFromPage -Html $html -Pattern $pattern | Should -Be "$u/U_Adobe_Acrobat_Reader_DC_Continuous_V2R1_STIG.zip"
         }
     }
 }

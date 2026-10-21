@@ -1115,7 +1115,8 @@ via `Save-WoscapStigContent -Benchmark Firefox -AllowScrape`.
 **`Content/AcrobatReader/checks.psd1`** — Adobe Acrobat Reader DC Continuous Track STIG V2R1
 (benchmark date 23 Jul 2021): **26 of 26 rules authored, 22 automated, 4 manual**. No rule has
 an automatic fix in `Invoke-WoscapRemediation` (see below). Hand-authored from the Manual
-XCCDF check-content, not generated.
+XCCDF check-content, not generated, and not DISA content. A wrong path or value would be a
+silent false Pass, so verify against the official release.
 
 - **Where DISA's values live.** 21 rules read one `REG_DWORD` under
   `HKLM\Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown` or its subkeys
@@ -1147,9 +1148,11 @@ XCCDF check-content, not generated.
   `HKLM\SOFTWARE\Wow6432Node\Adobe\Acrobat Reader\DC\Installer` "for 64 bit". Each branch is
   gated on `Win32_OperatingSystem.OSArchitecture` (`64` or `32`), so the other view can never
   satisfy the rule, and an unknown architecture is a finding. When the unified app is
-  detected, `DisableMaintenance = 1` is also required in
-  `HKLM\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer` (the native view on 64-bit Windows), so a
-  stale Reader value alone does not pass.
+  detected, `DisableMaintenance = 1` is also required in the app's own
+  `HKLM\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer` key. It must be in the native view whenever
+  that key exists there. Only when the key exists solely under `Wow6432Node` (for example,
+  32-bit Acrobat on 64-bit Windows) is the `Wow6432Node` value accepted. A stale Reader value
+  alone therefore does not pass.
 - **No automatic remediation.** Every check depends on the OS architecture or on unified-app
   detection, so no single registry write provably passes on every host (#23). All 26 rules
   report `Manual` in remediation. A fix must write both roots on a unified-app host.
