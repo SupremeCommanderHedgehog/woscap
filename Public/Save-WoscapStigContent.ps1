@@ -16,12 +16,7 @@ function Save-WoscapStigContent {
 
     $cacheRoot = Get-WoscapContentCacheRoot -Destination $Destination
 
-    $notice = @'
-woscap does NOT bundle or redistribute DISA STIG content. This action downloads content
-on demand from a URL you supply (or a bundled best-effort pointer) into an operator-local
-cache. Your use of that content is governed by DISA's own terms (public.cyber.mil), not
-this project.
-'@
+    $notice = Get-WoscapDisaNotice
 
     # DISA terms gate. Satisfied by -AcceptDisaTerms (stateless, per-call) OR a persisted
     # acknowledgement marker under the cache root. When neither holds, ask once interactively;

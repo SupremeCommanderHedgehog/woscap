@@ -1,7 +1,7 @@
 # Maps every public cmdlet parameter to the main-form Tag key that drives it (Control), or
 # states why the GUI does not expose it (CliOnly). Enforced by tests/UI/WoscapGuiParity.Tests.ps1.
 # Common parameters (incl. WhatIf/Confirm) are excluded; remediation's confirmation is the
-# Remediate flow (Force -> Remediate); #17 adds entries for its own confirmations.
+# Remediate flow (Force -> Remediate); content Update/Remove confirm in their own dialogs.
 @{
     'Invoke-WoscapScan' = @{
         XccdfPath     = @{ Control = 'Xccdf' }
@@ -27,28 +27,29 @@
         Quiet       = @{ CliOnly = 'GUI always passes -Quiet; the report dialog replaces the console summary' }
     }
     'Get-WoscapBenchmark' = @{
-        Benchmark   = @{ CliOnly = 'Pending #17' }
-        Destination = @{ CliOnly = 'Pending #17' }
+        Benchmark   = @{ Control = 'ContentFilter' }
+        Destination = @{ Control = 'ContentDestination' }
     }
+    # Download dialog options; AcceptDisaTerms comes from the GUI terms dialog.
     'Save-WoscapStigContent' = @{
-        Benchmark       = @{ CliOnly = 'Pending #17' }
-        Url             = @{ CliOnly = 'Pending #17' }
-        AcceptDisaTerms = @{ CliOnly = 'Pending #17' }
-        Destination     = @{ CliOnly = 'Pending #17' }
-        Force           = @{ CliOnly = 'Pending #17' }
-        AllowScrape     = @{ CliOnly = 'Pending #17' }
+        Benchmark       = @{ Control = 'ContentDownload' }
+        Url             = @{ Control = 'ContentDownload' }
+        AcceptDisaTerms = @{ Control = 'ContentDownload' }
+        Destination     = @{ Control = 'ContentDestination' }
+        Force           = @{ Control = 'ContentDownload' }
+        AllowScrape     = @{ Control = 'ContentDownload' }
     }
     'Update-WoscapBenchmark' = @{
-        Benchmark       = @{ CliOnly = 'Pending #17' }
-        Url             = @{ CliOnly = 'Pending #17' }
-        AllowScrape     = @{ CliOnly = 'Pending #17' }
-        AcceptDisaTerms = @{ CliOnly = 'Pending #17' }
-        Destination     = @{ CliOnly = 'Pending #17' }
+        Benchmark       = @{ Control = 'ContentGrid' }
+        Url             = @{ Control = 'ContentUpdate' }
+        AllowScrape     = @{ Control = 'ContentUpdate' }
+        AcceptDisaTerms = @{ Control = 'ContentUpdate' }
+        Destination     = @{ Control = 'ContentDestination' }
     }
     'Remove-WoscapBenchmark' = @{
-        Benchmark   = @{ CliOnly = 'Pending #17' }
-        Revision    = @{ CliOnly = 'Pending #17' }
-        Destination = @{ CliOnly = 'Pending #17' }
+        Benchmark   = @{ Control = 'ContentRemove' }
+        Revision    = @{ Control = 'ContentRemove' }
+        Destination = @{ Control = 'ContentDestination' }
     }
     'Get-WoscapIntegration' = @{
         Path = @{ CliOnly = 'Pending #18' }

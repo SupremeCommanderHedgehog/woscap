@@ -315,12 +315,12 @@ Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
         }
     }
 
-    It 'has Scan, Content and Integrations tabs with Content/Integrations as placeholders' {
+    It 'has Scan, Content and Integrations tabs with Integrations as a placeholder' {
         InModuleScope woscap {
             $form = New-WoscapMainForm
             try {
                 @($form.Tag['Tabs'].TabPages | ForEach-Object Text) | Should -Be @('Scan', 'Content', 'Integrations')
-                $form.Tag['ContentTab'].Controls[0].Text      | Should -Match '#17'
+                $form.Tag['ContentTab'].Controls[0].Text      | Should -Not -Match '#17'
                 $form.Tag['IntegrationsTab'].Controls[0].Text | Should -Match '#18'
             } finally { $form.Dispose() }
         }

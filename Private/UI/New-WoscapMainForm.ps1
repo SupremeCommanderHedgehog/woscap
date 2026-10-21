@@ -20,6 +20,7 @@ function New-WoscapMainForm {
 
     # Dropdown vocabularies are derived from their canonical owners so they cannot drift (#47).
     $scan = New-WoscapGuiScanTab -Vocabulary (Get-WoscapGuiVocabulary)
+    $content = New-WoscapGuiContentTab
     $menu = New-WoscapGuiMenu
 
     $placeholder = {
@@ -31,7 +32,7 @@ function New-WoscapMainForm {
         $page.Controls.Add($label)
         $page
     }
-    $contentTab      = & $placeholder 'Content' 'Content management - coming in #17.'
+    $contentTab      = $content.TabPage
     $integrationsTab = & $placeholder 'Integrations' 'Integrations - coming in #18.'
 
     $tabs = New-Object System.Windows.Forms.TabControl
@@ -45,6 +46,9 @@ function New-WoscapMainForm {
 
     $tag = @{
         Menu = $menu.Menu; MenuRun = $menu.Run; MenuExport = $menu.Export; MenuRemediate = $menu.Remediate
+        MenuContentDownload = $menu.ContentDownload; MenuContentUpdate = $menu.ContentUpdate
+        MenuContentRemove = $menu.ContentRemove; MenuContentUseForScan = $menu.ContentUseForScan
+        MenuContentRefresh = $menu.ContentRefresh
         Tabs = $tabs; ScanTab = $scan.TabPage; ContentTab = $contentTab; IntegrationsTab = $integrationsTab
         # Non-modal channel for partial-scan warning detail (see the OnWarning handler).
         StatusTip = New-Object System.Windows.Forms.ToolTip
@@ -56,14 +60,23 @@ function New-WoscapMainForm {
         ResultsStale = $false
         # WinForms auto-selects a row on a shown grid; only a click or key press counts.
         GridSelectionDeliberate = $false
+        # The Content grid lists the cache on first selection of its tab, not at build time.
+        ContentLoaded = $false
+        ContentRefreshing = $false
+        # The one background job in flight: 'Scan', 'Remediation', 'Content', or $null.
+        Busy = $null
+        # Resolved cache root the Content grid was last listed from; content actions refuse another.
+        ContentListedRoot = $null
     }
     foreach ($key in $scan.Keys) { if ($key -ne 'TabPage') { $tag[$key] = $scan[$key] } }
+    foreach ($key in $content.Keys) { if ($key -ne 'TabPage') { $tag[$key] = $content[$key] } }
     $form.Tag = $tag
 
     Set-WoscapGuiActionEnabled -Tag $tag -Action Export -Enabled $false
     Set-WoscapGuiActionEnabled -Tag $tag -Action Remediate -Enabled $false
     Update-WoscapGuiProfileButton -Tag $tag
     Update-WoscapGuiContentHint -Tag $tag
+    Update-WoscapGuiContentSelection -Tag $tag
 
     # Single-window: the current form's controls, for the plain event scriptblocks below.
     $script:WoscapGuiTag = $tag
@@ -113,6 +126,34 @@ function New-WoscapMainForm {
     $scan.Run.Add_Click({ Invoke-WoscapGuiRun -Tag $script:WoscapGuiTag })
     $scan.Export.Add_Click({ Invoke-WoscapGuiExport -Tag $script:WoscapGuiTag })
     $scan.Remediate.Add_Click({ Invoke-WoscapGuiRemediate -Tag $script:WoscapGuiTag })
+
+    $tabs.Add_SelectedIndexChanged({
+        $t = $script:WoscapGuiTag
+        if ($t -and -not $t['ContentLoaded'] -and $t['Tabs'].SelectedTab -eq $t['ContentTab']) {
+            Update-WoscapGuiContentView -Tag $t
+        }
+    })
+    $content.ContentDestinationBrowse.Add_Click({
+        $t = $script:WoscapGuiTag
+        $p = Get-WoscapGuiFolderPath
+        if ($p) {
+            $t['ContentDestination'].Text = $p
+            Update-WoscapGuiContentView -Tag $t
+        }
+    })
+    $content.ContentFilter.Add_SelectedIndexChanged({ Update-WoscapGuiContentView -Tag $script:WoscapGuiTag })
+    $content.ContentGrid.Add_SelectionChanged({ Update-WoscapGuiContentSelection -Tag $script:WoscapGuiTag })
+    # The Invoke-WoscapGuiContent* handlers resolve at click time.
+    $content.ContentDownload.Add_Click({ Invoke-WoscapGuiContentDownload -Tag $script:WoscapGuiTag })
+    $content.ContentUpdate.Add_Click({ Invoke-WoscapGuiContentUpdate -Tag $script:WoscapGuiTag })
+    $content.ContentRemove.Add_Click({ Invoke-WoscapGuiContentRemove -Tag $script:WoscapGuiTag })
+    $content.ContentUseForScan.Add_Click({ Invoke-WoscapGuiContentUseForScan -Tag $script:WoscapGuiTag })
+    $content.ContentRefresh.Add_Click({ Update-WoscapGuiContentView -Tag $script:WoscapGuiTag })
+    $menu.ContentDownload.Add_Click({ Invoke-WoscapGuiContentDownload -Tag $script:WoscapGuiTag })
+    $menu.ContentUpdate.Add_Click({ Invoke-WoscapGuiContentUpdate -Tag $script:WoscapGuiTag })
+    $menu.ContentRemove.Add_Click({ Invoke-WoscapGuiContentRemove -Tag $script:WoscapGuiTag })
+    $menu.ContentUseForScan.Add_Click({ Invoke-WoscapGuiContentUseForScan -Tag $script:WoscapGuiTag })
+    $menu.ContentRefresh.Add_Click({ Update-WoscapGuiContentView -Tag $script:WoscapGuiTag })
 
     $menu.Run.Add_Click({ Invoke-WoscapGuiRun -Tag $script:WoscapGuiTag })
     $menu.Export.Add_Click({ Invoke-WoscapGuiExport -Tag $script:WoscapGuiTag })

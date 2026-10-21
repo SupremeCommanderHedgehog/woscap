@@ -39,6 +39,16 @@ function Get-WoscapGuiOpenPath {
     if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { @($dlg.FileNames) } else { @() }
 }
 
+function Get-WoscapGuiFolderPath {
+    <# Thin seam over FolderBrowserDialog (mock this in tests); the chosen folder or $null. #>
+    [CmdletBinding()]
+    param()
+    $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+    try {
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dlg.SelectedPath } else { $null }
+    } finally { $dlg.Dispose() }
+}
+
 function Invoke-WoscapGuiProfileAdd {
     <# Profiles > Add...: pick one or more .psd1 files and append them. #>
     [CmdletBinding()]
@@ -130,6 +140,7 @@ function Invoke-WoscapGuiRun {
         -ThrottleLimit ([int]$Tag['ThrottleLimit'].Value) `
         -JsonPath $jsonPath
 
+    $Tag['Busy'] = 'Scan'
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $false
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled $false
     $Tag['Status'].Text = 'Scanning...'
@@ -161,6 +172,7 @@ function Invoke-WoscapGuiRun {
         $t['Status'].Text = 'Done.'
         # Clear any tooltip left by a prior partial scan; OnWarning re-sets it if needed.
         Set-WoscapGuiStatusTip -Tag $t -Text ''
+        $t['Busy'] = $null
         Set-WoscapGuiActionEnabled -Tag $t -Action Run -Enabled $true
     }
     $onWarning = {
@@ -191,6 +203,7 @@ function Invoke-WoscapGuiRun {
         $t['Progress'].Style = 'Continuous'; $t['Progress'].Value = 0
         Set-WoscapGuiStatusTip -Tag $t -Text ''
         $t['Status'].Text = 'Failed.'
+        $t['Busy'] = $null
         Set-WoscapGuiActionEnabled -Tag $t -Action Run -Enabled $true
     }
 
@@ -204,6 +217,7 @@ function Invoke-WoscapGuiRun {
         $Tag['Status'].Text = 'Failed.'
         $Tag['Progress'].Style = 'Continuous'; $Tag['Progress'].Value = 0
         Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled (@($Tag['Results']).Count -gt 0 -and -not $Tag['ResultsStale'])
+        $Tag['Busy'] = $null
         Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $true
         return $false
     }
