@@ -15,7 +15,7 @@
     'WN11-00-000150' = @{ Type='Registry'; Path='HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel'; Name='DisableExceptionChainValidation'; Operator='eq'; Expected=0 }
     'WN11-00-000165' = @{ Type='Registry'; Path='HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'; Name='SMB1'; Operator='eq'; Expected=0 }
     'WN11-00-000170' = @{ Type='Registry'; Path='HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'; Name='Start'; Operator='eq'; Expected=4 }
-    'WN11-00-000210' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Connectivity'; Name='AllowBluetooth'; Operator='eq'; Expected=0 }
+    'WN11-00-000210' = @{ Applicability=@{ BluetoothPresent=$true }; Type='Registry'; Path='HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Connectivity'; Name='AllowBluetooth'; Operator='eq'; Expected=0 }
     'WN11-AU-000005' = @{ Type='AuditPolicy'; Subcategory='Credential Validation'; Operator='includes'; Expected='Failure' }
     'WN11-AU-000010' = @{ Type='AuditPolicy'; Subcategory='Credential Validation'; Operator='includes'; Expected='Success' }
     'WN11-AU-000030' = @{ Type='AuditPolicy'; Subcategory='Security Group Management'; Operator='includes'; Expected='Success' }
@@ -190,9 +190,9 @@
     )}
     'WN11-AC-000015' = @{ Type = 'SecEdit'; Name = 'ResetLockoutCount';     Operator = 'ge'; Expected = 15 }
     'WN11-AC-000020' = @{ Type = 'SecEdit'; Name = 'PasswordHistorySize';   Operator = 'ge'; Expected = 24 }
-    # 0 (never expires) is a finding as well as > 180.
+    # 1..180 only. "Never expires" is 0 in the GUI but -1 in a secedit export.
     'WN11-AC-000025' = @{ Type = 'All'; Checks = @(
-        @{ Type = 'SecEdit'; Name = 'MaximumPasswordAge'; Operator = 'ne'; Expected = 0 }
+        @{ Type = 'SecEdit'; Name = 'MaximumPasswordAge'; Operator = 'ge'; Expected = 1 }
         @{ Type = 'SecEdit'; Name = 'MaximumPasswordAge'; Operator = 'le'; Expected = 180 }
     )}
     'WN11-AC-000030' = @{ Type = 'SecEdit'; Name = 'MinimumPasswordAge';    Operator = 'ge'; Expected = 1 }
@@ -260,18 +260,23 @@
     )}
     'WN11-CC-000205' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'
         Name = 'AllowTelemetry'; Operator = 'in'; Expected = @(0,1) }
-    # Policy path or the standalone Settings path; 3 (Internet) is the finding.
+    # The policy value decides when it exists (it overrides Settings); the
+    # standalone Settings value counts only when the policy value is absent.
     # V2R11 dropped "Value Name" from the policy block; DODownloadMode is the
     # value behind the "Download Mode" policy its fix text names.
     'WN11-CC-000206' = @{ Type = 'Any'; Checks = @(
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'; Name = 'DODownloadMode'; Operator = 'in'; Expected = @(0,1,2,99,100) }
-        @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config'; Name = 'DODownloadMode'; Operator = 'in'; Expected = @(0,1) }
+        @{ Type = 'All'; Checks = @(
+            @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'; Name = 'DODownloadMode'; Operator = 'exists'; Expected = $false }
+            @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config'; Name = 'DODownloadMode'; Operator = 'in'; Expected = @(0,1) }
+        )}
     )}
     'WN11-CC-000210' = @{ Type = 'All'; Checks = @(
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System'; Name = 'EnableSmartScreen';     Operator = 'eq'; Expected = 1 }
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System'; Name = 'ShellSmartScreenLevel'; Operator = 'eq'; Expected = 'Block' }
     )}
-    # GPO path or the Intune PolicyManager path.
+    # GPO path or the Intune PolicyManager path. "NA for Windows 11 LTSC" is not
+    # implemented (no LTSC fact exists), so an LTSC host can only read Open.
     'WN11-CC-000252' = @{ Type = 'Any'; Checks = @(
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\GameDVR'; Name = 'AllowGameDVR'; Operator = 'eq'; Expected = 0 }
         @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\ApplicationManagement'; Name = 'AllowGameDVR'; Operator = 'eq'; Expected = 0 }
@@ -456,11 +461,6 @@
         Type = 'Manual'
         Question = 'Are all members of the Hyper-V Administrators group authorized to create or run virtual machines, and documented with the ISSM/ISSO?'
         Evidence = @{ Type = 'LocalAccount'; Scope = 'Group'; Name = 'Hyper-V Administrators'; Property = 'Members' } }
-    # V2R11 drops the separate built-in Administrator line but still permits
-    # "Local administrator account(s)", which the built-in one is.
-    'WN11-00-000085' = @{ Applicability = @{ DomainJoined = $true }
-        Type = 'LocalAccount'; Scope = 'User'; Property = 'EnabledNames'
-        Operator = 'subsetof'; Expected = @('Administrator','Guest','DefaultAccount','defaultuser0','WDAGUtilityAccount') }
     'WN11-00-000090' = @{ Type = 'LocalAccount'; Scope = 'User'; Property = 'NonExpiringNames'
         Operator = 'setequals'; Expected = @() }
     # Non-privileged groups must hold no more than read and execute.
@@ -499,12 +499,6 @@
         Type = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters'
         Name = 'Type'; Operator = 'eq'; Expected = 'NT5DS' }
 
-    # --- WN11-SO-000280: local administrator password age ---
-    # NA when no local administrator account is enabled. LAPS policy state is
-    # checked alongside the password age the STIG names.
-    'WN11-SO-000280' = @{ Applicability = @{ LocalAdminEnabled = $true }
-        Type = 'All'; Checks = @(
-        @{ Type = 'LocalAccount'; Scope = 'User'; Name = 'Administrator'; Property = 'PasswordAgeDays'; Operator = 'le'; Expected = 180 }
-        @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\LAPS\Config'; Name = 'PasswordAgeDays'; Operator = 'le'; Expected = 180 }
-    )}
+    # WN11-00-000085 and WN11-SO-000280 are Manual with scripted evidence, so
+    # they live in checks.overrides.ps1.
 }

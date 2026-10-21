@@ -833,12 +833,13 @@ Each entry is a hashtable. Keys vary by `Type`; all types compare via an
 
 `All` passes when every child passes; `Any` when at least one does. They cover
 GPO-or-Intune alternate paths, policies written to several hives, and numeric
-ranges that exclude a sentinel value:
+ranges that exclude sentinel values:
 
 ```powershell
-# "180 days or less, and 0 (never expires) is also a finding"
+# "180 days or less, and 0 (never expires) is also a finding" - secedit
+# exports "never expires" as -1, so the lower bound is 1, not ne 0
 'WN11-AC-000025' = @{ Type='All'; Checks=@(
-    @{ Type='SecEdit'; Name='MaximumPasswordAge'; Operator='ne'; Expected=0 }
+    @{ Type='SecEdit'; Name='MaximumPasswordAge'; Operator='ge'; Expected=1 }
     @{ Type='SecEdit'; Name='MaximumPasswordAge'; Operator='le'; Expected=180 }
 )}
 ```
@@ -913,10 +914,10 @@ The scriptblock uses the same read-only helpers and returns a status string.
 
 ### Current Windows 11 coverage
 
-**All 257 rules of the DISA Win11 STIG V2R11 have a deliberate entry: 244
-automated and 13 explicitly `Manual`.**
+**All 257 rules of the DISA Win11 STIG V2R11 have a deliberate entry: 242
+automated and 15 explicitly `Manual`.**
 
-The 13 manual rules are the ones whose finding condition cannot be read from the
+The 15 manual rules are the ones whose finding condition cannot be read from the
 machine — whether the members of the local Administrators group are
 authorized, an all-drive `.p12` search, Microsoft's published end-of-support
 date for the OS version, the permissions on the PowerShell transcript
@@ -1133,7 +1134,7 @@ today**. Do not assume they work:
 | **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering (`Invoke-WoscapIntegration`) shipped (#23). |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Partially shipped** (#22). `Invoke-WoscapRemediation` applies **Registry + AuditPolicy** fixes on the **local** host, `-WhatIf`/`-Confirm`-gated (`ConfirmImpact='High'`), with auto re-check; other check types report `Manual`. Ansible remediation-as-code (playbook emitter) shipped in #18. Remote fleet remediation, Service/UserRight/SecEdit application, and rollback remain Phase 4. |
 | **`Get-WoscapBenchmark`** (list cached downloaded STIG content) | **Shipped** (#53). Lists the operator-local download cache (`Save-WoscapStigContent` output) by benchmark + revision; supports `-Benchmark` / `-Destination` filters. |
-| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (244 automated, 13 manual, #70, #26), and application packs for **Edge** and **Chrome** (#21) ship; Windows Server MS/DC packs remain. |
+| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), and application packs for **Edge** and **Chrome** (#21) ship; Windows Server MS/DC packs remain. |
 
 Per the roadmap, **Phase 2 is complete**: all five reporters, the
 exception/profile system, remote fleet execution over WinRM

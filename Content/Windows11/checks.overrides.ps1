@@ -6,6 +6,8 @@
 # in tests/Checks/FailClosed.Tests.ps1 holds here by convention rather than by
 # construction, because the engine cannot see inside a scriptblock - so every
 # catch below returns Error and every "cannot determine" returns NotReviewed.
+# Manual entries whose evidence needs a script also live here; evidence is
+# reported, never judged.
 @{
     # WN11-00-000170 (CAT II) - SMBv1 client (mrxsmb10) must be disabled (Start = 4).
     'WN11-00-000170' = @{
@@ -220,6 +222,65 @@
             $valid  = @(Get-CertificateSetting -Store 'disallowed' -Match $match -RequireUnexpired)
             if ((Test-WoscapUnreadable -Value $listed) -or (Test-WoscapUnreadable -Value $valid)) { return 'Error' }
             if ($valid.Count -eq 0 -or $valid.Count -ne $listed.Count) { 'Fail' } else { 'Pass' }
+        }
+    }
+
+    # WN11-00-000085 (CAT II) - standard local accounts on a domain member. V2R11
+    # counts disabled accounts too and allows "local administrator account(s)",
+    # which only a reviewer can identify; every local account is the evidence.
+    'WN11-00-000085' = @{
+        Applicability = @{ DomainJoined = $true }
+        Type     = 'Manual'
+        Question = 'Do any local user accounts exist, enabled or disabled, other than the built-in Guest (RID 501), DefaultAccount (RID 503), defaultuser0, WDAGUtilityAccount (RID 504) and the local administrator account(s)? Any other local user account is a finding.'
+        Evidence = @{
+            Type   = 'ScriptBlock'
+            Script = {
+                try {
+                    $users = @(Get-LocalUser -ErrorAction Stop | ForEach-Object {
+                        $rid = ([string]$_.SID.Value -split '-')[-1]
+                        $state = if ($_.Enabled) { 'enabled' } else { 'disabled' }
+                        '{0} (RID {1}, {2})' -f $_.Name, $rid, $state
+                    })
+                    if ($users.Count -eq 0) { 'no local user accounts' } else { $users -join '; ' }
+                } catch { "local accounts unreadable: $($_.Exception.Message)" }
+            }
+        }
+    }
+
+    # WN11-SO-000280 (CAT II) - local administrator password age and LAPS. The
+    # admin account need not be named Administrator and LAPS state lives in
+    # policy, CSP or Config keys plus an event log, so a reviewer decides.
+    'WN11-SO-000280' = @{
+        Applicability = @{ LocalAdminEnabled = $true }
+        Type     = 'Manual'
+        Question = 'For every enabled local administrator account, is PasswordLastSet within the last 180 days? Is Windows LAPS in effect with Password Complexity 4 (large + small letters + numbers + special), Password Length 14 or more and Password Age 180 days or less, and does the LAPS Operational log (Applications and Services Logs > Microsoft > Windows > LAPS > Operational) show policy processing completing? An enabled built-in account not managed by LAPS, or an alternative process, must be documented with the ISSM/ISSO.'
+        Evidence = @{
+            Type   = 'ScriptBlock'
+            Script = {
+                $lines = New-Object System.Collections.Generic.List[string]
+                try {
+                    $adminSids = @(Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop | ForEach-Object { [string]$_.SID.Value })
+                    $admins = @(Get-LocalUser -ErrorAction Stop | Where-Object { $_.Enabled -and $adminSids -contains [string]$_.SID.Value })
+                    if ($admins.Count -eq 0) { $lines.Add('enabled local administrators: none') }
+                    foreach ($a in $admins) {
+                        $rid = ([string]$a.SID.Value -split '-')[-1]
+                        $age = if ($null -eq $a.PasswordLastSet) { 'never set' } else { '{0} days old' -f [int]((Get-Date) - $a.PasswordLastSet).TotalDays }
+                        $lines.Add(('{0} (RID {1}, password {2})' -f $a.Name, $rid, $age))
+                    }
+                } catch { $lines.Add("local administrators unreadable: $($_.Exception.Message)") }
+                foreach ($path in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS',
+                                    'HKLM:\SOFTWARE\Microsoft\Policies\LAPS',
+                                    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\LAPS\Config')) {
+                    $vals = foreach ($n in @('PasswordComplexity','PasswordLength','PasswordAgeDays')) {
+                        $v = Get-RegValue -Path $path -Name $n
+                        if (Test-WoscapUnreadable -Value $v) { "$n=unreadable" }
+                        elseif ($null -ne $v) { "$n=$v" }
+                    }
+                    $vals = @($vals | Where-Object { $_ })
+                    if ($vals.Count -eq 0) { $lines.Add("${path}: not set") } else { $lines.Add("${path}: $($vals -join ', ')") }
+                }
+                $lines -join '; '
+            }
         }
     }
 

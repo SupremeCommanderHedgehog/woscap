@@ -97,7 +97,6 @@ Describe 'Windows11 content pack' {
         InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
             $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
             @($p['WN11-AC-000025'].Checks | Where-Object { $_.Operator -eq 'le' })[0].Expected | Should -Be 180
-            @($p['WN11-SO-000280'].Checks | ForEach-Object { $_.Expected }) | Should -Be @(180, 180)
             $p['WN11-CC-000365'].ContainsKey('Applicability') | Should -BeFalse
             $p['WN11-CC-000366'].Name     | Should -Be 'LetAppsActivateWithVoice'
             $p['WN11-CC-000366'].Expected | Should -Be 2
@@ -109,6 +108,102 @@ Describe 'Windows11 content pack' {
                 Should -Contain 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\ApplicationManagement'
             $p.ContainsKey('WN11-SO-000080') | Should -BeFalse
             foreach ($id in 'WN11-CC-000390','WN11-UC-000015','WN11-UC-000020') { $p[$id].Type | Should -Be 'Manual' }
+        }
+    }
+    It 'WN11-AC-000025 passes only for 1..180 days: <Case>' -ForEach @(
+        @{ Case = 'never expires (-1)'; Value = -1;   Expected = 'Fail' }
+        @{ Case = 'zero';               Value = 0;    Expected = 'Fail' }
+        @{ Case = 'one';                Value = 1;    Expected = 'Pass' }
+        @{ Case = '180';                Value = 180;  Expected = 'Pass' }
+        @{ Case = '181';                Value = 181;  Expected = 'Fail' }
+        @{ Case = 'absent';             Value = $null; Expected = 'Fail' }
+    ) {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath; Value = $Value; Expected = $Expected } {
+            $script:age = $Value
+            Mock Get-SecEditSetting { $script:age }
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            (Test-Descriptor -Descriptor $p['WN11-AC-000025']).Result | Should -Be $Expected
+        }
+    }
+    It 'WN11-AC-000025 is Error, not Pass, when secedit cannot be read' {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
+            Mock Get-SecEditSetting { New-WoscapUnreadable -Reason 'denied' }
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            (Test-Descriptor -Descriptor $p['WN11-AC-000025']).Result | Should -Be 'Error'
+        }
+    }
+    It 'WN11-CC-000206 lets the policy value decide when it exists: <Case>' -ForEach @(
+        @{ Case = 'policy 3, standalone 0';   Policy = 3;     Config = 0;     Expected = 'Fail' }
+        @{ Case = 'policy 1';                 Policy = 1;     Config = $null; Expected = 'Pass' }
+        @{ Case = 'policy 100, standalone 3'; Policy = 100;   Config = 3;     Expected = 'Pass' }
+        @{ Case = 'policy absent, standalone 0'; Policy = $null; Config = 0;  Expected = 'Pass' }
+        @{ Case = 'policy absent, standalone 3'; Policy = $null; Config = 3;  Expected = 'Fail' }
+        @{ Case = 'both absent';              Policy = $null; Config = $null; Expected = 'Fail' }
+    ) {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath; Policy = $Policy; Config = $Config; Expected = $Expected } {
+            $script:policy = $Policy; $script:config = $Config
+            Mock Get-RegValue { $null }
+            Mock Get-RegValue { $script:policy } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization' -and $Name -eq 'DODownloadMode' }
+            Mock Get-RegValue { $script:config } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config' -and $Name -eq 'DODownloadMode' }
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            (Test-Descriptor -Descriptor $p['WN11-CC-000206']).Result | Should -Be $Expected
+        }
+    }
+    It 'WN11-00-000210 is NA on a system without Bluetooth' {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
+            Mock Get-WoscapMachineFact { $false } -ParameterFilter { $Fact -eq 'BluetoothPresent' }
+            Mock Get-RegValue { 1 }
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            (Test-Descriptor -Descriptor $p['WN11-00-000210']).Result | Should -Be 'NA'
+        }
+    }
+    It 'WN11-SO-000280 is a gated Manual question with admin and LAPS evidence' {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            $d = $p['WN11-SO-000280']
+            $d.Type | Should -Be 'Manual'
+            $d.Applicability.LocalAdminEnabled | Should -BeTrue
+            $d.Question | Should -Match '180'
+            $d.Question | Should -Match 'LAPS'
+            $d.Question | Should -Match 'Operational'
+
+            Mock Test-WoscapApplicability { [pscustomobject]@{ Applies = $true; Unreadable = $false; Reason = '' } }
+            Mock Get-LocalUser { @(
+                [pscustomobject]@{ Name = 'renamedadmin'; Enabled = $true;  SID = [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-500' };  PasswordLastSet = (Get-Date).AddDays(-200) }
+                [pscustomobject]@{ Name = 'opsadmin';     Enabled = $true;  SID = [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-1001' }; PasswordLastSet = (Get-Date).AddDays(-10) }
+                [pscustomobject]@{ Name = 'user1';        Enabled = $true;  SID = [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-1002' }; PasswordLastSet = (Get-Date).AddDays(-10) }
+            ) }
+            Mock Get-LocalGroupMember { @(
+                [pscustomobject]@{ Name = 'HOST\renamedadmin'; SID = [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-500' } }
+                [pscustomobject]@{ Name = 'HOST\opsadmin';     SID = [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-1001' } }
+            ) }
+            Mock Get-RegValue { $null }
+            Mock Get-RegValue { 30 } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS' -and $Name -eq 'PasswordAgeDays' }
+            $r = Test-Descriptor -Descriptor $d
+            $r.Result | Should -Be 'NotReviewed'
+            $r.Observed | Should -Match 'renamedadmin'
+            $r.Observed | Should -Match 'opsadmin'
+            $r.Observed | Should -Not -Match 'user1'
+            $r.Observed | Should -Match 'PasswordAgeDays=30'
+        }
+    }
+    It 'WN11-00-000085 is a domain-gated Manual question listing every local account' {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            $d = $p['WN11-00-000085']
+            $d.Type | Should -Be 'Manual'
+            $d.Applicability.DomainJoined | Should -BeTrue
+            $d.Question | Should -Match 'disabled'
+
+            Mock Test-WoscapApplicability { [pscustomobject]@{ Applies = $true; Unreadable = $false; Reason = '' } }
+            Mock Get-LocalUser { @(
+                [pscustomobject]@{ Name = 'Guest'; Enabled = $false; SID = [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-501' } }
+                [pscustomobject]@{ Name = 'bob';   Enabled = $false; SID = [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-1003' } }
+            ) }
+            $r = Test-Descriptor -Descriptor $d
+            $r.Result | Should -Be 'NotReviewed'
+            $r.Observed | Should -Match 'Guest \(RID 501, disabled\)'
+            $r.Observed | Should -Match 'bob \(RID 1003, disabled\)'
         }
     }
     It 'provides broad coverage (>120 declarative descriptors)' {
