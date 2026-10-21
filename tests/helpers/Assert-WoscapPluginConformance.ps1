@@ -11,6 +11,10 @@ function Assert-WoscapPluginConformance {
     [string]$manifest.Name | Should -Not -BeNullOrEmpty
     @($manifest.Capabilities).Count | Should -BeGreaterThan 0
 
+    if ($manifest.ContainsKey('ConfigOptions')) {
+        @(Test-WoscapPluginConfigSchema -Manifest $manifest) | Should -BeNullOrEmpty -Because 'ConfigOptions must be a valid schema'
+    }
+
     $loaded = Import-WoscapPlugin -Path $Path
     $loaded | Should -Not -BeNullOrEmpty -Because "a conformant plugin must load without warning"
     foreach ($cap in @($manifest.Capabilities)) {
