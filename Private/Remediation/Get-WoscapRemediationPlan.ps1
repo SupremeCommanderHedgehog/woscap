@@ -69,6 +69,19 @@ function Get-WoscapRemediationPlan {
                     break
                 }
                 $op = [string]$desc['Operator']
+                # The check fails any kind outside the required ones (#29), so a
+                # kind this planner cannot write is never automated.
+                if ($op) {
+                    $required = Get-WoscapRequiredRegKind -Descriptor $desc
+                    if ($required.Error) {
+                        $actions.Add((& $newManual $stig $title 'Registry' "Registry descriptor's value kind is invalid: $($required.Error)."))
+                        break
+                    }
+                    if ($required.Kinds -ne '*' -and @(@($required.Kinds) | Where-Object { $_ -in @('DWord', 'String') }).Count -eq 0) {
+                        $actions.Add((& $newManual $stig $title 'Registry' "Registry operator '$op' requires a $(@($required.Kinds) -join ' or ') value, which remediation cannot write (it writes only REG_DWORD and REG_SZ)."))
+                        break
+                    }
+                }
                 if ($op -notin @('eq', 'ge', 'le')) {
                     $reason = if ($op) { "Registry operator '$op' has no single safe value to write." }
                               else { 'Registry descriptor declares no Operator, so no write can be shown to satisfy it.' }
@@ -96,6 +109,11 @@ function Get-WoscapRemediationPlan {
                     $typeName = if ($null -eq $exp) { 'null' } else { $exp.GetType().Name }
                     $kindNote = if ($declared) { " as declared Kind '$declared'" } else { '' }
                     $actions.Add((& $newManual $stig $title 'Registry' "Registry operator '$op' with Expected '$exp' ($typeName) has no value that is safe to write$kindNote."))
+                    break
+                }
+                $writtenKind = if ($kind -eq 'dword') { 'DWord' } else { 'String' }
+                if (@($required.Kinds) -notcontains $writtenKind) {
+                    $actions.Add((& $newManual $stig $title 'Registry' "Registry operator '$op' requires a $(@($required.Kinds) -join ' or ') value, but the only safe write is $writtenKind."))
                     break
                 }
                 $actions.Add([pscustomobject]@{

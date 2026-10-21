@@ -314,3 +314,42 @@ Describe 'Get-WoscapRemediationPlan' {
         }
     }
 }
+
+# #29: a fix may only write a kind the check accepts, so a kind the planner
+# cannot write (or an unresolvable one) is Manual, with the kind named.
+Describe 'Get-WoscapRemediationPlan registry kind (#29)' {
+    It 'makes <Case> Manual and names the kind' -ForEach @(
+        @{ Case = 'declared qword';        D = @{ Operator = 'eq'; Expected = [long]5;       Kind = 'qword' };        Match = 'QWord' }
+        @{ Case = 'declared expandstring'; D = @{ Operator = 'eq'; Expected = '%SystemRoot%'; Kind = 'expandstring' }; Match = 'ExpandString' }
+        @{ Case = 'declared multistring';  D = @{ Operator = 'setequals'; Expected = @('a'); Kind = 'multistring' };  Match = 'MultiString' }
+        @{ Case = 'inferred multistring';  D = @{ Operator = 'sequence'; Expected = @('a', 'b') };                    Match = 'MultiString' }
+        @{ Case = 'a resolver error';      D = @{ Operator = 'ge'; Expected = '5' };                                  Match = 'value kind is invalid' }
+        @{ Case = 'an unknown Kind';       D = @{ Operator = 'eq'; Expected = 1; Kind = 'binary' };                   Match = 'value kind is invalid' }
+    ) {
+        InModuleScope woscap -Parameters @{ D = $D; Match = $Match } {
+            param($D, $Match)
+            $rules = @([pscustomobject]@{ StigId = 'R-1'; Title = 'r'; Status = 'Open' })
+            $desc  = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N' } + $D
+            $action = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack @{ 'R-1' = $desc })[0]
+            $action.Type         | Should -Be 'Manual'
+            $action.Automatable  | Should -BeFalse
+            $action.ManualReason | Should -MatchExactly $Match
+        }
+    }
+    It 'every automated Registry write is a kind the check accepts' {
+        InModuleScope woscap {
+            $written = @{ dword = 'DWord'; string = 'String' }
+            foreach ($d in @(
+                @{ Operator = 'eq'; Expected = 1 }
+                @{ Operator = 'le'; Expected = 10; Kind = 'string' }
+                @{ Operator = 'eq'; Expected = 'abc' }
+                @{ Operator = 'ge'; Expected = 3; Kind = 'dword' }
+            )) {
+                $desc = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N' } + $d
+                $action = @(Get-WoscapRemediationPlan -FailedRule @([pscustomobject]@{ StigId = 'R-1'; Title = 'r'; Status = 'Open' }) -ContentPack @{ 'R-1' = $desc })[0]
+                $action.Automatable | Should -BeTrue
+                @((Get-WoscapRequiredRegKind -Descriptor $desc).Kinds) | Should -Contain $written[$action.Registry.Kind]
+            }
+        }
+    }
+}
