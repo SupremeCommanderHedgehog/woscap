@@ -1046,6 +1046,70 @@ them have an automatic registry fix in `Invoke-WoscapRemediation`. Hand-authored
 Scan with `Invoke-WoscapScan -XccdfPath <antivirus-xccdf> -Benchmark DefenderAntivirus`;
 fetch the content via `Save-WoscapStigContent -Benchmark DefenderAntivirus -AllowScrape`.
 
+### Mozilla Firefox pack
+
+**`Content/Firefox/checks.psd1`** — Mozilla Firefox STIG V6R9 (benchmark date 30 Sep
+2026): **30 of 33 rules authored, 24 automated, 6 manual**; 18 of them have an automatic
+registry fix in `Invoke-WoscapRemediation`. Hand-authored, not generated. DISA's checks read
+`about:policies`, so the policy name and required value come from the check-content and only
+the registry location and type come from Mozilla's
+[policy templates](https://github.com/mozilla/policy-templates) (`windows/firefox.admx`).
+
+- **Where the values live.** Every check reads `HKLM\SOFTWARE\Policies\Mozilla\Firefox`.
+  Simple policies are values on that key (`DisableTelemetry`, `SSLVersionMin`, ...). Object
+  policies are subkeys: `PopupBlocking`, `InstallAddonsPermission`, `Permissions\Autoplay`,
+  `EnableTrackingProtection`, `DisabledCiphers`, `UserMessaging`, `FirefoxHome`,
+  `DNSOverHTTPS`, `EncryptedMediaExtensions`, `SanitizeOnShutdown`. Booleans are `REG_DWORD`
+  0/1. Object rules with several required values (`000009`, `000017`, `000029`, `000037`)
+  are `All` composites.
+- **Value required; absence is a finding.** Every rule says "if ... is not displayed under
+  Policy Name ..., this is a finding". No rule passes when the value is missing.
+- **GPO vs `policies.json` vs HKCU.** Firefox reads `HKCU` policies, then `HKLM` policies, and
+  an `HKLM` policy replaces the `HKCU` one completely. When both GPO and
+  `<install dir>\distribution\policies.json` exist, a policy name set by GPO wins. The
+  `policies.json` copy is used only for names GPO does not set (`CombinedProvider` in
+  Firefox's `EnterprisePoliciesParent.sys.mjs`). So a present `HKLM` value is the value Firefox
+  enforces, and `policies.json` cannot override it. A policy set only in `policies.json` or
+  only in `HKCU` reads as absent and is reported `Open`, so verify those hosts in
+  `about:policies`.
+- **String enums are case-sensitive.** `SSLVersionMin` (`000002`, `tls1.2` or `tls1.3`) and
+  Autoplay `Default` (`000021`, `block-audio-video`) use a case-sensitive `regex`, because
+  Firefox rejects `TLS1.2`. Remediation reports both as `Manual`.
+- **`FirefoxHome` (`000029`)** checks DISA's value names `Pocket`, `SponsoredPocket` and
+  `Snippets`. Current ADMX templates write these names only through the legacy policy
+  "Customize Firefox Home (Moved to category)". The newer per-section policies write
+  `Stories` and `SponsoredStories` instead. Firefox applies those after `Pocket` and
+  `SponsoredPocket`, and they set the same prefs, so the later value wins. The rule therefore
+  also requires `FirefoxHome\Stories` and `FirefoxHome\SponsoredStories` to be absent or 0. A
+  host configured only with the newer policies reads absent for DISA's names and is reported
+  `Open`, which matches DISA's text.
+- **`Preferences` rules are `Manual`** (`000003`, `000004`, `000010`, `000011`, `000025`,
+  `000026`). `Preferences` can be a JSON value on the `Firefox` key (`REG_SZ`/`REG_MULTI_SZ`).
+  It can also be a `Firefox\Preferences` subkey. The legacy ADMX form puts a value named after
+  each pref in that subkey; the pref is set and locked, with no `Status`. When the subkey
+  exists, Firefox builds the policy from it and ignores the JSON value. woscap does not parse
+  JSON. The evidence lists, in order: whether the subkey exists, the JSON value, and the
+  pref-named value in the subkey. The reviewer confirms the pref value and `locked` status in
+  `about:policies`. For `000025`, Firefox applies `EnableTrackingProtection\Category` after
+  `Preferences`, so the evidence also shows `Category`. It must be absent or `strict`;
+  `standard` overrides the locked pref and is a finding.
+- **Not authored (`Not_Reviewed`).** `000001` (supported version), `000006` (MIME-type
+  download actions in `about:preferences`; no policy exists for this) and `000016` (DoD root
+  certificates; AO-approved alternatives and SIPRNet certificates are acceptable).
+- **No install gate.** As with the Edge and Chrome packs, there is no "Firefox installed"
+  check. Scanning a host without Firefox reports the policy rules `Open`.
+- **Known limitations.** Registry comparisons ignore the value type (#29). A `REG_SZ "1"`
+  satisfies a boolean check, but Firefox rejects it and drops the whole policy. woscap matches
+  registry value and subkey names without regard to case, but Firefox matches them exactly. A
+  hand-edited `locked` where Firefox expects `Locked` can therefore `Pass` while Firefox
+  ignores it (tracked on #29). woscap also reads only the named values, so it does not detect a
+  malformed sibling value that makes Firefox reject the whole object policy. Group Policy
+  always writes correctly typed, correctly cased values, so all of these need hand-edited
+  registry data.
+
+Scan with `Invoke-WoscapScan -XccdfPath <firefox-xccdf> -Benchmark Firefox`; fetch the content
+via `Save-WoscapStigContent -Benchmark Firefox -AllowScrape`.
+
 ---
 
 ## 10. Architecture & internals
@@ -1214,7 +1278,7 @@ today**. Do not assume they work:
 | **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering (`Invoke-WoscapIntegration`) shipped (#23). |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Partially shipped** (#22). `Invoke-WoscapRemediation` applies **Registry + AuditPolicy** fixes on the **local** host, `-WhatIf`/`-Confirm`-gated (`ConfirmImpact='High'`), with auto re-check; other check types report `Manual`. Ansible remediation-as-code (playbook emitter) shipped in #18. Remote fleet remediation, Service/UserRight/SecEdit application, and rollback remain Phase 4. |
 | **`Get-WoscapBenchmark`** (list cached downloaded STIG content) | **Shipped** (#53). Lists the operator-local download cache (`Save-WoscapStigContent` output) by benchmark + revision; supports `-Benchmark` / `-Destination` filters. |
-| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), application packs for **Edge** and **Chrome** (#21) ship, **Windows Defender Firewall** V2R2 ships at 21/21 rules (20 automated, 1 manual, #26), and **Microsoft Defender Antivirus** V2R10 ships at 67/67 rules (66 automated, 1 manual, #26); Windows Server MS/DC packs remain. |
+| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), application packs for **Edge** and **Chrome** (#21) ship, **Windows Defender Firewall** V2R2 ships at 21/21 rules (20 automated, 1 manual, #26), **Microsoft Defender Antivirus** V2R10 ships at 67/67 rules (66 automated, 1 manual, #26), and **Mozilla Firefox** V6R9 ships at 30/33 rules (24 automated, 6 manual, 3 not authored, #26); Windows Server MS/DC packs remain. |
 
 Per the roadmap, **Phase 2 is complete**: all five reporters, the
 exception/profile system, remote fleet execution over WinRM
