@@ -33,6 +33,7 @@ function ConvertTo-WoscapCheckDescriptor {
     # entry such as URLAllowlist\1) and anything carrying stray punctuation from a loose capture.
     if ($name -notmatch '^[A-Za-z][A-Za-z0-9_]*$') { return $null }
 
+    $kind = $null
     if ($type -in @('REG_DWORD', 'REG_QWORD')) {
         # Only a single clean scalar (decimal, hex, or "0x.. (dec)") is representable — a range or
         # alternative like "1 or 2" must stay Not_Reviewed rather than silently taking the first int.
@@ -42,18 +43,24 @@ function ConvertTo-WoscapCheckDescriptor {
                  elseif ($raw -match '0x([0-9a-fA-F]+)') { [Convert]::ToInt64($matches[1], 16) }
                  else                                    { [int64] $raw }
         } catch { return $null }   # value outside Int64 range -> fail closed, don't crash generation
-        $expected = if ($n -ge [int]::MinValue -and $n -le [int]::MaxValue) { [int] $n } else { $n }
+        $expected = if ($type -eq 'REG_QWORD') { [long] $n }
+                    elseif ($n -ge [int]::MinValue -and $n -le [int]::MaxValue) { [int] $n } else { $n }
+        # A wrong stored kind fails the check (#29); an undeclared integer Expected means REG_DWORD.
+        if ($type -eq 'REG_QWORD') { $kind = 'qword' }
     } elseif ($type -in @('REG_SZ', 'REG_EXPAND_SZ')) {
-        $expected = $raw   # scalar string
+        $expected = $raw    # scalar string
+        $kind     = 'string' # accepts REG_SZ and REG_EXPAND_SZ, even when the text is a number
     } else {
         return $null       # REG_MULTI_SZ (string[]), REG_BINARY, etc. — not a scalar 'eq' comparison
     }
 
-    @{
+    $descriptor = @{
         Type     = 'Registry'
         Path     = $path
         Name     = $name
         Operator = 'eq'
         Expected = $expected
     }
+    if ($kind) { $descriptor['Kind'] = $kind }
+    $descriptor
 }

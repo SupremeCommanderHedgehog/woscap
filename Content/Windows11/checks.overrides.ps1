@@ -10,12 +10,13 @@
 # reported, never judged.
 @{
     # WN11-00-000170 (CAT II) - SMBv1 client (mrxsmb10) must be disabled (Start = 4).
+    # Start is a REG_DWORD; a REG_SZ "4" does not disable the driver (#29).
     'WN11-00-000170' = @{
         Type   = 'ScriptBlock'
         Script = {
-            $v = Get-RegValue -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10' -Name 'Start'
-            if (Test-WoscapUnreadable -Value $v) { 'Error' }
-            elseif ($v -eq 4) { 'Pass' } else { 'Fail' }
+            $e = Get-RegValueEntry -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10' -Name 'Start'
+            if (Test-WoscapUnreadable -Value $e) { 'Error' }
+            elseif ($null -ne $e -and $e.Kind -eq 'DWord' -and $e.Value -eq 4) { 'Pass' } else { 'Fail' }
         }
     }
 

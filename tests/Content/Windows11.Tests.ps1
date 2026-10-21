@@ -24,11 +24,31 @@ Describe 'Windows11 content pack' {
             foreach ($key in $p.Keys) { $p[$key].Type | Should -BeIn $valid }
         }
     }
-    It 'the scriptblock override evaluates against a mocked registry read' {
-        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
-            Mock Get-RegValue { 4 }   # the override reads through Get-RegValue
-            $p = Import-ContentPack -Path $PackPath
-            (Test-Descriptor -Descriptor $p['WN11-00-000170']).Result | Should -Be 'Pass'
+    # Only a REG_DWORD 4 disables SMBv1; a wrong-kind "4" must never pass (#29).
+    It 'WN11-00-000170 SMBv1 override: <Case> gives <Want>' -ForEach @(
+        @{ Case = 'DWord 4';        Stored = 'dword4';    Want = 'Pass' }
+        @{ Case = 'DWord 3';        Stored = 'dword3';    Want = 'Fail' }
+        @{ Case = 'String "4"';     Stored = 'string4';   Want = 'Fail' }
+        @{ Case = 'MultiString 4';  Stored = 'multi4';    Want = 'Fail' }
+        @{ Case = 'Binary 4';       Stored = 'binary4';   Want = 'Fail' }
+        @{ Case = 'absent';         Stored = 'absent';    Want = 'Fail' }
+        @{ Case = 'unreadable';     Stored = 'unreadable'; Want = 'Error' }
+    ) {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath; Stored = $Stored; Want = $Want } {
+            param($PackPath, $Stored, $Want)
+            $script:smbEntry = switch ($Stored) {
+                'dword4'     { New-WoscapTestRegEntry 4 }
+                'dword3'     { New-WoscapTestRegEntry 3 }
+                'string4'    { New-WoscapTestRegEntry '4' }
+                'multi4'     { New-WoscapTestRegEntry @('4') }
+                'binary4'    { New-WoscapTestRegEntry ([byte[]]@(4, 0, 0, 0)) }
+                'absent'     { $null }
+                'unreadable' { New-WoscapUnreadable -Reason 'access denied' }
+            }
+            Mock Get-RegValueEntry { $script:smbEntry } -ParameterFilter { $Path -eq 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10' -and $Name -eq 'Start' }
+            Mock Get-RegValue { throw 'the SMBv1 override must read through Get-RegValueEntry' }
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            (Test-Descriptor -Descriptor $p['WN11-00-000170']).Result | Should -Be $Want
         }
     }
     It 'WN11-00-000400 reads hidden Wi-Fi Direct adapters: <Case>' -ForEach @(
