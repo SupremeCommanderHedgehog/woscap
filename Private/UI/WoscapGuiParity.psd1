@@ -52,29 +52,31 @@
         Destination = @{ Control = 'ContentDestination' }
     }
     'Get-WoscapIntegration' = @{
-        Path = @{ CliOnly = 'Pending #18' }
+        Path = @{ Control = 'IntegrationPath' }
     }
+    # Each action's options come from the generated config form; PluginPath is the
+    # selected plugin's folder when a Plugin folder is set.
     'Invoke-WoscapIntegration' = @{
-        Integration = @{ CliOnly = 'Pending #18' }
-        Config      = @{ CliOnly = 'Pending #18' }
-        PluginPath  = @{ CliOnly = 'Pending #18' }
+        Integration = @{ Control = 'IntegrationGrid' }
+        Config      = @{ Control = 'IntegrationRunScan' }
+        PluginPath  = @{ Control = 'IntegrationPath' }
     }
     'Import-WoscapIntegration' = @{
-        Integration   = @{ CliOnly = 'Pending #18' }
-        Targets       = @{ CliOnly = 'Pending #18' }
-        Findings      = @{ CliOnly = 'Pending #18' }
-        Source        = @{ CliOnly = 'Pending #18' }
-        Path          = @{ CliOnly = 'Pending #18' }
-        CorrelateWith = @{ CliOnly = 'Pending #18' }
-        Config        = @{ CliOnly = 'Pending #18' }
-        PluginPath    = @{ CliOnly = 'Pending #18' }
+        Integration   = @{ Control = 'IntegrationGrid' }
+        Targets       = @{ Control = 'IntegrationImportTargets' }
+        Findings      = @{ Control = 'IntegrationImportFindings' }
+        Source        = @{ Control = 'IntegrationImportTargets' }
+        Path          = @{ Control = 'IntegrationImportFindings' }
+        CorrelateWith = @{ Control = 'IntegrationImportFindings' }
+        Config        = @{ Control = 'IntegrationImportFindings' }
+        PluginPath    = @{ Control = 'IntegrationPath' }
     }
     'Export-WoscapIntegration' = @{
-        Integration = @{ CliOnly = 'Pending #18' }
-        Result      = @{ CliOnly = 'Pending #18' }
-        Remediation = @{ CliOnly = 'Pending #18' }
-        Path        = @{ CliOnly = 'Pending #18' }
-        Config      = @{ CliOnly = 'Pending #18' }
-        PluginPath  = @{ CliOnly = 'Pending #18' }
+        Integration = @{ Control = 'IntegrationGrid' }
+        Result      = @{ Control = 'Grid' }
+        Remediation = @{ Control = 'IntegrationExportRemediation' }
+        Path        = @{ Control = 'IntegrationExportRemediation' }
+        Config      = @{ Control = 'IntegrationExportFindings' }
+        PluginPath  = @{ Control = 'IntegrationPath' }
     }
 }
