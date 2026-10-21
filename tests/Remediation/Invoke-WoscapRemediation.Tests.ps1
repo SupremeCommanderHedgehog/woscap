@@ -238,3 +238,111 @@ Describe 'Invoke-WoscapRemediation refuses under WOW64' {
         }
     }
 }
+
+# Spec 5 / 7.4 (#36): a multi-write fix applies every write in order and stops at the first failure.
+Describe 'Invoke-WoscapRemediation multi-write fixes' {
+    BeforeEach {
+        InModuleScope woscap {
+            $script:multiPack = @{ 'C-1' = @{ Type = 'All'; Checks = @(
+                @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'One'; Operator = 'eq'; Expected = 1 }
+                @{ Applicability = @{ AcrobatUnifiedApp = $true }; Type = 'Registry'; Path = 'HKLM:\SOFTWARE\B'; Name = 'Two'; Operator = 'eq'; Expected = 'x' }
+                @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\C'; Name = 'Three'; Operator = 'eq'; Expected = 3 }
+            )} }
+            $script:written = [System.Collections.Generic.List[string]]::new()
+            $script:failOn = ''
+            Mock Import-ContentPack { $script:multiPack }
+            Mock Test-Path { $true }
+            Mock New-Item {}
+            Mock Set-ItemProperty {}
+            Mock Set-WoscapRegValue {
+                if ("$Path\$Name" -eq $script:failOn) { throw 'access denied' }
+                $script:written.Add("$Path\$Name=$Data($Kind)")
+            }
+            Mock Test-Descriptor { [pscustomobject]@{ Result = 'Pass'; Observed = 1; Expected = 1 } }
+        }
+    }
+
+    It 'applies every write in order, then re-checks the whole rule once' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ StigId = 'C-1'; Title = 'Multi'; Status = 'Open' })
+            $out = @(Invoke-WoscapRemediation -Result $rules -ContentPath 'TestDrive:\pack' -Force -Quiet)
+            @($script:written) | Should -Be @('HKLM:\SOFTWARE\A\One=1(dword)', 'HKLM:\SOFTWARE\B\Two=x(string)', 'HKLM:\SOFTWARE\C\Three=3(dword)')
+            $out.Count | Should -Be 1
+            $out[0].State | Should -Be 'Applied'
+            $out[0].After | Should -Be 'NotAFinding'
+            $out[0].CheckType | Should -Be 'All'
+            Should -Invoke Test-Descriptor -Exactly 1 -ParameterFilter { $Descriptor.Type -eq 'All' }
+        }
+    }
+
+    It 'stops at the first failed write and names what succeeded, failed and was not attempted' {
+        InModuleScope woscap {
+            $script:failOn = 'HKLM:\SOFTWARE\B\Two'
+            $rules = @([pscustomobject]@{ StigId = 'C-1'; Title = 'Multi'; Status = 'Open' })
+            $out = @(Invoke-WoscapRemediation -Result $rules -ContentPath 'TestDrive:\pack' -Force -Quiet)
+            @($script:written) | Should -Be @('HKLM:\SOFTWARE\A\One=1(dword)')
+            Should -Invoke Set-WoscapRegValue -Exactly 0 -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\C' }
+            $out[0].State | Should -Be 'Failed'
+            $out[0].Detail | Should -Match ([regex]::Escape('Succeeded: HKLM:\SOFTWARE\A\One'))
+            $out[0].Detail | Should -Match ([regex]::Escape('Failed: HKLM:\SOFTWARE\B\Two'))
+            $out[0].Detail | Should -Match 'access denied'
+            $out[0].Detail | Should -Match ([regex]::Escape('Not attempted: HKLM:\SOFTWARE\C\Three'))
+        }
+    }
+
+    It 'with -WhatIf writes nothing and its one ShouldProcess action lists every write' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ StigId = 'C-1'; Title = 'Multi'; Status = 'Open' })
+            $out = @(Invoke-WoscapRemediation -Result $rules -ContentPath 'TestDrive:\pack' -WhatIf -Quiet)
+            Should -Invoke Set-WoscapRegValue -Exactly 0
+            Should -Invoke Set-ItemProperty -Exactly 0
+            $out.Count | Should -Be 1
+            $out[0].State | Should -Be 'Planned'
+            $out[0].Action | Should -BeExactly 'Set HKLM:\SOFTWARE\A\One = 1 (dword); Set HKLM:\SOFTWARE\B\Two = x (string); Set HKLM:\SOFTWARE\C\Three = 3 (dword)'
+        }
+    }
+
+    It 'keeps the single-write action text unchanged' {
+        InModuleScope woscap {
+            $script:multiPack = @{ 'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Operator = 'eq'; Expected = 1 } }
+            $rules = @([pscustomobject]@{ StigId = 'R-1'; Title = 'Reg'; Status = 'Open' })
+            $out = @(Invoke-WoscapRemediation -Result $rules -ContentPath 'TestDrive:\pack' -WhatIf -Quiet)
+            $out[0].Action | Should -BeExactly 'Set HKLM:\S\N = 1 (dword)'
+        }
+    }
+}
+
+# A write keeps an existing value's stored name case, so an exact-case rule must re-check as Open.
+Describe 'Invoke-WoscapRemediation with NameCase Exact over a differently cased value' {
+    It 'reports After Open, never NotAFinding, when Locked already exists as locked' {
+        InModuleScope woscap {
+            $key = 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox\EncryptedMediaExtensions'
+            $script:emePack = @{ 'FFOX-00-000037' = @{ Type = 'All'; Checks = @(
+                @{ Type = 'Registry'; NameCase = 'Exact'; Path = $key; Name = 'Enabled'; Operator = 'eq'; Expected = 0 }
+                @{ Type = 'Registry'; NameCase = 'Exact'; Path = $key; Name = 'Locked'; Operator = 'eq'; Expected = 1 }
+            )} }
+            Mock Import-ContentPack { $script:emePack }
+            # In-memory key: stored name -> value. Like the registry, a write to an existing
+            # name in any case updates the value and keeps the stored name.
+            $script:store = [ordered]@{ 'locked' = 0 }
+            Mock Test-Path { $true }
+            Mock New-Item {}
+            Mock Set-ItemProperty {
+                $hit = @($script:store.Keys | Where-Object { $_ -eq $Name })
+                if ($hit.Count -gt 0) { $script:store[$hit[0]] = $Value } else { $script:store[$Name] = $Value }
+            }
+            Mock Get-RegValueEntry {
+                $hit = @($script:store.Keys | Where-Object { if ($ExactNameCase) { $_ -ceq $Name } else { $_ -eq $Name } })
+                if ($hit.Count -eq 0) { return $null }
+                [pscustomobject]@{ Value = [int]$script:store[$hit[0]]; Kind = 'DWord' }
+            }
+            $rules = @([pscustomobject]@{ StigId = 'FFOX-00-000037'; Title = 'EME'; Status = 'Open' })
+            $out = @(Invoke-WoscapRemediation -Result $rules -ContentPath 'TestDrive:\pack' -Force -Quiet)
+            Should -Invoke Set-ItemProperty -Exactly 2
+            @($script:store.Keys) | Should -Be @('locked', 'Enabled') -Because 'the stored case survives the write'
+            $script:store['locked'] | Should -Be 1
+            $out[0].State | Should -Be 'Applied'
+            $out[0].After | Should -Be 'Open'
+        }
+    }
+}

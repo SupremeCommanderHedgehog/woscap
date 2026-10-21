@@ -703,3 +703,74 @@ Describe 'Invoke-WoscapGuiRemediate outcomes' -Skip:(-not $script:IsSta) {
         }
     }
 }
+
+# Spec 7.6 (#36): a multi-write fix is one dialog row, and unticking it skips all of its writes.
+Describe 'Invoke-WoscapGuiRemediate with a multi-write fix' -Skip:(-not $script:IsSta) {
+    BeforeEach {
+        InModuleScope woscap {
+            $me = $env:COMPUTERNAME
+            $script:form = New-WoscapMainForm
+            foreach ($id in 'C-1', 'R-1') {
+                $script:form.Tag['Results'].Add([pscustomobject]@{ Host = $me; StigId = $id; Severity = 'high'; Status = 'Open'; Title = $id; Exception = $null })
+            }
+            $script:form.Tag['ResultsContext'] = @{ Benchmark = 'Windows11'; ContentPath = 'TestDrive:\pack' }
+            Update-WoscapGuiView -Tag $script:form.Tag
+            Mock Show-WoscapGuiMessage { }
+            Mock Get-WoscapGuiSelectedResult { @() }
+            Mock Test-WoscapGuiElevated { $true }
+            Mock Show-WoscapGuiRemediationReport { 'Close' }
+            Mock Import-ContentPack { @{
+                'C-1' = @{ Type = 'All'; Checks = @(
+                    @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'One'; Operator = 'eq'; Expected = 1 }
+                    @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\B'; Name = 'Two'; Operator = 'eq'; Expected = 2 }
+                )}
+                'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\S'; Name = 'N'; Operator = 'eq'; Expected = 1 }
+            } }
+            Mock Test-Path { $true }
+            Mock New-Item {}
+            Mock Set-ItemProperty {}
+            Mock Set-WoscapRegValue {}
+            Mock Test-Descriptor { [pscustomobject]@{ Result = 'Pass'; Observed = 1; Expected = 1 } }
+            # Run the real remediation in-process (every write above is mocked) instead of a runspace.
+            Mock Invoke-WoscapGuiScan {
+                $r = @(Invoke-WoscapRemediation @ScanParameters)
+                if ($OnSettled) { & $OnSettled -Results $r -Outcome ([pscustomobject]@{ Kind = 'None'; Message = ''; Count = 0 }) }
+                else { & $OnComplete -Results $r }
+            } -ParameterFilter { $Command -eq 'Invoke-WoscapRemediation' }
+            $script:rows = $null
+        }
+    }
+    AfterEach { InModuleScope woscap { $script:form.Dispose() } }
+
+    It 'shows one row listing both writes, and unticking it writes neither' {
+        InModuleScope woscap {
+            Mock Show-WoscapGuiRemediationDialog {
+                $d = New-WoscapGuiRemediationDialog -Plan $Plan -Summary $Summary -Elevated $Elevated
+                try {
+                    $script:rows = @($d.Tag['Grid'].Rows | ForEach-Object { "$(@($_.Tag.StigIds) -join ',')|$($_.Cells[3].Value)" })
+                    foreach ($row in $d.Tag['Grid'].Rows) { if (@($row.Tag.StigIds) -contains 'C-1') { $row.Cells[0].Value = $false } }
+                    Get-WoscapGuiRemediationSelection -Tag $d.Tag
+                } finally { $d.Dispose() }
+            }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            @($script:rows | Sort-Object) | Should -Be @(
+                'C-1|Set HKLM:\SOFTWARE\A\One = 1 (dword); Set HKLM:\SOFTWARE\B\Two = 2 (dword)'
+                'R-1|Set HKLM:\SOFTWARE\S\N = 1 (dword)')
+            Should -Invoke Set-WoscapRegValue -Exactly 1
+            Should -Invoke Set-WoscapRegValue -Exactly 1 -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\S' }
+        }
+    }
+
+    It 'applies both writes when the row stays ticked' {
+        InModuleScope woscap {
+            Mock Show-WoscapGuiRemediationDialog {
+                $d = New-WoscapGuiRemediationDialog -Plan $Plan -Summary $Summary -Elevated $Elevated
+                try { Get-WoscapGuiRemediationSelection -Tag $d.Tag } finally { $d.Dispose() }
+            }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            Should -Invoke Set-WoscapRegValue -Exactly 3
+            Should -Invoke Set-WoscapRegValue -Exactly 1 -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\A' }
+            Should -Invoke Set-WoscapRegValue -Exactly 1 -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\B' }
+        }
+    }
+}

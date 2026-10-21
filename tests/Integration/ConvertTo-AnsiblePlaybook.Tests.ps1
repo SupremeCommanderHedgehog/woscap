@@ -330,3 +330,36 @@ Describe 'Embedded Ansible audit script (auditpol mocked)' {
         @($present | Sort-Object) | Should -Be @($woscap | Sort-Object)
     }
 }
+
+# Spec 5 / 7.5 (#36): one quoted, idempotent win_regedit task per write of a multi-write fix.
+Describe 'ConvertTo-AnsiblePlaybook multi-write fixes' {
+    It 'emits one quoted win_regedit task per write, in order' {
+        InModuleScope woscap {
+            $failed = @([pscustomobject]@{ StigId = 'C-1'; Title = 'Multi: two'; Status = 'Open' })
+            $pack = @{ 'C-1' = @{ Type = 'All'; Checks = @(
+                @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'One'; Operator = 'eq'; Expected = 1 }
+                @{ Applicability = @{ AcrobatUnifiedApp = $true }; Type = 'Registry'; Path = 'HKLM:\SOFTWARE\B'; Name = 'Two'; Operator = 'eq'; Expected = 'yes' }
+            )} }
+            $yaml = ConvertTo-AnsiblePlaybook -FailedRule $failed -ContentPack $pack
+            $lines = @($yaml -split '\r?\n')
+            @($lines | Where-Object { $_ -match '^\s+win_regedit:$' }).Count | Should -Be 2
+            $start = [array]::IndexOf($lines, '    - name: "C-1 - Multi: two (write 1 of 2)"')
+            $start | Should -BeGreaterOrEqual 0
+            $lines[$start..($start + 11)] | Should -Be @(
+                '    - name: "C-1 - Multi: two (write 1 of 2)"'
+                '      win_regedit:'
+                '        path: "HKLM:\\SOFTWARE\\A"'
+                '        name: "One"'
+                '        data: 1'
+                '        type: "dword"'
+                '    - name: "C-1 - Multi: two (write 2 of 2)"'
+                '      win_regedit:'
+                '        path: "HKLM:\\SOFTWARE\\B"'
+                '        name: "Two"'
+                '        data: "yes"'
+                '        type: "string"'
+            )
+            $yaml | Should -Not -Match 'state: absent|# manual'
+        }
+    }
+}

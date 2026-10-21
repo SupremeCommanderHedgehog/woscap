@@ -19,6 +19,14 @@ function Invoke-WoscapRemediation {
           - When the rule declares Kind = 'dword' or 'string', the value is written
             as that registry type (for example, the number 10 is written as the
             REG_SZ '10'). A Kind the value cannot be written as makes the rule Manual.
+        An All rule whose every check is such a Registry value is fixed by writing
+        each of those values, in order, under one confirmation. Every value is
+        written, including one the rule only checks on some hosts (for example the
+        Adobe Acrobat root, checked only when the unified app is installed). The
+        writes stop at the first failure, and that row's Detail names the writes
+        that succeeded, the one that failed and those not attempted. Any other
+        composite (Any, nested, or with a non-Registry or non-automatable check)
+        is reported as 'Manual'.
         These Registry rules are reported as 'Manual' and never written:
           - A path under HKCU. An elevated fix would write the operator's own hive,
             not the audited user's.
@@ -59,7 +67,8 @@ function Invoke-WoscapRemediation {
         The result objects are returned either way.
     .PARAMETER WhatIf
         Plan only. Every rule that would be auto-applied is returned with
-        State 'Planned', and nothing is written.
+        State 'Planned', and nothing is written. A multi-write fix lists every
+        write in its Action.
     .PARAMETER Confirm
         Prompt before each write. Prompting is already the default because
         ConfirmImpact is High.
@@ -128,7 +137,7 @@ function Invoke-WoscapRemediation {
             }
 
             $summary = if ($action.Type -eq 'Registry') {
-                "Set $($action.Registry.Path)\$($action.Registry.Name) = $($action.Registry.Data) ($($action.Registry.Kind))"
+                @($action.Writes | ForEach-Object { "Set $($_.Path)\$($_.Name) = $($_.Data) ($($_.Kind))" }) -join '; '
             } else {
                 "Enable audit '$($action.Audit.Subcategory)': $($action.Audit.Directions -join ' and ')"
             }
@@ -143,15 +152,29 @@ function Invoke-WoscapRemediation {
 
             try {
                 if ($action.Type -eq 'Registry') {
-                    Set-WoscapRegValue -Path $action.Registry.Path -Name $action.Registry.Name `
-                        -Data $action.Registry.Data -Kind $action.Registry.Kind
+                    # In order, stopping at the first failure; the row names how far it got.
+                    $writes = @($action.Writes)
+                    for ($i = 0; $i -lt $writes.Count; $i++) {
+                        $w = $writes[$i]
+                        try {
+                            Set-WoscapRegValue -Path $w.Path -Name $w.Name -Data $w.Data -Kind $w.Kind
+                        } catch {
+                            if ($writes.Count -eq 1) { throw }
+                            $label = { param($x) "$($x.Path)\$($x.Name)" }
+                            $done = @(if ($i -gt 0) { $writes[0..($i - 1)] | ForEach-Object { & $label $_ } })
+                            $rest = @(if ($i -lt $writes.Count - 1) { $writes[($i + 1)..($writes.Count - 1)] | ForEach-Object { & $label $_ } })
+                            $succeeded = if ($done.Count) { $done -join ', ' } else { 'none' }
+                            $skipped = if ($rest.Count) { $rest -join ', ' } else { 'none' }
+                            throw "Succeeded: $succeeded. Failed: $(& $label $w): $($_.Exception.Message). Not attempted: $skipped."
+                        }
+                    }
                 } else {
                     $dirs = $action.Audit.Directions
                     Invoke-AuditPolSet -Subcategory $action.Audit.Subcategory `
                         -Success ([bool]($dirs -contains 'success')) -Failure ([bool]($dirs -contains 'failure'))
                 }
                 # Re-check the representative descriptor for this action (the subcategory's
-                # first rule for audit; the single rule for registry).
+                # first rule for audit; the whole rule, every write included, for registry).
                 #
                 # The read cache MUST be dropped first. secedit and auditpol
                 # output is memoized for the life of a scan, so a re-check that
