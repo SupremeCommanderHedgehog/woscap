@@ -28,4 +28,12 @@
         Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_Google_Chrome_V2R11_STIG.zip'
         ScrapePattern = 'Google Chrome'
     }
+
+    # Microsoft Windows Defender Firewall with Advanced Security STIG, V2R2 (benchmark date
+    # 2023-11-09). Pack: Content\DefenderFirewall. The Url uses the host/path scheme above with the
+    # local archive's file name; it was NOT verified online.
+    DefenderFirewall = @{
+        Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_Defender_Firewall_V2R2_STIG.zip'
+        ScrapePattern = 'Windows[ _]Defender[ _]Firewall'
+    }
 }

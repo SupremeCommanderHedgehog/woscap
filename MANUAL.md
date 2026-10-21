@@ -966,6 +966,32 @@ manual rules are omitted and surface as `Not_Reviewed` — never guessed. Scan w
 `Invoke-WoscapScan -XccdfPath <edge-or-chrome-xccdf> -Benchmark Edge` (or `Chrome`);
 fetch the content via `Save-WoscapStigContent -Benchmark Edge -AllowScrape`.
 
+### Windows Defender Firewall pack
+
+**`Content/DefenderFirewall/checks.psd1`** — Microsoft Windows Defender Firewall with
+Advanced Security STIG V2R2 (benchmark date 09 Nov 2023): **21 of 21 rules authored, 20
+automated, 1 manual**. Hand-authored from the Manual XCCDF check-content, not generated.
+
+- **Policy value first, local value second.** Most rules check the GPO value under
+  `HKLM\SOFTWARE\Policies\Microsoft\WindowsFirewall\<Domain|Private|Public>Profile` and, only
+  when it does not exist, the local value under
+  `HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\<Domain|Standard|Public>Profile`
+  (the Private profile's local key is `StandardProfile`). A present but non-compliant policy
+  value is a finding even when the local value is compliant.
+- **Profile must be on.** Rules that say "if the profile is not enabled, this is also a
+  finding" also require that profile's effective `EnableFirewall` = 1.
+- **NA off-domain.** Domain-profile rules, `WNFWA-000024`/`000025` (local policy merge,
+  policy value required, no local fallback) and the manual `WNFWA-000100` use the
+  `DomainJoined` fact.
+- **`WNFWA-000100`** (inbound exceptions limited to authorized management hosts) is
+  `Manual`: rule scopes cannot be judged locally. It is NA off-domain; DISA also makes it NA
+  for servers, which woscap has no fact for, so the question asks the reviewer.
+- Every rule is an `Any`/`All` composite, so `Invoke-WoscapRemediation` reports them
+  `Manual` rather than writing the registry.
+
+Scan with `Invoke-WoscapScan -XccdfPath <firewall-xccdf> -Benchmark DefenderFirewall`;
+fetch the content via `Save-WoscapStigContent -Benchmark DefenderFirewall -AllowScrape`.
+
 ---
 
 ## 10. Architecture & internals
@@ -1134,7 +1160,7 @@ today**. Do not assume they work:
 | **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering (`Invoke-WoscapIntegration`) shipped (#23). |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Partially shipped** (#22). `Invoke-WoscapRemediation` applies **Registry + AuditPolicy** fixes on the **local** host, `-WhatIf`/`-Confirm`-gated (`ConfirmImpact='High'`), with auto re-check; other check types report `Manual`. Ansible remediation-as-code (playbook emitter) shipped in #18. Remote fleet remediation, Service/UserRight/SecEdit application, and rollback remain Phase 4. |
 | **`Get-WoscapBenchmark`** (list cached downloaded STIG content) | **Shipped** (#53). Lists the operator-local download cache (`Save-WoscapStigContent` output) by benchmark + revision; supports `-Benchmark` / `-Destination` filters. |
-| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), and application packs for **Edge** and **Chrome** (#21) ship; Windows Server MS/DC packs remain. |
+| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), application packs for **Edge** and **Chrome** (#21) ship, and **Windows Defender Firewall** V2R2 ships at 21/21 rules (20 automated, 1 manual, #26); Windows Server MS/DC packs remain. |
 
 Per the roadmap, **Phase 2 is complete**: all five reporters, the
 exception/profile system, remote fleet execution over WinRM
