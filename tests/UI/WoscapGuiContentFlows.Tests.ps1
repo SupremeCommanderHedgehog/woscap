@@ -291,3 +291,220 @@ Describe 'Invoke-WoscapGuiContentDownload' -Skip:(-not $script:IsSta) {
         }
     }
 }
+
+Describe 'Invoke-WoscapGuiContentUpdate' -Skip:(-not $script:IsSta) {
+    BeforeEach {
+        Set-ContentFlowMocks
+        $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
+        New-ContentFlowForm $script:Cache
+        InModuleScope woscap {
+            $script:preview = @(
+                [pscustomobject]@{ Benchmark = 'Edge'; Status = 'WhatIf'; FromRevision = 'V2R1'; ToRevision = ''; Reason = 'Would refresh from DISA' }
+                [pscustomobject]@{ Benchmark = 'Windows11'; Status = 'WhatIf'; FromRevision = 'V1R6'; ToRevision = ''; Reason = 'Would refresh from DISA' }
+            )
+            $script:applied = @(
+                [pscustomobject]@{ Benchmark = 'Edge'; Status = 'Updated'; FromRevision = 'V2R1'; ToRevision = 'V2R2'; Reason = '' }
+                [pscustomobject]@{ Benchmark = 'Windows11'; Status = 'AlreadyCurrent'; FromRevision = 'V1R6'; ToRevision = 'V1R6'; Reason = '' }
+            )
+            # Records each run; answers the -WhatIf preview and the real run with the rows above.
+            Mock Invoke-WoscapGuiScan {
+                $script:runs.Add(@{ Command = $Command; Params = $ScanParameters.Clone() })
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:preview -Outcome $script:none }
+                else { & $OnSettled -Results $script:applied -Outcome $script:none }
+            }
+            Mock Show-WoscapGuiUpdateDialog { @{ Url = ''; AllowScrape = $false } }
+            Mock Show-WoscapGuiUpdateConfirmDialog { $true }
+        }
+    }
+    AfterEach { InModuleScope woscap { $script:form.Dispose() } }
+
+    It 'does nothing when the Update dialog is cancelled' {
+        InModuleScope woscap {
+            Mock Show-WoscapGuiUpdateDialog { $null }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            Should -Invoke Invoke-WoscapGuiScan -Times 0 -Exactly
+            Assert-TestIdle $script:form.Tag
+        }
+    }
+
+    It 'scopes to every cached benchmark when no row is selected' {
+        InModuleScope woscap {
+            Mock Show-WoscapGuiUpdateDialog { @{ Url = 'https://ignored.invalid/x.zip'; AllowScrape = $false } }
+            Mock Show-WoscapGuiUpdateConfirmDialog { $false }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            Should -Invoke Show-WoscapGuiUpdateDialog -Times 1 -Exactly -ParameterFilter { $Benchmark -eq '' }
+            $script:runs[0].Params.ContainsKey('Benchmark') | Should -BeFalse
+            $script:runs[0].Params.ContainsKey('Url') | Should -BeFalse -Because '-Url is only valid with a single benchmark'
+        }
+    }
+
+    It 'previews with -WhatIf only: never Confirm, never AcceptDisaTerms, terms not yet asked' {
+        InModuleScope woscap -Parameters @{ Cache = $script:Cache } {
+            param($Cache)
+            Update-WoscapGuiContentView -Tag $script:form.Tag
+            $null = Select-TestRow $script:form.Tag 'Edge' 'V2R1'
+            Mock Show-WoscapGuiUpdateDialog { @{ Url = 'https://example.invalid/e.zip'; AllowScrape = $true } }
+            Mock Show-WoscapGuiUpdateConfirmDialog { $false }
+            Mock Resolve-WoscapGuiDisaTerms { @{ Proceed = $true; AcceptSwitch = $true; Remember = $false } }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            Should -Invoke Show-WoscapGuiUpdateDialog -Times 1 -Exactly -ParameterFilter { $Benchmark -eq 'Edge' }
+            $script:runs.Count | Should -Be 1
+            $script:runs[0].Command | Should -Be 'Update-WoscapBenchmark'
+            $p = $script:runs[0].Params
+            @($p.Keys | Sort-Object) | Should -Be @('AllowScrape', 'Benchmark', 'Destination', 'Url', 'WhatIf')
+            $p['WhatIf'] | Should -BeTrue
+            $p['Benchmark'] | Should -Be 'Edge'
+            $p['Destination'] | Should -Be $Cache
+            Should -Invoke Resolve-WoscapGuiDisaTerms -Times 0 -Exactly
+        }
+    }
+
+    It 'confirms exactly the preview rows and never starts the real run when declined' {
+        InModuleScope woscap {
+            Mock Show-WoscapGuiUpdateConfirmDialog { $false }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            Should -Invoke Show-WoscapGuiUpdateConfirmDialog -Times 1 -Exactly -ParameterFilter {
+                (@($Rows | ForEach-Object Benchmark) -join ',') -eq 'Edge,Windows11' }
+            $script:runs.Count | Should -Be 1 -Because 'only the preview may run'
+            Should -Invoke Resolve-WoscapGuiDisaTerms -Times 0 -Exactly
+            Should -Invoke Show-WoscapGuiUpdateReport -Times 0 -Exactly
+            Should -Invoke Write-WoscapDisaTermsMarker -Times 0 -Exactly
+            Assert-TestIdle $script:form.Tag
+        }
+    }
+
+    It 'says Nothing to update and runs nothing more when the preview is empty' {
+        InModuleScope woscap {
+            $script:preview = @()
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            $script:runs.Count | Should -Be 1
+            Should -Invoke Show-WoscapGuiUpdateConfirmDialog -Times 0 -Exactly
+            $script:form.Tag['ContentStatus'].Text | Should -Match 'Nothing to update'
+            Assert-TestIdle $script:form.Tag
+        }
+    }
+
+    It 'never starts the real run when the DISA terms are declined after confirming' {
+        InModuleScope woscap {
+            Mock Resolve-WoscapGuiDisaTerms { @{ Proceed = $false; AcceptSwitch = $false; Remember = $true } }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            $script:runs.Count | Should -Be 1
+            Should -Invoke Write-WoscapDisaTermsMarker -Times 0 -Exactly
+            Assert-TestIdle $script:form.Tag
+        }
+    }
+
+    It 'runs for real with Confirm=$false and AcceptDisaTerms only after confirmation and terms, then reports and refreshes' {
+        InModuleScope woscap -Parameters @{ Cache = $script:Cache } {
+            param($Cache)
+            Set-TestScanResults $script:form.Tag
+            Mock Show-WoscapGuiUpdateDialog { @{ Url = ''; AllowScrape = $true } }
+            Mock Resolve-WoscapGuiDisaTerms { @{ Proceed = $true; AcceptSwitch = $true; Remember = $true } }
+            $script:busyAtReal = $null
+            Mock Invoke-WoscapGuiScan {
+                $script:runs.Add(@{ Command = $Command; Params = $ScanParameters.Clone() })
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:preview -Outcome $script:none }
+                else {
+                    $script:busyAtReal = Get-TestBusyState $script:form.Tag
+                    & $OnSettled -Results $script:applied -Outcome $script:none
+                }
+            }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            $script:runs.Count | Should -Be 2
+            $real = $script:runs[1].Params
+            $script:runs[1].Command | Should -Be 'Update-WoscapBenchmark'
+            @($real.Keys | Sort-Object) | Should -Be @('AcceptDisaTerms', 'AllowScrape', 'Confirm', 'Destination')
+            $real['Confirm'] | Should -BeFalse
+            $real['AcceptDisaTerms'] | Should -BeTrue
+            $real['Destination'] | Should -Be $Cache
+            Should -Invoke Show-WoscapGuiUpdateConfirmDialog -Times 1 -Exactly
+            Should -Invoke Resolve-WoscapGuiDisaTerms -Times 1 -Exactly -ParameterFilter { $CacheRoot -eq $Cache }
+            Should -Invoke Show-WoscapGuiUpdateReport -Times 1 -Exactly -ParameterFilter {
+                (@($Result | ForEach-Object Status) -join ',') -eq 'Updated,AlreadyCurrent' }
+            Should -Invoke Write-WoscapDisaTermsMarker -Times 1 -Exactly -ParameterFilter { $CacheRoot -eq $Cache }
+            foreach ($k in $script:busyAtReal.Keys) { $script:busyAtReal[$k] | Should -BeFalse -Because "$k during the real run" }
+            $script:form.Tag['ContentGrid'].Rows.Count | Should -Be 3 -Because 'the grid is refreshed afterwards'
+            Assert-TestIdle $script:form.Tag
+            $script:form.Tag['Remediate'].Enabled | Should -BeTrue
+        }
+    }
+
+    It 'omits AcceptDisaTerms on the real run when the marker already exists' {
+        InModuleScope woscap {
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            $script:runs.Count | Should -Be 2
+            $script:runs[1].Params.ContainsKey('AcceptDisaTerms') | Should -BeFalse
+            $script:runs[1].Params['Confirm'] | Should -BeFalse
+            Should -Invoke Write-WoscapDisaTermsMarker -Times 0 -Exactly
+        }
+    }
+
+    It 'never writes the marker when every benchmark failed to update' {
+        InModuleScope woscap {
+            Mock Resolve-WoscapGuiDisaTerms { @{ Proceed = $true; AcceptSwitch = $true; Remember = $true } }
+            $script:applied = @([pscustomobject]@{ Benchmark = 'Edge'; Status = 'Failed'; FromRevision = 'V2R1'; ToRevision = ''; Reason = 'offline' })
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            Should -Invoke Write-WoscapDisaTermsMarker -Times 0 -Exactly
+            Should -Invoke Show-WoscapGuiUpdateReport -Times 1 -Exactly
+            Assert-TestIdle $script:form.Tag
+        }
+    }
+
+    It 'never writes the marker and restores the UI when the real run errors' {
+        InModuleScope woscap {
+            Mock Resolve-WoscapGuiDisaTerms { @{ Proceed = $true; AcceptSwitch = $true; Remember = $true } }
+            Mock Invoke-WoscapGuiScan {
+                $script:runs.Add(@{ Command = $Command; Params = $ScanParameters.Clone() })
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:preview -Outcome $script:none }
+                else { & $OnError -Message 'boom'; & $OnSettled -Results @() -Outcome $script:failed }
+            }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            Should -Invoke Write-WoscapDisaTermsMarker -Times 0 -Exactly
+            Should -Invoke Show-WoscapGuiMessage -Times 1 -Exactly -ParameterFilter { $Text -match 'boom' }
+            Should -Invoke Show-WoscapGuiUpdateReport -Times 0 -Exactly
+            Assert-TestIdle $script:form.Tag
+        }
+    }
+
+    It 'restores the UI when the preview errors' {
+        InModuleScope woscap {
+            Mock Invoke-WoscapGuiScan { & $OnError -Message 'boom'; & $OnSettled -Results @() -Outcome $script:failed }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            Should -Invoke Show-WoscapGuiUpdateConfirmDialog -Times 0 -Exactly
+            Should -Invoke Show-WoscapGuiMessage -Times 1 -Exactly
+            Assert-TestIdle $script:form.Tag
+        }
+    }
+
+    It 'restores the UI when the preview cannot start' {
+        InModuleScope woscap {
+            Mock Invoke-WoscapGuiScan { throw 'runspace exploded' }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            Should -Invoke Show-WoscapGuiMessage -Times 1 -Exactly -ParameterFilter { $Text -match 'runspace exploded' }
+            Assert-TestIdle $script:form.Tag
+        }
+    }
+
+    It 'restores the UI and writes no marker when the real run cannot start' {
+        InModuleScope woscap {
+            Mock Resolve-WoscapGuiDisaTerms { @{ Proceed = $true; AcceptSwitch = $true; Remember = $true } }
+            Mock Invoke-WoscapGuiScan {
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results $script:preview -Outcome $script:none }
+                else { throw 'runspace exploded' }
+            }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            Should -Invoke Show-WoscapGuiMessage -Times 1 -Exactly -ParameterFilter { $Text -match 'runspace exploded' }
+            Should -Invoke Write-WoscapDisaTermsMarker -Times 0 -Exactly
+            Assert-TestIdle $script:form.Tag
+        }
+    }
+
+    It 'refuses to start while a scan or remediation is running' {
+        InModuleScope woscap {
+            Set-WoscapGuiActionEnabled -Tag $script:form.Tag -Action Run -Enabled $false
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            Should -Invoke Show-WoscapGuiUpdateDialog -Times 0 -Exactly
+            Should -Invoke Invoke-WoscapGuiScan -Times 0 -Exactly
+        }
+    }
+}

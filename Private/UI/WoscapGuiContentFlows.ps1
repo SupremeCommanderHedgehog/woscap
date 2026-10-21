@@ -139,3 +139,113 @@ function Invoke-WoscapGuiContentDownload {
         Set-WoscapGuiContentBusy -Tag $Tag -Busy $false -Status 'Download failed.'
     }
 }
+
+function Invoke-WoscapGuiContentUpdate {
+    <#
+        Update action: scope (selected benchmark, else every cached one) and options, a
+        background -WhatIf preview (no network), the confirmation dialog, the DISA terms gate,
+        then the real run with -Confirm:$false. Cancel at any step updates nothing.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable] $Tag)
+    $script:WoscapGuiTag = $Tag
+    if (-not (Test-WoscapGuiContentIdle -Tag $Tag)) { return }
+
+    $row = Get-WoscapGuiContentSelectedRow -Tag $Tag
+    $benchmark = if ($row) { [string](Get-WoscapObjectProperty $row 'Benchmark' '') } else { '' }
+    $options = Show-WoscapGuiUpdateDialog -Benchmark $benchmark
+    if ($null -eq $options) { return }
+
+    $destination = Get-WoscapGuiContentDestination -Tag $Tag
+    $base = @{}
+    if ($benchmark) {
+        $base['Benchmark'] = $benchmark
+        # Update-WoscapBenchmark rejects -Url without a single -Benchmark.
+        if ($options.Url) { $base['Url'] = [string]$options.Url }
+    }
+    if ($options.AllowScrape) { $base['AllowScrape'] = $true }
+    if ($destination) { $base['Destination'] = $destination }
+    $Tag['ContentJob'] = @{ Base = $base; Destination = $destination; Remember = $false }
+
+    $preview = $base.Clone()
+    $preview['WhatIf'] = $true
+
+    Set-WoscapGuiContentBusy -Tag $Tag -Busy $true -Status 'Checking which benchmarks would update...'
+
+    $onPreview = {
+        param($Results, $Outcome)
+        $t = $script:WoscapGuiTag
+        if ($Outcome.Kind -eq 'Error') { return }
+        $rows = @($Results)
+        if ($rows.Count -eq 0) {
+            Set-WoscapGuiContentBusy -Tag $t -Busy $false -Status 'Nothing to update.'
+            return
+        }
+        if (-not (Show-WoscapGuiUpdateConfirmDialog -Rows $rows)) {
+            Set-WoscapGuiContentBusy -Tag $t -Busy $false -Status 'Update cancelled.'
+            return
+        }
+        $job = $t['ContentJob']
+        $terms = Resolve-WoscapGuiDisaTerms -CacheRoot (Get-WoscapContentCacheRoot -Destination $job.Destination)
+        if (-not $terms.Proceed) {
+            Set-WoscapGuiContentBusy -Tag $t -Busy $false -Status 'Update cancelled.'
+            return
+        }
+        Start-WoscapGuiContentUpdateApply -Tag $t -AcceptDisaTerms ([bool]$terms.AcceptSwitch) -Remember ([bool]$terms.Remember)
+    }
+    $onError = {
+        param($Message)
+        $t = $script:WoscapGuiTag
+        Show-WoscapGuiMessage -Text "Update failed: $Message"
+        Set-WoscapGuiContentBusy -Tag $t -Busy $false -Status 'Update failed.'
+    }
+
+    try {
+        Invoke-WoscapGuiScan -Command 'Update-WoscapBenchmark' -ScanParameters $preview -OnSettled $onPreview -OnError $onError
+    } catch {
+        Show-WoscapGuiMessage -Text "Could not start the update: $($_.Exception.Message)"
+        Set-WoscapGuiContentBusy -Tag $Tag -Busy $false -Status 'Update failed.'
+    }
+}
+
+function Start-WoscapGuiContentUpdateApply {
+    <# The confirmed run: -Confirm:$false stands in for the console prompt the dialog already answered. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable] $Tag, [bool] $AcceptDisaTerms, [bool] $Remember)
+    $job = $Tag['ContentJob']
+    $job['Remember'] = $Remember
+    $real = $job.Base.Clone()
+    $real['Confirm'] = $false
+    if ($AcceptDisaTerms) { $real['AcceptDisaTerms'] = $true }
+    $Tag['ContentStatus'].Text = 'Updating...'
+
+    $onApplied = {
+        param($Results, $Outcome)
+        $t = $script:WoscapGuiTag
+        if ($Outcome.Kind -eq 'Error') { return }
+        $rows = @($Results)
+        $count = { param($s) @($rows | Where-Object { [string](Get-WoscapObjectProperty $_ 'Status' '') -eq $s }).Count }
+        $updated = & $count 'Updated'; $current = & $count 'AlreadyCurrent'; $failed = & $count 'Failed'
+        # Update reports per-benchmark failures as rows, so success means at least one benchmark got through.
+        $note = if ($updated + $current -gt 0) { Save-WoscapGuiDisaTermsChoice -Job $t['ContentJob'] } else { '' }
+        Set-WoscapGuiContentBusy -Tag $t -Busy $false
+        Update-WoscapGuiContentView -Tag $t
+        $t['ContentStatus'].Text = "Update done: $updated updated, $current already current, $failed failed.$note"
+        Show-WoscapGuiUpdateReport -Result $rows
+    }
+    $onError = {
+        param($Message)
+        $t = $script:WoscapGuiTag
+        Show-WoscapGuiMessage -Text "Update failed: $Message"
+        Set-WoscapGuiContentBusy -Tag $t -Busy $false
+        Update-WoscapGuiContentView -Tag $t
+        $t['ContentStatus'].Text = 'Update failed.'
+    }
+
+    try {
+        Invoke-WoscapGuiScan -Command 'Update-WoscapBenchmark' -ScanParameters $real -OnSettled $onApplied -OnError $onError
+    } catch {
+        Show-WoscapGuiMessage -Text "Could not start the update: $($_.Exception.Message)"
+        Set-WoscapGuiContentBusy -Tag $Tag -Busy $false -Status 'Update failed.'
+    }
+}
