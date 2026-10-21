@@ -126,10 +126,10 @@ function Update-WoscapGuiContentView {
 }
 
 function Update-WoscapGuiContentSelection {
-    <# Remove and Use for scan (button + menu) are enabled only while a grid row is selected and no content job runs. #>
+    <# Remove and Use for scan (button + menu) are enabled only while a grid row is selected and no content or integration job runs. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable] $Tag)
-    $selected = ($Tag['Busy'] -ne 'Content') -and $Tag['ContentGrid'].SelectedRows.Count -gt 0
+    $selected = ($Tag['Busy'] -notin @('Content', 'Integration')) -and $Tag['ContentGrid'].SelectedRows.Count -gt 0
     Set-WoscapGuiActionEnabled -Tag $Tag -Action ContentRemove -Enabled $selected
     Set-WoscapGuiActionEnabled -Tag $Tag -Action ContentUseForScan -Enabled $selected
 }

@@ -1,6 +1,7 @@
 function Invoke-WoscapGuiScan {
     <#
-        Runs Invoke-WoscapScan (or, with -Command, Invoke-WoscapRemediation, Save-WoscapStigContent or Update-WoscapBenchmark) in a background runspace so the WinForms UI stays
+        Runs Invoke-WoscapScan (or, with -Command, Invoke-WoscapRemediation, Save-WoscapStigContent,
+        Update-WoscapBenchmark or Import-/Invoke-/Export-WoscapIntegration) in a background runspace so the WinForms UI stays
         responsive. A WinForms Timer polls the runspace's Progress stream and
         completion state, firing the supplied callbacks ON THE UI THREAD (the Timer
         ticks there). Non-blocking: returns immediately after starting the timer.
@@ -21,7 +22,8 @@ function Invoke-WoscapGuiScan {
     #>
     [CmdletBinding()]
     param(
-        [ValidateSet('Invoke-WoscapScan', 'Invoke-WoscapRemediation', 'Save-WoscapStigContent', 'Update-WoscapBenchmark')]
+        [ValidateSet('Invoke-WoscapScan', 'Invoke-WoscapRemediation', 'Save-WoscapStigContent', 'Update-WoscapBenchmark',
+            'Import-WoscapIntegration', 'Invoke-WoscapIntegration', 'Export-WoscapIntegration')]
         [string] $Command = 'Invoke-WoscapScan',
         [Parameter(Mandatory)] [hashtable] $ScanParameters,
         [scriptblock] $OnProgress,

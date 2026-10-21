@@ -68,6 +68,10 @@ Describe 'Invoke-WoscapGuiScan' -Skip:(-not $script:IsSta) {
                 Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
             $set.ValidValues | Should -Contain 'Save-WoscapStigContent'
             $set.ValidValues | Should -Contain 'Update-WoscapBenchmark'
+            foreach ($c in 'Import-WoscapIntegration', 'Invoke-WoscapIntegration', 'Export-WoscapIntegration') {
+                $set.ValidValues | Should -Contain $c
+            }
+            $set.ValidValues | Should -Not -Contain 'Get-WoscapIntegration' -Because 'listing runs on the UI thread'
             $set.ValidValues | Should -Not -Contain 'Get-Process'
         }
     }

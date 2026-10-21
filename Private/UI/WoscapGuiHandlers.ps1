@@ -18,12 +18,16 @@ function Set-WoscapGuiStatusTip {
 
 function Get-WoscapGuiSavePath {
     <# Thin seam over SaveFileDialog so the Export handler is testable. Returns the
-       chosen path, or $null if cancelled. #>
+       chosen path, or $null if cancelled. No -Format offers All files only. #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string] $Format)
+    param([string] $Format = '')
     $dlg = New-Object System.Windows.Forms.SaveFileDialog
-    $dlg.Filter = "$Format files|*.$Format|All files|*.*"
-    $dlg.DefaultExt = $Format
+    if ($Format) {
+        $dlg.Filter = "$Format files|*.$Format|All files|*.*"
+        $dlg.DefaultExt = $Format
+    } else {
+        $dlg.Filter = 'All files|*.*'
+    }
     if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dlg.FileName } else { $null }
 }
 

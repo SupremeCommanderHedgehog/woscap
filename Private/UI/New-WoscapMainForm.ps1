@@ -21,19 +21,11 @@ function New-WoscapMainForm {
     # Dropdown vocabularies are derived from their canonical owners so they cannot drift (#47).
     $scan = New-WoscapGuiScanTab -Vocabulary (Get-WoscapGuiVocabulary)
     $content = New-WoscapGuiContentTab
+    $integration = New-WoscapGuiIntegrationTab
     $menu = New-WoscapGuiMenu
 
-    $placeholder = {
-        param([string] $Title, [string] $Text)
-        $page = New-Object System.Windows.Forms.TabPage
-        $page.Text = $Title
-        $label = New-Object System.Windows.Forms.Label
-        $label.Text = $Text; $label.Location = '12,12'; $label.AutoSize = $true
-        $page.Controls.Add($label)
-        $page
-    }
     $contentTab      = $content.TabPage
-    $integrationsTab = & $placeholder 'Integrations' 'Integrations - coming in #18.'
+    $integrationsTab = $integration.TabPage
 
     $tabs = New-Object System.Windows.Forms.TabControl
     $tabs.Dock = 'Fill'
@@ -49,6 +41,9 @@ function New-WoscapMainForm {
         MenuContentDownload = $menu.ContentDownload; MenuContentUpdate = $menu.ContentUpdate
         MenuContentRemove = $menu.ContentRemove; MenuContentUseForScan = $menu.ContentUseForScan
         MenuContentRefresh = $menu.ContentRefresh
+        MenuIntegrationImportTargets = $menu.IntegrationImportTargets; MenuIntegrationImportFindings = $menu.IntegrationImportFindings
+        MenuIntegrationRunScan = $menu.IntegrationRunScan; MenuIntegrationExportFindings = $menu.IntegrationExportFindings
+        MenuIntegrationExportRemediation = $menu.IntegrationExportRemediation; MenuIntegrationRefresh = $menu.IntegrationRefresh
         Tabs = $tabs; ScanTab = $scan.TabPage; ContentTab = $contentTab; IntegrationsTab = $integrationsTab
         # Non-modal channel for partial-scan warning detail (see the OnWarning handler).
         StatusTip = New-Object System.Windows.Forms.ToolTip
@@ -63,13 +58,17 @@ function New-WoscapMainForm {
         # The Content grid lists the cache on first selection of its tab, not at build time.
         ContentLoaded = $false
         ContentRefreshing = $false
-        # The one background job in flight: 'Scan', 'Remediation', 'Content', or $null.
+        # The one background job in flight: 'Scan', 'Remediation', 'Content', 'Integration', or $null.
         Busy = $null
         # Resolved cache root the Content grid was last listed from; content actions refuse another.
         ContentListedRoot = $null
+        # Same rules for the Integrations grid and its Plugin folder.
+        IntegrationLoaded = $false
+        IntegrationListedRoot = $null
     }
     foreach ($key in $scan.Keys) { if ($key -ne 'TabPage') { $tag[$key] = $scan[$key] } }
     foreach ($key in $content.Keys) { if ($key -ne 'TabPage') { $tag[$key] = $content[$key] } }
+    foreach ($key in $integration.Keys) { if ($key -ne 'TabPage') { $tag[$key] = $integration[$key] } }
     $form.Tag = $tag
 
     Set-WoscapGuiActionEnabled -Tag $tag -Action Export -Enabled $false
@@ -77,6 +76,7 @@ function New-WoscapMainForm {
     Update-WoscapGuiProfileButton -Tag $tag
     Update-WoscapGuiContentHint -Tag $tag
     Update-WoscapGuiContentSelection -Tag $tag
+    Update-WoscapGuiIntegrationSelection -Tag $tag
 
     # Single-window: the current form's controls, for the plain event scriptblocks below.
     $script:WoscapGuiTag = $tag
@@ -132,6 +132,9 @@ function New-WoscapMainForm {
         if ($t -and -not $t['ContentLoaded'] -and $t['Tabs'].SelectedTab -eq $t['ContentTab']) {
             Update-WoscapGuiContentView -Tag $t
         }
+        if ($t -and -not $t['IntegrationLoaded'] -and $t['Tabs'].SelectedTab -eq $t['IntegrationsTab']) {
+            Update-WoscapGuiIntegrationView -Tag $t
+        }
     })
     $content.ContentDestinationBrowse.Add_Click({
         $t = $script:WoscapGuiTag
@@ -154,6 +157,29 @@ function New-WoscapMainForm {
     $menu.ContentRemove.Add_Click({ Invoke-WoscapGuiContentRemove -Tag $script:WoscapGuiTag })
     $menu.ContentUseForScan.Add_Click({ Invoke-WoscapGuiContentUseForScan -Tag $script:WoscapGuiTag })
     $menu.ContentRefresh.Add_Click({ Update-WoscapGuiContentView -Tag $script:WoscapGuiTag })
+
+    $integration.IntegrationPathBrowse.Add_Click({
+        $t = $script:WoscapGuiTag
+        $p = Get-WoscapGuiFolderPath
+        if ($p) {
+            $t['IntegrationPath'].Text = $p
+            Update-WoscapGuiIntegrationView -Tag $t
+        }
+    })
+    $integration.IntegrationGrid.Add_SelectionChanged({ Update-WoscapGuiIntegrationSelection -Tag $script:WoscapGuiTag })
+    $integration.IntegrationRefresh.Add_Click({ Update-WoscapGuiIntegrationView -Tag $script:WoscapGuiTag })
+    $menu.IntegrationRefresh.Add_Click({ Update-WoscapGuiIntegrationView -Tag $script:WoscapGuiTag })
+    # The Invoke-WoscapGuiIntegration* handlers resolve at click time.
+    $integration.IntegrationImportTargets.Add_Click({ Invoke-WoscapGuiIntegrationImportTargets -Tag $script:WoscapGuiTag })
+    $integration.IntegrationImportFindings.Add_Click({ Invoke-WoscapGuiIntegrationImportFindings -Tag $script:WoscapGuiTag })
+    $integration.IntegrationRunScan.Add_Click({ Invoke-WoscapGuiIntegrationRunScan -Tag $script:WoscapGuiTag })
+    $integration.IntegrationExportFindings.Add_Click({ Invoke-WoscapGuiIntegrationExportFindings -Tag $script:WoscapGuiTag })
+    $integration.IntegrationExportRemediation.Add_Click({ Invoke-WoscapGuiIntegrationExportRemediation -Tag $script:WoscapGuiTag })
+    $menu.IntegrationImportTargets.Add_Click({ Invoke-WoscapGuiIntegrationImportTargets -Tag $script:WoscapGuiTag })
+    $menu.IntegrationImportFindings.Add_Click({ Invoke-WoscapGuiIntegrationImportFindings -Tag $script:WoscapGuiTag })
+    $menu.IntegrationRunScan.Add_Click({ Invoke-WoscapGuiIntegrationRunScan -Tag $script:WoscapGuiTag })
+    $menu.IntegrationExportFindings.Add_Click({ Invoke-WoscapGuiIntegrationExportFindings -Tag $script:WoscapGuiTag })
+    $menu.IntegrationExportRemediation.Add_Click({ Invoke-WoscapGuiIntegrationExportRemediation -Tag $script:WoscapGuiTag })
 
     $menu.Run.Add_Click({ Invoke-WoscapGuiRun -Tag $script:WoscapGuiTag })
     $menu.Export.Add_Click({ Invoke-WoscapGuiExport -Tag $script:WoscapGuiTag })

@@ -354,9 +354,31 @@ gray, Not_Reviewed = amber) so findings stand out at a glance, and the grid
 **resizes with the window** — drag the frame larger to see more of the table. A
 **partial scan** (e.g. one unreachable host among several) still shows the
 results that came back and reports `Done (N warnings)` with the detail on hover
-— only a scan that returns nothing raises a `Scan failed` dialog. The
-**Integrations** tab is a placeholder until #18 lands. Help > About shows the
-module version; Help > Open manual opens this file.
+— only a scan that returns nothing raises a `Scan failed` dialog. Help > About
+shows the module version; Help > Open manual opens this file.
+
+The **Integrations** tab (also the Integrations menu) lists plugins from
+`Get-WoscapIntegration` — the bundled `Integrations\` folder, or a **Plugin
+folder** you choose — with their capabilities. Non-conformant plugins are greyed
+out. Selecting a plugin enables the actions it supports:
+- **Import targets…** (`Get-Targets`) puts the returned hosts in the Scan tab's
+  **Targets** box for you to review; it never starts a scan.
+- **Import findings…** (`Import-Findings`) reads a report and, if you tick
+  **Correlate with current scan results**, links its findings to them.
+- **Run external scan…** (`Invoke-ExternalScan`) triggers the plugin's scanner
+  (e.g. OpenVAS over GMP) and shows the findings.
+- **Export findings…** (`Export-Findings`) and **Export remediation…**
+  (`New-Remediation`, e.g. an Ansible playbook) use the Scan tab's current results;
+  after a remediation they refuse until you re-scan.
+Each action shows a form built from the plugin's `ConfigOptions` (see *Authoring a
+plugin*): text, whole numbers (leave blank to omit), yes/no, file/folder pickers,
+one-per-line lists, a key/value table, a masked secret, and **Set…** for
+credentials. Credentials and secrets are used for that one call only — never
+shown, logged or saved. A plugin without `ConfigOptions` gets a generic
+Key/Type/Value grid; a plugin whose `ConfigOptions` are invalid is refused with
+the list of problems. Network-bound actions run in the background; nothing starts
+while a scan, remediation or content job is running. Warnings from a run show on
+hover over the Integrations status line.
 
 The **Content** tab (also the Content menu) manages the operator-local STIG
 cache through the §5.1 cmdlets. **Cache folder** (blank = the default shown
@@ -657,6 +679,25 @@ a hashtable mapping each declared hook to a scriptblock. The loader validates th
 declared capabilities and implemented hooks agree (and that each is a known hook);
 mismatches are rejected with a warning. `tests/helpers/Assert-WoscapPluginConformance.ps1`
 is the shared conformance check.
+
+Optionally declare **`ConfigOptions`** so the GUI can build a proper form for
+your `-Config` keys (plugins without it get a generic key/value grid):
+
+```powershell
+ConfigOptions = @(
+    @{ Name = 'Server'; Type = 'Text'; Required = $true; Hooks = @('Export-Findings'); Help = 'Collector host' }
+    @{ Name = 'Port'; Type = 'Number'; Default = 10051; Hooks = @('Export-Findings') }
+    @{ Name = 'Credential'; Type = 'Credential'; Hooks = @('Invoke-ExternalScan') }
+    @{ Name = 'OutFile'; Type = 'Path'; PathKind = 'SaveFile'; Hooks = @('Export-Findings') }
+)
+```
+
+`Type` is one of `Text`, `Number`, `Bool`, `Credential`, `Secret`, `List`,
+`Table`, `Path` (a `Number` is a whole 32-bit integer, so its `Default` must be
+one; `PathKind` = `File`, `Folder` or `SaveFile` picks the browse
+dialog). `Hooks` lists which of your capabilities read the key. The conformance
+check validates the schema, and for the bundled plugins a test fails if the
+implementation reads a key the schema doesn't declare.
 
 ---
 

@@ -9,6 +9,7 @@ function Set-WoscapGuiContentBusy {
     Set-WoscapGuiActionEnabled -Tag $Tag -Action ContentDownload -Enabled (-not $Busy)
     Set-WoscapGuiActionEnabled -Tag $Tag -Action ContentUpdate -Enabled (-not $Busy)
     Update-WoscapGuiContentSelection -Tag $Tag
+    if ($Tag.ContainsKey('IntegrationGrid')) { Update-WoscapGuiIntegrationSelection -Tag $Tag }
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled (-not $Busy)
     $remediable = @($Tag['Results']).Count -gt 0 -and -not $Tag['ResultsStale'] -and $null -ne $Tag['ResultsContext']
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled ((-not $Busy) -and $remediable)
@@ -16,13 +17,16 @@ function Set-WoscapGuiContentBusy {
 }
 
 function Test-WoscapGuiContentIdle {
-    <# $true when no scan, remediation or content job is in flight (Tag 'Busy'); otherwise says so. #>
+    <# $true when no scan, remediation, content or integration job is in flight (Tag 'Busy'); otherwise says so. #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][hashtable] $Tag)
     $busy = [string]$Tag['Busy']
     if (-not $busy) { return $true }
-    $what = switch ($busy) { 'Scan' { 'A scan' } 'Remediation' { 'A remediation' } default { 'A content download or update' } }
+    $what = switch ($busy) {
+        'Scan' { 'A scan' } 'Remediation' { 'A remediation' } 'Integration' { 'An integration action' }
+        default { 'A content download or update' }
+    }
     Show-WoscapGuiMessage -Text "$what is running; wait for it to finish."
     $false
 }
