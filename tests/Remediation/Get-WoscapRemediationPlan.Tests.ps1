@@ -353,3 +353,77 @@ Describe 'Get-WoscapRemediationPlan registry kind (#29)' {
         }
     }
 }
+
+# Spec section 4 (#36): an All of automatable Registry leaves is one ordered multi-write fix.
+Describe 'Get-WoscapRemediationPlan multi-write composites' {
+    BeforeDiscovery {
+        $ok = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'One'; Operator = 'eq'; Expected = 1 }
+        $script:manualCases = @(
+            @{ Case = 'nested composite child'; Child = @{ Type = 'All'; Checks = @($ok) } }
+            @{ Case = 'non-Registry child';      Child = @{ Type = 'Path'; Path = 'C:\x'; Operator = 'eq'; Expected = $false } }
+            @{ Case = 'HKCU leaf';               Child = @{ Type = 'Registry'; Path = 'HKCU:\Software\A'; Name = 'N'; Operator = 'eq'; Expected = 1 } }
+            @{ Case = 'unwritable kind';         Child = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'N'; Operator = 'eq'; Expected = 1; Kind = 'qword' } }
+            @{ Case = 'operator ne';             Child = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'N'; Operator = 'ne'; Expected = 1 } }
+            @{ Case = 'operator in';             Child = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'N'; Operator = 'in'; Expected = @(1, 2) } }
+            @{ Case = 'non-Int32 Expected';      Child = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'N'; Operator = 'eq'; Expected = [long]5000000000 } }
+            @{ Case = 'child opted out';         Child = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'N'; Operator = 'eq'; Expected = 1; Remediate = $false } }
+        )
+    }
+    It 'plans one automatable action whose writes follow the leaves in order' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ StigId = 'C-1'; Title = 'Multi'; Status = 'Open' })
+            $pack = @{ 'C-1' = @{ Type = 'All'; Checks = @(
+                @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'One'; Operator = 'eq'; Expected = 1 }
+                @{ Applicability = @{ AcrobatUnifiedApp = $true }; Type = 'Registry'; Path = 'HKLM:\SOFTWARE\B'; Name = 'Two'; Operator = 'eq'; Expected = 'x' }
+                @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\C'; Name = 'Three'; Operator = 'ge'; Expected = 7 }
+            )} }
+            $plan = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)
+            $plan.Count | Should -Be 1
+            $a = $plan[0]
+            $a.Automatable | Should -BeTrue
+            $a.Type | Should -Be 'Registry'
+            $a.CheckType | Should -Be 'All'
+            @($a.StigIds) | Should -Be @('C-1')
+            @($a.Writes | ForEach-Object { "$($_.Path)|$($_.Name)|$($_.Data)|$($_.Kind)" }) |
+                Should -Be @('HKLM:\SOFTWARE\A|One|1|dword', 'HKLM:\SOFTWARE\B|Two|x|string', 'HKLM:\SOFTWARE\C|Three|7|dword')
+            # A consumer still reading the single-write field must fail loudly, not apply one write.
+            $a.Registry | Should -BeNullOrEmpty
+        }
+    }
+    It 'gives a single Registry rule one write equal to its Registry field' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ StigId = 'R-1'; Title = 't'; Status = 'Open' })
+            $pack = @{ 'R-1' = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'One'; Operator = 'eq'; Expected = 1 } }
+            $a = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)[0]
+            @($a.Writes).Count | Should -Be 1
+            "$($a.Writes[0].Path)|$($a.Writes[0].Name)|$($a.Writes[0].Data)|$($a.Writes[0].Kind)" |
+                Should -Be "$($a.Registry.Path)|$($a.Registry.Name)|$($a.Registry.Data)|$($a.Registry.Kind)"
+        }
+    }
+    It 'stays Manual with its current reason for a <Case>' -ForEach $script:manualCases {
+        InModuleScope woscap -Parameters @{ Child = $Child } {
+            param($Child)
+            $rules = @([pscustomobject]@{ StigId = 'C-2'; Title = 't'; Status = 'Open' })
+            $ok = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'One'; Operator = 'eq'; Expected = 1 }
+            $pack = @{ 'C-2' = @{ Type = 'All'; Checks = @($ok, $Child) } }
+            $a = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)[0]
+            $a.Automatable | Should -BeFalse
+            $a.Type | Should -Be 'Manual'
+            $a.ManualReason | Should -Be "CheckType 'All' has no automated remediation."
+        }
+    }
+    It 'stays Manual for an Any composite, an empty All, and a parent Remediate = $false' {
+        InModuleScope woscap {
+            $ok = @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\A'; Name = 'One'; Operator = 'eq'; Expected = 1 }
+            $pack = @{
+                'C-3' = @{ Type = 'Any'; Checks = @($ok, $ok) }
+                'C-4' = @{ Type = 'All'; Checks = @() }
+                'C-5' = @{ Type = 'All'; Checks = @($ok); Remediate = $false; RemediateReason = 'site policy' }
+            }
+            $rules = @('C-3', 'C-4', 'C-5' | ForEach-Object { [pscustomobject]@{ StigId = $_; Title = 't'; Status = 'Open' } })
+            $plan = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)
+            @($plan | Where-Object Automatable) | Should -BeNullOrEmpty
+            ($plan | Where-Object StigId -eq 'C-5').ManualReason | Should -Match 'opts this rule out.*site policy'
+        }
+    }
+}

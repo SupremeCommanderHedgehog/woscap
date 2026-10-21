@@ -74,15 +74,21 @@ Describe 'AcrobatReader pack shape' {
         foreach ($d in @($pack.Values | ForEach-Object { & $walk $_ })) { $d.ContainsKey('AbsentIsPass') | Should -BeFalse }
     }
 
-    # Every check depends on detection, so no single write provably passes on every host.
-    It 'reports every rule Manual in remediation, keeping the opt-out reasons' -ForEach @(@{ OptedOut = $script:OptedOut }) {
-        InModuleScope woscap -Parameters @{ P = $script:PackPath; OptedOut = $OptedOut } {
-            param($P, $OptedOut)
+    # Both roots are written unconditionally (#36); the opt-outs stay Manual.
+    It 'automates 19 rules as two-write fixes, keeping the opt-out reasons' -ForEach @(@{ OptedOut = $script:OptedOut; Simple = $script:Simple }) {
+        InModuleScope woscap -Parameters @{ P = $script:PackPath; OptedOut = $OptedOut; Simple = $Simple } {
+            param($P, $OptedOut, $Simple)
             $pack = Import-ContentPack -Path $P -WarningAction SilentlyContinue
             $rules = @($pack.Keys | ForEach-Object { [pscustomobject]@{ StigId = $_; Title = $_; Status = 'Open' } })
             $plan = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)
             $plan.Count | Should -Be 26
-            @($plan | Where-Object { $_.Automatable }) | Should -BeNullOrEmpty
+            $auto = @($plan | Where-Object { $_.Automatable })
+            @($auto.StigId | Sort-Object) | Should -Be @($Simple.Id | Where-Object { $_ -notin $OptedOut } | Sort-Object)
+            foreach ($a in $auto) {
+                $rule = $Simple | Where-Object { $_.Id -eq $a.StigId }
+                @($a.Writes | ForEach-Object { "$($_.Path)|$($_.Name)|$($_.Data)|$($_.Kind)" }) | Should -Be @(
+                    "$($rule.Path)|$($rule.Name)|$($rule.Expected)|dword", "$($rule.AcrobatPath)|$($rule.Name)|$($rule.Expected)|dword")
+            }
             foreach ($id in $OptedOut) { ($plan | Where-Object StigId -eq $id).ManualReason | Should -Match 'cannot detect' }
         }
     }
