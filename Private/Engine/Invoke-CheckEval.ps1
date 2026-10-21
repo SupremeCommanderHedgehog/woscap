@@ -7,6 +7,8 @@ function Invoke-CheckEval {
         [string] $ComputerName = $env:COMPUTERNAME,
         [datetime] $ReferenceDate = (Get-Date)
     )
+    if (Test-WoscapWow64Process) { throw $script:WoscapWow64RefusalMessage }
+
     # One scan, one set of readings. Cleared here rather than at the end so a
     # scan that throws part-way cannot leave a poisoned cache for the next one.
     Clear-WoscapReadCache
