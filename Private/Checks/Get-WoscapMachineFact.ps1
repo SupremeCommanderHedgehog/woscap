@@ -12,11 +12,25 @@ function Get-WoscapMachineFact {
         TPM- or BitLocker-gated rule vanished from scoring entirely and the
         report asserted the host had no TPM. NA is worse than a false Fail
         because it removes the rule from the Open count altogether.
+
+        AcrobatUnifiedApp is $true when the unified Adobe Acrobat app's
+        Installer key exists in the native or the WOW6432Node view, $false when
+        neither exists, and unreadable when either read fails for any other
+        reason (for example access denied).
+    .PARAMETER Fact
+        The fact to read: DomainJoined, TpmPresent, CameraPresent,
+        BluetoothPresent, HypervisorPresent, OsBuild, LocalAdminEnabled or
+        AcrobatUnifiedApp.
+    .OUTPUTS
+        A [bool] (an [int] for OsBuild), or the unreadable sentinel.
+    .EXAMPLE
+        Get-WoscapMachineFact -Fact AcrobatUnifiedApp
+        Returns $true on a host with the unified 64-bit Acrobat app installed.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('DomainJoined','TpmPresent','CameraPresent','BluetoothPresent','HypervisorPresent','OsBuild','LocalAdminEnabled')]
+        [ValidateSet('DomainJoined','TpmPresent','CameraPresent','BluetoothPresent','HypervisorPresent','OsBuild','LocalAdminEnabled','AcrobatUnifiedApp')]
         [string] $Fact
     )
     Get-WoscapCachedValue -Key "fact:$Fact" -Producer {
@@ -55,6 +69,22 @@ function Get-WoscapMachineFact {
                     $enabled = @($names)
                     $admins  = @($members)
                     @($enabled | Where-Object { $n = $_; @($admins | Where-Object { $_ -eq $n }).Count -gt 0 }).Count -gt 0
+                }
+                'AcrobatUnifiedApp' {
+                    # Get-Item, not Test-Path: Test-Path reports a denied key as present.
+                    # Both views are always read, so a denied view is never taken as absent.
+                    $found = foreach ($p in 'HKLM:\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer',
+                                            'HKLM:\SOFTWARE\WOW6432Node\Adobe\Adobe Acrobat\DC\Installer') {
+                        try {
+                            $key = Get-Item -LiteralPath $p -ErrorAction Stop
+                            if ($key -is [System.IDisposable]) { $key.Dispose() }
+                            $true
+                        } catch {
+                            if ($_.Exception -isnot [System.Management.Automation.ItemNotFoundException]) { throw }
+                            $false
+                        }
+                    }
+                    @($found) -contains $true
                 }
             }
         } catch {

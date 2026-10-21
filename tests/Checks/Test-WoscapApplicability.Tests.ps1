@@ -155,6 +155,78 @@ Describe 'Get-WoscapMachineFact' {
     }
 }
 
+# Spec section 2 (#36): Installer key in either view; a denied read is unreadable, never absent.
+Describe 'Get-WoscapMachineFact AcrobatUnifiedApp' {
+    BeforeDiscovery {
+        $script:unifiedCases = @(
+            @{ Native = 'present'; Wow = 'absent';  Want = 'true' }
+            @{ Native = 'absent';  Wow = 'present'; Want = 'true' }
+            @{ Native = 'present'; Wow = 'present'; Want = 'true' }
+            @{ Native = 'absent';  Wow = 'absent';  Want = 'false' }
+            @{ Native = 'denied';  Wow = 'absent';  Want = 'unreadable' }
+            @{ Native = 'absent';  Wow = 'denied';  Want = 'unreadable' }
+            @{ Native = 'present'; Wow = 'denied';  Want = 'unreadable' }
+        )
+    }
+    It 'native <Native>, Wow6432Node <Wow> gives <Want>' -ForEach $script:unifiedCases {
+        InModuleScope woscap -Parameters @{ Native = $Native; Wow = $Wow; Want = $Want } {
+            param($Native, $Wow, $Want)
+            Clear-WoscapReadCache
+            $script:keyState = @{
+                'HKLM:\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer'             = $Native
+                'HKLM:\SOFTWARE\WOW6432Node\Adobe\Adobe Acrobat\DC\Installer' = $Wow
+            }
+            Mock Get-Item {
+                switch ($script:keyState[$LiteralPath]) {
+                    'present' { [pscustomobject]@{ Name = $LiteralPath } }
+                    'absent'  { throw [System.Management.Automation.ItemNotFoundException]::new('no key') }
+                    'denied'  { throw [System.Security.SecurityException]::new('access denied') }
+                    default   { throw "unexpected path $LiteralPath" }
+                }
+            }
+            $fact = Get-WoscapMachineFact -Fact 'AcrobatUnifiedApp'
+            switch ($Want) {
+                'unreadable' { Test-WoscapUnreadable -Value $fact | Should -BeTrue }
+                default      { $fact | Should -BeOfType [bool]; $fact | Should -Be ($Want -eq 'true') }
+            }
+        }
+    }
+    It 'reads the Installer keys once per scan' {
+        InModuleScope woscap {
+            Clear-WoscapReadCache
+            $script:keyHits = 0
+            Mock Get-Item { $script:keyHits++; throw [System.Management.Automation.ItemNotFoundException]::new('no key') }
+            $null = Get-WoscapMachineFact -Fact 'AcrobatUnifiedApp'
+            $null = Get-WoscapMachineFact -Fact 'AcrobatUnifiedApp'
+            $script:keyHits | Should -Be 2 -Because 'one read per view, then cached'
+        }
+    }
+    It 'gates applicability: applies, NA with the spec reason, or unreadable' {
+        InModuleScope woscap {
+            Clear-WoscapReadCache
+            Mock Get-WoscapMachineFact { $true } -ParameterFilter { $Fact -eq 'AcrobatUnifiedApp' }
+            (Test-WoscapApplicability -Applicability @{ AcrobatUnifiedApp = $true }).Applies | Should -BeTrue
+
+            Mock Get-WoscapMachineFact { $false } -ParameterFilter { $Fact -eq 'AcrobatUnifiedApp' }
+            $na = Test-WoscapApplicability -Applicability @{ AcrobatUnifiedApp = $true }
+            $na.Applies | Should -BeFalse
+            $na.Unreadable | Should -BeFalse
+            $na.Reason | Should -Be 'Not applicable: the unified Adobe Acrobat app is not installed.'
+
+            Mock Get-WoscapMachineFact { New-WoscapUnreadable -Reason 'cannot determine AcrobatUnifiedApp' } -ParameterFilter { $Fact -eq 'AcrobatUnifiedApp' }
+            $u = Test-WoscapApplicability -Applicability @{ AcrobatUnifiedApp = $true }
+            $u.Unreadable | Should -BeTrue
+            $u.Applies | Should -BeFalse
+        }
+    }
+    It 'is an accepted schema predicate' {
+        InModuleScope woscap {
+            $d = @{ Applicability = @{ AcrobatUnifiedApp = $true }; Type = 'Registry'; Path = 'HKLM:\X'; Name = 'Y'; Operator = 'eq'; Expected = 1 }
+            @(Test-WoscapDescriptorSchema -Descriptor $d).Count | Should -Be 0
+        }
+    }
+}
+
 # Spec section 5 (#29): a gate matches only on a compatible kind, so a wrong-kind
 # value can never make a rule Not Applicable.
 Describe 'Registry applicability gates honour the value kind' {

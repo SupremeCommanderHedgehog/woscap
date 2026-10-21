@@ -26,7 +26,7 @@ function Test-WoscapApplicability {
     foreach ($name in @($Applicability.Keys)) {
         $arg = $Applicability[$name]
         switch ($name) {
-            { $_ -in @('DomainJoined','TpmPresent','CameraPresent','BluetoothPresent','HypervisorPresent','LocalAdminEnabled') } {
+            { $_ -in @('DomainJoined','TpmPresent','CameraPresent','BluetoothPresent','HypervisorPresent','LocalAdminEnabled','AcrobatUnifiedApp') } {
                 $fact = Get-WoscapMachineFact -Fact $name
                 if (Test-WoscapUnreadable -Value $fact) {
                     return [pscustomobject]@{
@@ -36,6 +36,10 @@ function Test-WoscapApplicability {
                 }
                 $actual = [bool]$fact
                 if ($actual -ne [bool]$arg) {
+                    if ($name -eq 'AcrobatUnifiedApp') {
+                        $why = if ($actual) { 'is installed' } else { 'is not installed' }
+                        return [pscustomobject]@{ Applies = $false; Unreadable = $false; Reason = "Not applicable: the unified Adobe Acrobat app $why." }
+                    }
                     $label = switch ($name) {
                         'DomainJoined'      { if ($actual) { 'is domain-joined' } else { 'is not domain-joined' } }
                         'TpmPresent'        { if ($actual) { 'has a TPM' }        else { 'has no TPM' } }
