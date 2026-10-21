@@ -5,7 +5,7 @@ function New-WoscapGuiConfigForm {
     .DESCRIPTION
         -Options is the schema list from Get-WoscapGuiConfigOptions. One row per option:
         Text/Path text box (+Browse for Path: open file, folder or save-as per the option's PathKind,
-        File by default), Number NumericUpDown, Bool check box,
+        File by default), Number text box (whole Int32; blank = omitted), Bool check box,
         Credential "Set..." via Get-WoscapGuiCredential (shown only as "(not set)"/"(set)"),
         Secret masked text box, List multi-line text (one item per line), Table Key/Value grid.
         $null -Options means the plugin has no schema: a generic Key/Type/Value grid instead.
@@ -111,10 +111,10 @@ function New-WoscapGuiConfigField {
 
     switch ([string]$Option['Type']) {
         'Number' {
-            $n = New-Object System.Windows.Forms.NumericUpDown
-            $n.Minimum = [int]::MinValue; $n.Maximum = [int]::MaxValue; $n.Anchor = 'Left, Right'
-            # Blank text means "not given" so an optional number can be omitted.
-            if ($hasDefault) { $n.Value = [decimal][int]$default; $n.Text = [string][int]$default } else { $n.Text = '' }
+            # A text box, not NumericUpDown: blank must stay blank so an optional number can be omitted.
+            $n = New-Object System.Windows.Forms.TextBox
+            $n.Anchor = 'Left, Right'
+            if ($hasDefault) { $n.Text = [string][int]$default }
             $field['Control'] = $n; $field['Row'] = $n
         }
         'Bool' {
@@ -226,8 +226,10 @@ function Read-WoscapGuiConfigForm {
                 $t = ([string]$ctl.Text).Trim()
                 if ($t) {
                     $n = 0
-                    if ([int]::TryParse($t, [ref]$n)) { $value = $n; $has = $true }
-                    else { $errors.Add("'$name' must be a whole number."); $bad = $true }
+                    $ok = [int]::TryParse($t, [System.Globalization.NumberStyles]::Integer,
+                        [System.Globalization.CultureInfo]::InvariantCulture, [ref]$n)
+                    if ($ok) { $value = $n; $has = $true }
+                    else { $errors.Add("'$name' must be a whole number from $([int]::MinValue) to $([int]::MaxValue)."); $bad = $true }
                 }
             }
             'Bool' { $value = [bool]$ctl.Checked; $has = $true }

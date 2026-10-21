@@ -39,6 +39,9 @@ Describe 'Test-WoscapPluginConfigSchema' {
         @{ Why = 'List Default not array'; Opt = @{ Name = 'a'; Type = 'List'; Hooks = @('Get-Targets'); Default = 'x' } }
         @{ Why = 'Table Default not hashtable'; Opt = @{ Name = 'a'; Type = 'Table'; Hooks = @('Get-Targets'); Default = @(1) } }
         @{ Why = 'Credential with Default'; Opt = @{ Name = 'a'; Type = 'Credential'; Hooks = @('Get-Targets'); Default = 'x' } }
+        @{ Why = 'Number Default beyond Int32'; Opt = @{ Name = 'a'; Type = 'Number'; Hooks = @('Get-Targets'); Default = 3000000000 } }
+        @{ Why = 'Number Default fractional'; Opt = @{ Name = 'a'; Type = 'Number'; Hooks = @('Get-Targets'); Default = 1.5 } }
+        @{ Why = 'Number Default string'; Opt = @{ Name = 'a'; Type = 'Number'; Hooks = @('Get-Targets'); Default = 'abc' } }
         @{ Why = 'unknown PathKind'; Opt = @{ Name = 'a'; Type = 'Path'; Hooks = @('Get-Targets'); PathKind = 'Drive' } }
         @{ Why = 'non-string PathKind'; Opt = @{ Name = 'a'; Type = 'Path'; Hooks = @('Get-Targets'); PathKind = 1 } }
         @{ Why = 'PathKind on a non-Path option'; Opt = @{ Name = 'a'; Type = 'Text'; Hooks = @('Get-Targets'); PathKind = 'File' } }

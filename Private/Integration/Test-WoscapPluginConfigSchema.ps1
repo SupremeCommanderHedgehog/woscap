@@ -56,7 +56,8 @@ function Test-WoscapPluginConfigSchema {
                 'Text'       { $d -is [string] }
                 'Path'       { $d -is [string] }
                 'Secret'     { $d -is [string] }
-                'Number'     { $d -is [int] -or $d -is [long] -or $d -is [double] -or $d -is [decimal] }
+                # The form's Number field is Int32; a wider or fractional default could not round-trip.
+                'Number'     { $d -is [int] -or ($d -is [long] -and $d -ge [int]::MinValue -and $d -le [int]::MaxValue) }
                 'Bool'       { $d -is [bool] }
                 'List'       { $d -is [System.Array] }
                 'Table'      { $d -is [System.Collections.IDictionary] }

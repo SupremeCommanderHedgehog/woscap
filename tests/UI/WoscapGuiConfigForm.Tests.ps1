@@ -221,13 +221,63 @@ Describe 'Config form values' -Skip:(-not $script:IsSta) {
             } finally { $d.Close(); $d.Dispose() }
         }
     }
-    It 'keeps a Number inside the int range' {
+    It 'rejects a Number outside Int32 or not numeric (<Text>) and keeps the form open' -ForEach @(
+        @{ Text = '99999999999' }, @{ Text = '-3000000000' }, @{ Text = 'abc' }, @{ Text = '1.5' }
+    ) {
+        InModuleScope woscap -Parameters @{ Text = $Text } {
+            param($Text)
+            $d = New-WoscapGuiConfigForm -Options @(@{ Name = 'Port'; Type = 'Number'; Hooks = @('h') }) -Title 't'
+            try {
+                $d.Tag['Fields']['Port'].Control.Text = $Text
+                $r = Read-WoscapGuiConfigForm -Form $d
+                @($r.Errors).Count | Should -Be 1
+                $r.Errors[0] | Should -Match 'Port'
+                $r.Config.ContainsKey('Port') | Should -BeFalse
+                Confirm-WoscapGuiConfigForm -Form $d | Should -BeFalse
+                $d.DialogResult | Should -Not -Be ([System.Windows.Forms.DialogResult]::OK)
+            } finally { $d.Dispose() }
+        }
+    }
+    It 'accepts Int32 bounds as numbers' {
         InModuleScope woscap {
             $d = New-WoscapGuiConfigForm -Options @(@{ Name = 'Port'; Type = 'Number'; Hooks = @('h') }) -Title 't'
             try {
-                $d.Tag['Fields']['Port'].Control.Text = '99999999999'
+                $d.Tag['Fields']['Port'].Control.Text = ' 2147483647 '
                 $c = Get-WoscapGuiConfigValue -Form $d
                 $c['Port'] | Should -BeOfType [int]; $c['Port'] | Should -Be ([int]::MaxValue)
+            } finally { $d.Dispose() }
+        }
+    }
+    It 'omits an optional Number cleared after typing, and one with a Default cleared by the user' {
+        InModuleScope woscap {
+            $opts = @(
+                @{ Name = 'Typed'; Type = 'Number'; Hooks = @('h') }
+                @{ Name = 'Defaulted'; Type = 'Number'; Default = 10051; Hooks = @('h') }
+                @{ Name = 'Untouched'; Type = 'Number'; Hooks = @('h') }
+            )
+            $d = New-WoscapGuiConfigForm -Options $opts -Title 't'
+            try {
+                $d.Show(); [System.Windows.Forms.Application]::DoEvents()
+                $typed = $d.Tag['Fields']['Typed'].Control
+                $typed.Focus() | Out-Null
+                $typed.Text = '5'; [System.Windows.Forms.Application]::DoEvents()
+                $d.Tag['Fields']['Defaulted'].Control.Focus() | Out-Null
+                [System.Windows.Forms.Application]::DoEvents()
+                $typed.Text = ''; [System.Windows.Forms.Application]::DoEvents()
+                $d.Tag['Fields']['Defaulted'].Control.Text = ''
+                $d.Tag['Fields']['Untouched'].Control.Focus() | Out-Null
+                [System.Windows.Forms.Application]::DoEvents()
+                $c = Get-WoscapGuiConfigValue -Form $d
+                @($c.Keys).Count | Should -Be 0 -Because 'blank optional numbers are omitted'
+            } finally { $d.Close(); $d.Dispose() }
+        }
+    }
+    It 'a Required Number with a Default that the user cleared is an error' {
+        InModuleScope woscap {
+            $d = New-WoscapGuiConfigForm -Options @(@{ Name = 'Port'; Type = 'Number'; Default = 1; Required = $true; Hooks = @('h') }) -Title 't'
+            try {
+                $d.Tag['Fields']['Port'].Control.Text = ''
+                @((Read-WoscapGuiConfigForm -Form $d).Errors) | Should -Match 'Port'
             } finally { $d.Dispose() }
         }
     }
