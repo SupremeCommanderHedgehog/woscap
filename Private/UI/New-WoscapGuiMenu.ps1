@@ -1,8 +1,9 @@
 function New-WoscapGuiMenu {
     <#
         Builds the main MenuStrip. Returns @{ Menu; Run; Remediate; Export; Exit; Advanced; ContentDownload;
-        ContentUpdate; ContentRemove; ContentUseForScan; ContentRefresh; OpenContent; OpenIntegrations;
-        Manual; About } so the form can wire Click handlers. No logic here.
+        ContentUpdate; ContentRemove; ContentUseForScan; ContentRefresh; OpenContent; IntegrationImportTargets;
+        IntegrationImportFindings; IntegrationRunScan; IntegrationExportFindings; IntegrationExportRemediation;
+        IntegrationRefresh; OpenIntegrations; Manual; About } so the form can wire Click handlers. No logic here.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -29,6 +30,12 @@ function New-WoscapGuiMenu {
     $contentRemove     = & $newItem '&Remove...' $null
     $contentUseForScan = & $newItem 'Use for &scan' $null
     $contentRefresh    = & $newItem 'Re&fresh' $null
+    $intTargets  = & $newItem 'Import &targets...' $null
+    $intFindings = & $newItem 'Import fi&ndings...' $null
+    $intRunScan  = & $newItem 'Run e&xternal scan...' $null
+    $intExport   = & $newItem '&Export findings...' $null
+    $intRemed    = & $newItem 'Export re&mediation...' $null
+    $intRefresh  = & $newItem 'Re&fresh' $null
     $openContent      = & $newItem 'Open &Content tab' $null
     $openIntegrations = & $newItem 'Open &Integrations tab' $null
     $manual   = & $newItem 'Open &manual' $null
@@ -45,7 +52,9 @@ function New-WoscapGuiMenu {
         $contentDownload, $contentUpdate, $contentRemove, $contentUseForScan, $contentRefresh,
         (New-Object System.Windows.Forms.ToolStripSeparator), $openContent))
     $integrations = & $newItem '&Integrations' $null
-    [void]$integrations.DropDownItems.Add($openIntegrations)
+    [void]$integrations.DropDownItems.AddRange([System.Windows.Forms.ToolStripItem[]]@(
+        $intTargets, $intFindings, $intRunScan, $intExport, $intRemed, $intRefresh,
+        (New-Object System.Windows.Forms.ToolStripSeparator), $openIntegrations))
     $help = & $newItem '&Help' $null
     [void]$help.DropDownItems.AddRange([System.Windows.Forms.ToolStripItem[]]@($manual, $about))
 
@@ -55,6 +64,8 @@ function New-WoscapGuiMenu {
         Menu = $menu; Run = $run; Remediate = $remediate; Export = $export; Exit = $exit; Advanced = $advanced
         ContentDownload = $contentDownload; ContentUpdate = $contentUpdate; ContentRemove = $contentRemove
         ContentUseForScan = $contentUseForScan; ContentRefresh = $contentRefresh
+        IntegrationImportTargets = $intTargets; IntegrationImportFindings = $intFindings; IntegrationRunScan = $intRunScan
+        IntegrationExportFindings = $intExport; IntegrationExportRemediation = $intRemed; IntegrationRefresh = $intRefresh
         OpenContent = $openContent; OpenIntegrations = $openIntegrations; Manual = $manual; About = $about
     }
 }

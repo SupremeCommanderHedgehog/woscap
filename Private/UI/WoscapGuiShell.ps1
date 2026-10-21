@@ -3,7 +3,9 @@ function Set-WoscapGuiActionEnabled {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][hashtable] $Tag,
-        [Parameter(Mandatory)][ValidateSet('Run', 'Export', 'Remediate', 'ContentDownload', 'ContentUpdate', 'ContentRemove', 'ContentUseForScan')][string] $Action,
+        [Parameter(Mandatory)][ValidateSet('Run', 'Export', 'Remediate', 'ContentDownload', 'ContentUpdate', 'ContentRemove', 'ContentUseForScan',
+            'IntegrationImportTargets', 'IntegrationImportFindings', 'IntegrationRunScan', 'IntegrationExportFindings',
+            'IntegrationExportRemediation')][string] $Action,
         [Parameter(Mandatory)][bool] $Enabled
     )
     $Tag[$Action].Enabled = $Enabled
