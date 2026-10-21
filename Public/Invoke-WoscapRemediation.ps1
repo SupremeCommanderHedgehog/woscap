@@ -24,6 +24,11 @@ function Invoke-WoscapRemediation {
           - An Expected that is not a string or an Int32 (an array, a boolean, a
             number outside the Int32 range, and so on).
 
+        Any rule whose descriptor sets Remediate = $false is reported as 'Manual'
+        and never written, with its RemediateReason in Detail. Content packs use
+        this for rules that are Not Applicable on hosts woscap cannot identify (for
+        example, the Defender Antivirus MAPS rules on classified systems).
+
         An AuditPolicy fix only ever enables auditing. It turns on the success
         and/or failure directions that the Open rules require, merged per
         subcategory, and never disables a direction.

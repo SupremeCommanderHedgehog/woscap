@@ -245,6 +245,37 @@ Describe 'Get-WoscapRemediationPlan' {
             $action.CheckType | Should -Be 'Registry'
         }
     }
+    It 'honours a Remediate = $false opt-out on an otherwise automatable Registry rule, naming why' {
+        InModuleScope woscap {
+            $rules = @([pscustomobject]@{ StigId = 'R-7'; Title = 'Opted out'; Status = 'Open' })
+            $pack  = @{ 'R-7' = @{ Type = 'Registry'; Path = 'HKLM:\S'; Name = 'N'; Operator = 'eq'; Expected = 1
+                                   Remediate = $false; RemediateReason = 'NA on classified systems' } }
+            $action = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)[0]
+            $action.Automatable  | Should -BeFalse
+            $action.Type         | Should -Be 'Manual'
+            $action.CheckType    | Should -Be 'Registry'
+            $action.ManualReason | Should -Match 'opts this rule out of automatic remediation'
+            $action.ManualReason | Should -Match 'NA on classified systems'
+        }
+    }
+    It 'keeps an opted-out AuditPolicy rule out of its subcategory merge' {
+        InModuleScope woscap {
+            $rules = @(
+                [pscustomobject]@{ StigId = 'A-1'; Title = 's'; Status = 'Open' }
+                [pscustomobject]@{ StigId = 'A-2'; Title = 'f'; Status = 'Open' }
+            )
+            $pack = @{
+                'A-1' = @{ Type = 'AuditPolicy'; Subcategory = 'Logon'; Operator = 'includes'; Expected = 'Success' }
+                'A-2' = @{ Type = 'AuditPolicy'; Subcategory = 'Logon'; Operator = 'includes'; Expected = 'Failure'; Remediate = $false }
+            }
+            $plan = @(Get-WoscapRemediationPlan -FailedRule $rules -ContentPack $pack)
+            $audit = @($plan | Where-Object Automatable)
+            $audit.Count | Should -Be 1
+            @($audit[0].Audit.Directions) | Should -Be @('success')
+            @($audit[0].StigIds) | Should -Be @('A-1')
+            ($plan | Where-Object StigId -eq 'A-2').Type | Should -Be 'Manual'
+        }
+    }
     It 'returns an empty array for no failed rules' {
         InModuleScope woscap {
             @(Get-WoscapRemediationPlan -FailedRule @() -ContentPack @{}).Count | Should -Be 0

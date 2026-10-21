@@ -116,6 +116,15 @@ Describe 'Fail-closed invariant: applicability gates' {
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'Error'
         }
     }
+    It 'a failed RegistryValueIn read yields Error, never NA' {
+        InModuleScope woscap {
+            Clear-WoscapReadCache
+            Mock Get-ItemProperty { throw [System.Security.SecurityException]::new('access denied') }
+            $d = @{ Applicability=@{ RegistryValueIn=@{ Path='HKLM:\X'; Name='V'; Values=@(1, 2) } }
+                    Type='Registry'; Path='HKLM:\Y'; Name='Z'; Operator='eq'; Expected=1 }
+            (Test-Descriptor -Descriptor $d).Result | Should -Be 'Error'
+        }
+    }
 }
 
 Describe 'Fail-closed invariant: empty is still real evidence' {

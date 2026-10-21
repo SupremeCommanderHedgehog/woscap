@@ -42,10 +42,19 @@ Describe 'Test-WoscapDescriptorSchema' {
                 Applicability = @{ DomainJoined=$true; TpmPresent=$true; CameraPresent=$true
                                    BluetoothPresent=$true; HypervisorPresent=$true
                                    OsBuildAtLeast=22000; OsBuildBelow=26100
-                                   RegistryValueEquals=@{ Path='HKLM:\X'; Name='V'; Value=1 } }
+                                   RegistryValueEquals=@{ Path='HKLM:\X'; Name='V'; Value=1 }
+                                   RegistryValueIn=@{ Path='HKLM:\X'; Name='V'; Values=@(1, 2) } }
                 Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1
             }
             @(Test-WoscapDescriptorSchema -Descriptor $d).Count | Should -Be 0
+        }
+    }
+    It 'accepts a boolean Remediate opt-out and rejects a non-boolean one' {
+        InModuleScope woscap {
+            $ok = @{ Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1; Remediate=$false; RemediateReason='why' }
+            @(Test-WoscapDescriptorSchema -Descriptor $ok).Count | Should -Be 0
+            $bad = @{ Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1; Remediate='no' }
+            @(Test-WoscapDescriptorSchema -Descriptor $bad) | Should -Match 'Remediate'
         }
     }
     It 'validates composite children recursively' {
