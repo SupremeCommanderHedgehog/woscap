@@ -1,4 +1,8 @@
 BeforeAll {
+    # Guard (spec 4.9): this run must not create or modify the real per-user settings file.
+    $script:RealSettings = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'woscap\gui-settings.json' } else { $null }
+    function script:Get-RealSettingsStamp { if ($script:RealSettings -and (Test-Path -LiteralPath $script:RealSettings)) { (Get-Item -LiteralPath $script:RealSettings).LastWriteTimeUtc.Ticks } else { 'absent' } }
+    $script:RealBefore = Get-RealSettingsStamp
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
     $script:SpecFields = @('Benchmark', 'XccdfPath', 'Targets', 'Profiles', 'AdvancedExpanded', 'ContentPath',
         'ThrottleLimit', 'JsonPath', 'ExportFormat', 'ContentDestination', 'IntegrationPath', 'Window') | Sort-Object
@@ -282,5 +286,13 @@ Describe 'Resolve-WoscapGuiSettings' {
     It 'never throws on a hashtable of garbage' {
         { Resolve-Raw @{ Benchmark = $null; Profiles = @($null, 5); Window = $null; ThrottleLimit = $null } } | Should -Not -Throw
         @((Resolve-Raw @{ Profiles = @($null, 5) }).Values.Profiles).Count | Should -Be 0
+    }
+}
+
+# Runs last in this file, after every test that could have reached the settings path.
+Describe 'Real %LOCALAPPDATA% guard' {
+    It 'left the real GUI settings file untouched' {
+        if (-not $script:RealSettings) { Set-ItResult -Skipped -Because 'LOCALAPPDATA is not set'; return }
+        Get-RealSettingsStamp | Should -Be $script:RealBefore -Because "tests must mock Get-WoscapGuiSettingsPath, never write $($script:RealSettings)"
     }
 }

@@ -3,6 +3,10 @@ BeforeDiscovery {
     $script:IsSta = [System.Threading.Thread]::CurrentThread.GetApartmentState() -eq 'STA'
 }
 BeforeAll {
+    # Guard (spec 4.9): this run must not create or modify the real per-user settings file.
+    $script:RealSettings = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'woscap\gui-settings.json' } else { $null }
+    function script:Get-RealSettingsStamp { if ($script:RealSettings -and (Test-Path -LiteralPath $script:RealSettings)) { (Get-Item -LiteralPath $script:RealSettings).LastWriteTimeUtc.Ticks } else { 'absent' } }
+    $script:RealBefore = Get-RealSettingsStamp
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
@@ -30,7 +34,7 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
         # Never the real %LOCALAPPDATA%; never a real modal; a fixed 1920x1040 desktop.
         Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }
         Mock -ModuleName woscap Show-WoscapGuiMessage { }
-        Mock -ModuleName woscap Get-WoscapGuiScreenArea { , @(New-Object System.Drawing.Rectangle(0, 0, 1920, 1040)) }
+        Mock -ModuleName woscap Get-WoscapGuiScreenArea { New-Object System.Drawing.Rectangle(0, 0, 1920, 1040) }
 
         $script:Dir = Join-Path $TestDrive 'data'
         New-Item -ItemType Directory -Path $script:Dir -Force | Out-Null
@@ -224,7 +228,7 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
 
         It 'applies bounds on a second screen' {
             Mock -ModuleName woscap Get-WoscapGuiScreenArea {
-                , @((New-Object System.Drawing.Rectangle(0, 0, 1920, 1040)), (New-Object System.Drawing.Rectangle(-1280, 0, 1280, 984)))
+                (New-Object System.Drawing.Rectangle(0, 0, 1920, 1040)), (New-Object System.Drawing.Rectangle(-1280, 0, 1280, 984))
             }
             Save-TestSettings @{ Window = @{ X = -1200; Y = 10; Width = 900; Height = 700; Maximized = $false } }
             InModuleScope woscap {
@@ -417,6 +421,22 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
             }
         }
 
+        It 'centers on the screen holding the window when there are two screens' {
+            Mock -ModuleName woscap Show-WoscapGuiMessage { $true }
+            Mock -ModuleName woscap Get-WoscapGuiScreenArea {
+                (New-Object System.Drawing.Rectangle(0, 0, 1920, 1040)), (New-Object System.Drawing.Rectangle(-1280, 0, 1280, 984))
+            }
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try {
+                    $form.WindowState = 'Normal'
+                    $form.Bounds = New-Object System.Drawing.Rectangle(-1250, 10, 1000, 800)
+                    Reset-WoscapGuiSettings -Tag $form.Tag -Form $form | Should -BeTrue
+                    $form.Bounds | Should -Be (New-Object System.Drawing.Rectangle((-1280 + 190), 142, 900, 700))
+                } finally { $form.Dispose() }
+            }
+        }
+
         It 'saves the defaults again on the next close' {
             Mock -ModuleName woscap Show-WoscapGuiMessage { $true }
             InModuleScope woscap {
@@ -428,5 +448,24 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
             }
             (Get-Content -LiteralPath $script:SettingsFile -Raw | ConvertFrom-Json).Targets | Should -BeExactly ''
         }
+    }
+}
+
+# Unmocked on purpose: callers rely on @(Get-WoscapGuiScreenArea) being flat.
+Describe 'Get-WoscapGuiScreenArea' {
+    It 'emits one Rectangle per screen, not a nested array' {
+        InModuleScope woscap {
+            $areas = @(Get-WoscapGuiScreenArea)
+            $areas.Count | Should -Be ([System.Windows.Forms.Screen]::AllScreens.Length)
+            foreach ($a in $areas) { $a | Should -BeOfType [System.Drawing.Rectangle] }
+        }
+    }
+}
+
+# Runs last in this file, after every test that could have reached the settings path.
+Describe 'Real %LOCALAPPDATA% guard' {
+    It 'left the real GUI settings file untouched' {
+        if (-not $script:RealSettings) { Set-ItResult -Skipped -Because 'LOCALAPPDATA is not set'; return }
+        Get-RealSettingsStamp | Should -Be $script:RealBefore -Because "tests must mock Get-WoscapGuiSettingsPath, never write $($script:RealSettings)"
     }
 }

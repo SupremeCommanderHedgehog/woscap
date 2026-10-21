@@ -11,9 +11,10 @@ function Get-WoscapGuiScreenArea {
         Get-WoscapGuiScreenArea
     #>
     [CmdletBinding()]
-    [OutputType([System.Drawing.Rectangle[]])]
+    [OutputType([System.Drawing.Rectangle])]
     param()
-    , @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object { $_.WorkingArea })
+    # One Rectangle per screen, so @(Get-WoscapGuiScreenArea) is flat.
+    foreach ($s in [System.Windows.Forms.Screen]::AllScreens) { $s.WorkingArea }
 }
 
 function Get-WoscapGuiSettingsState {
@@ -172,12 +173,13 @@ function Import-WoscapGuiSettings {
         $raw = Read-WoscapGuiSettingsFile
         if ($null -eq $raw) { return }
         $resolved = Resolve-WoscapGuiSettings -Raw $raw -Allowed (Get-WoscapGuiSettingsAllowed -Tag $Tag -Form $Form)
-        Set-WoscapGuiSettingsValue -Tag $Tag -Values $resolved.Values
-        if ($resolved.Values.ContainsKey('Window')) {
-            [void](Set-WoscapGuiWindowSettings -Form $Form -Window $resolved.Values['Window'] -Area (Get-WoscapGuiScreenArea))
-        }
+        # Status first: a window failure must not hide the cleared-paths message.
         if ($resolved.Cleared -gt 0) {
             $Tag['Status'].Text = "$($resolved.Cleared) saved path(s) no longer exist and were cleared."
+        }
+        Set-WoscapGuiSettingsValue -Tag $Tag -Values $resolved.Values
+        if ($resolved.Values.ContainsKey('Window')) {
+            [void](Set-WoscapGuiWindowSettings -Form $Form -Window $resolved.Values['Window'] -Area @(Get-WoscapGuiScreenArea))
         }
     } catch {
         Write-Verbose "GUI settings not applied: $($_.Exception.Message)"
