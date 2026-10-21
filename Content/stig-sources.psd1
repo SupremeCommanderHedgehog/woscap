@@ -36,4 +36,12 @@
         Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_Defender_Firewall_V2R2_STIG.zip'
         ScrapePattern = 'Windows[ _]Defender[ _]Firewall'
     }
+
+    # Microsoft Defender Antivirus STIG, V2R10 (benchmark date 2026-09-30). Pack:
+    # Content\DefenderAntivirus. The Url uses the host/path scheme above with the local
+    # archive's file name; it was NOT verified online.
+    DefenderAntivirus = @{
+        Url           = 'https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Defender_Antivirus_V2R10_STIG.zip'
+        ScrapePattern = 'Defender[ _]Antivirus'
+    }
 }

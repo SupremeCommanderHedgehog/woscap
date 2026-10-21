@@ -38,3 +38,34 @@ Describe 'Real Defender Firewall XCCDF smoke' -Skip:(-not (Test-Path (Join-Path 
         ($res | Where-Object StigId -eq 'WNFWA-000002').Status | Should -BeIn @('Open', 'NotAFinding')
     }
 }
+
+Describe 'Real Defender Antivirus XCCDF smoke' -Skip:(-not (Test-Path (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'STIG/U_MS_Defender_Antivirus_V2R10_STIG.zip'))) {
+    BeforeAll {
+        # Read from the licensed archive; the XCCDF is copied only into TestDrive.
+        Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+        $zipPath = Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'STIG/U_MS_Defender_Antivirus_V2R10_STIG.zip'
+        $script:AvXccdf = Join-Path $TestDrive 'U_MS_Defender_Antivirus_STIG_V2R10_Manual-xccdf.xml'
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+        try {
+            $entry = @($zip.Entries | Where-Object { $_.FullName -like '*Manual-xccdf.xml' })[0]
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $script:AvXccdf, $true)
+        } finally { $zip.Dispose() }
+    }
+    It 'parses the real benchmark into 67 rules' {
+        InModuleScope woscap -Parameters @{ Xccdf = $script:AvXccdf } {
+            (Import-Xccdf -Path $Xccdf).Count | Should -Be 67
+        }
+    }
+    It 'runs a read-only scan with every rule authored and Error only on access-protected keys' {
+        $res = Invoke-WoscapScan -XccdfPath $script:AvXccdf -Benchmark DefenderAntivirus -Quiet
+        @($res).Count | Should -Be 67
+        # WNDF-AV-000068 is the only Manual rule.
+        @($res | Where-Object Result -eq 'NotReviewed').StigId | Should -Be @('WNDF-AV-000068')
+        # Exclusions and Policy Manager deny non-elevated reads (and Exclusions may stay hidden
+        # from admins under WNDF-AV-000100); those fail closed. Nothing else may Error.
+        foreach ($e in @($res | Where-Object Result -eq 'Error')) {
+            "$($e.Observed)" | Should -Match 'cannot read HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\(Exclusions|Policy Manager)\\' -Because $e.StigId
+        }
+        ($res | Where-Object StigId -eq 'WNDF-AV-000003').Status | Should -BeIn @('Open', 'NotAFinding')
+    }
+}

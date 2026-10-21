@@ -992,6 +992,38 @@ automated, 1 manual**. Hand-authored from the Manual XCCDF check-content, not ge
 Scan with `Invoke-WoscapScan -XccdfPath <firewall-xccdf> -Benchmark DefenderFirewall`;
 fetch the content via `Save-WoscapStigContent -Benchmark DefenderFirewall -AllowScrape`.
 
+### Microsoft Defender Antivirus pack
+
+**`Content/DefenderAntivirus/checks.psd1`** — Microsoft Defender Antivirus STIG V2R10
+(benchmark date 30 Sep 2026): **67 of 67 rules authored, 66 automated, 1 manual**.
+Hand-authored from the Manual XCCDF check-content, not generated. Every value lives under
+`HKLM\SOFTWARE\Policies\Microsoft\Windows Defender` except `WNDF-AV-000056`
+(`...\Windows Defender Security Center\Family options`).
+
+- **Absent means compliant only where DISA says so.** Rules worded "if the value does not
+  exist, this is not a finding" use `AbsentIsPass` (or `exists $false` where "Not Configured"
+  is the only compliant state: `000004`, `000005`, `000006`). Everywhere else a missing value
+  is a finding.
+- **Intune alternate.** Twelve rules carry DISA's "Alternate Check (if Microsoft Intune
+  applied this setting)". The `...\Windows Defender\Policy Manager` value is consulted only
+  when the GPO value is absent, so a present non-compliant GPO value is never outvoted.
+- **ASR and threat-level values are `REG_SZ`.** ASR rules require `"1"` (block), except
+  `000047`-`000049`, which require `"2"` (audit). Threat levels 5/4/2/1 under
+  `Threats\ThreatSeverityDefaultAction` require `"2"` or `"3"`. ASR fixes are written as
+  `REG_SZ`; set-valued rules (`in`) and composites report `Manual` in remediation.
+- **NA conditions.** `000032`-`000039` are NA before Windows 10 v1709 (`OsBuildAtLeast 16299`).
+  "NA for classified systems" (`000008`-`000011`) and "NA if third-party antivirus is
+  installed" (`000028`, `000029`) cannot be observed; record those in an exception profile.
+- **`WNDF-AV-000068`** (network protection on Windows Server) is `Manual`: it is NA on
+  desktops and woscap has no server fact. The registry value is reported as evidence.
+- **Expect `Error` on a non-elevated scan.** The `Exclusions` and `Policy Manager` keys deny
+  standard users, and `WNDF-AV-000100` (hide exclusions from local admins) can keep
+  `Exclusions` unreadable even when elevated. Those reads fail closed; DISA's note on
+  `000005`-`000007` says to show compliance through Group Policy instead.
+
+Scan with `Invoke-WoscapScan -XccdfPath <antivirus-xccdf> -Benchmark DefenderAntivirus`;
+fetch the content via `Save-WoscapStigContent -Benchmark DefenderAntivirus -AllowScrape`.
+
 ---
 
 ## 10. Architecture & internals
@@ -1160,7 +1192,7 @@ today**. Do not assume they work:
 | **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering (`Invoke-WoscapIntegration`) shipped (#23). |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Partially shipped** (#22). `Invoke-WoscapRemediation` applies **Registry + AuditPolicy** fixes on the **local** host, `-WhatIf`/`-Confirm`-gated (`ConfirmImpact='High'`), with auto re-check; other check types report `Manual`. Ansible remediation-as-code (playbook emitter) shipped in #18. Remote fleet remediation, Service/UserRight/SecEdit application, and rollback remain Phase 4. |
 | **`Get-WoscapBenchmark`** (list cached downloaded STIG content) | **Shipped** (#53). Lists the operator-local download cache (`Save-WoscapStigContent` output) by benchmark + revision; supports `-Benchmark` / `-Destination` filters. |
-| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), application packs for **Edge** and **Chrome** (#21) ship, and **Windows Defender Firewall** V2R2 ships at 21/21 rules (20 automated, 1 manual, #26); Windows Server MS/DC packs remain. |
+| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), application packs for **Edge** and **Chrome** (#21) ship, **Windows Defender Firewall** V2R2 ships at 21/21 rules (20 automated, 1 manual, #26), and **Microsoft Defender Antivirus** V2R10 ships at 67/67 rules (66 automated, 1 manual, #26); Windows Server MS/DC packs remain. |
 
 Per the roadmap, **Phase 2 is complete**: all five reporters, the
 exception/profile system, remote fleet execution over WinRM
