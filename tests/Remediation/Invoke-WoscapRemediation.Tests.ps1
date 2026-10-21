@@ -216,3 +216,24 @@ Describe 'Invoke-WoscapRemediation' {
         }
     }
 }
+
+Describe 'Invoke-WoscapRemediation refuses under WOW64' {
+    It 'refuses <Name> before planning or writing' -ForEach @(
+        @{ Name = 'default';  Extra = @{} }
+        @{ Name = '-WhatIf';  Extra = @{ WhatIf = $true } }
+        @{ Name = '-Force';   Extra = @{ Force = $true } }
+    ) {
+        InModuleScope woscap -Parameters @{ Extra = $Extra } {
+            param($Extra)
+            Mock Test-WoscapWow64Process { $true }
+            Mock Get-WoscapRemediationPlan { throw 'must not plan' }
+            Mock Set-WoscapRegValue { throw 'must not write' }
+            Mock Invoke-AuditPolSet { throw 'must not write' }
+            $open = [pscustomobject]@{ StigId = 'X-1'; Status = 'Open' }
+            { $open | Invoke-WoscapRemediation @Extra } | Should -Throw -ExpectedMessage $script:WoscapWow64RefusalMessage
+            Should -Invoke Get-WoscapRemediationPlan -Times 0 -Exactly
+            Should -Invoke Set-WoscapRegValue -Times 0 -Exactly
+            Should -Invoke Invoke-AuditPolSet -Times 0 -Exactly
+        }
+    }
+}

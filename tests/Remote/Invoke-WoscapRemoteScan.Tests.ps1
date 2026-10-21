@@ -215,4 +215,26 @@ Describe 'Invoke-WoscapRemoteScan' {
             @($res | Where-Object { $null -eq $_ }).Count | Should -Be 0
         }
     }
+
+    It 'turns a WOW64 refusal on one host into one Error row and keeps the others' {
+        InModuleScope woscap {
+            Mock New-PSSession { @($ComputerName | ForEach-Object { [pscustomobject]@{ ComputerName = $_ } }) }
+            Mock Push-WoscapScanPayload { }
+            Mock Remove-WoscapScanPayload { }
+            Mock Remove-WoscapSession { }
+            Mock Invoke-WoscapBatchedScan {
+                [pscustomobject]@{
+                    Results  = @([pscustomobject]@{ Host = 'SRV01'; StigId = 'S1'; Status = 'Open' })
+                    Failures = @{ 'SRV02' = $script:WoscapWow64RefusalMessage }
+                }
+            }
+            $res = @(Invoke-WoscapRemoteScan -ComputerName 'SRV01','SRV02' -Rules @() -ExceptionProfile @{} `
+                -ModuleRoot 'C:\m' -Benchmark 'Windows11' -ContentPath 'C:\m\Content\Windows11' 3>$null)
+            $res.Count | Should -Be 2
+            $bad = @($res | Where-Object { $_.Host -eq 'SRV02' })
+            $bad.Count | Should -Be 1
+            [string]$bad[0].FindingDetails | Should -BeLike '*refusing to run from a 32-bit process*'
+            @($res | Where-Object { $_.Host -eq 'SRV01' }).Count | Should -Be 1
+        }
+    }
 }

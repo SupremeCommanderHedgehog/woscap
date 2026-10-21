@@ -70,6 +70,14 @@ surfaces — exactly the surfaces DISA STIG check text is written against:
 - **Windows PowerShell 5.1** (the manifest pins `PowerShellVersion = '5.1'`).
   The audited-endpoint engine is **zero external dependency** — it uses only
   in-box primitives.
+- **64-bit PowerShell on 64-bit Windows.** woscap refuses to scan or remediate from a
+  32-bit process (WOW64), because Windows would redirect its registry and file reads
+  and writes to the 32-bit views and could produce false Passes. The error reads
+  "woscap: refusing to run from a 32-bit process on 64-bit Windows; ...". From a
+  32-bit host (for example a 32-bit management agent), launch
+  `%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe`. On a remote scan,
+  a target whose session is 32-bit (for example a `Microsoft.PowerShell32` endpoint)
+  reports one Error row and the other hosts are unaffected.
 - **Administrative rights** on the audited host. `secedit`, `auditpol`, and many
   policy registry keys require an elevated session to read reliably.
 - An **XCCDF benchmark file** you supply (see [section 5](#5-obtaining-an-xccdf-benchmark)).
@@ -451,6 +459,8 @@ plus the public `Show-WoscapGui` launcher.
 Applies fixes for **Open** findings on the **local host**, then re-checks each
 rule to confirm the fix took. This is woscap's only deliberate **write** path —
 opt-in and confirmation-gated; the scan/audit path stays strictly read-only.
+
+Remediation refuses to run under WOW64 (32-bit PowerShell on 64-bit Windows), including with `-WhatIf`.
 
 **Scope:** only **Registry** and **AuditPolicy** checks are auto-applied (exact
 parity with the Ansible playbook emitter). Every other check type — UserRight,

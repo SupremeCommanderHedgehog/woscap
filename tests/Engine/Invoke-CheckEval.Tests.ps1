@@ -205,3 +205,30 @@ Describe 'Invoke-CheckEval' {
         }
     }
 }
+
+Describe 'Invoke-CheckEval refuses under WOW64' {
+    BeforeAll {
+        $script:Rules = @(
+            [pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='WNTEST-00-000010'; Severity='medium'; Title='Has check'; Cci=@('CCI-1'); Benchmark='B'; BenchmarkVersion='1' }
+        )
+    }
+    It 'throws the refusal before reading anything' {
+        InModuleScope woscap -Parameters @{ Rules = $script:Rules } {
+            Mock Test-WoscapWow64Process { $true }
+            Mock Clear-WoscapReadCache { }
+            Mock Test-Descriptor { throw 'must not evaluate' }
+            $pack = @{ 'WNTEST-00-000010' = @{ Type='Manual'; Question='q' } }
+            { Invoke-CheckEval -Rules $Rules -ContentPack $pack } |
+                Should -Throw -ExpectedMessage $script:WoscapWow64RefusalMessage
+            Should -Invoke Clear-WoscapReadCache -Times 0 -Exactly
+            Should -Invoke Test-Descriptor -Times 0 -Exactly
+        }
+    }
+    It 'evaluates normally when not WOW64' {
+        InModuleScope woscap -Parameters @{ Rules = $script:Rules } {
+            Mock Test-WoscapWow64Process { $false }
+            $pack = @{ 'WNTEST-00-000010' = @{ Type='Manual'; Question='q' } }
+            @(Invoke-CheckEval -Rules $Rules -ContentPack $pack).Count | Should -Be 1
+        }
+    }
+}
