@@ -1,7 +1,8 @@
 function New-WoscapGuiMenu {
     <#
-        Builds the main MenuStrip. Returns @{ Menu; Run; Remediate; Export; Exit; Advanced; OpenContent;
-        OpenIntegrations; Manual; About } so the form can wire Click handlers. No logic here.
+        Builds the main MenuStrip. Returns @{ Menu; Run; Remediate; Export; Exit; Advanced; ContentDownload;
+        ContentUpdate; ContentRemove; ContentUseForScan; ContentRefresh; OpenContent; OpenIntegrations;
+        Manual; About } so the form can wire Click handlers. No logic here.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -23,6 +24,11 @@ function New-WoscapGuiMenu {
     $run      = & $newItem '&Run' $K::F5
     $remediate = & $newItem '&Remediate...' $null
     $advanced = & $newItem '&Advanced options' $null
+    $contentDownload   = & $newItem '&Download...' $null
+    $contentUpdate     = & $newItem '&Update...' $null
+    $contentRemove     = & $newItem '&Remove...' $null
+    $contentUseForScan = & $newItem 'Use for &scan' $null
+    $contentRefresh    = & $newItem 'Re&fresh' $null
     $openContent      = & $newItem 'Open &Content tab' $null
     $openIntegrations = & $newItem 'Open &Integrations tab' $null
     $manual   = & $newItem 'Open &manual' $null
@@ -35,7 +41,9 @@ function New-WoscapGuiMenu {
     $scan = & $newItem '&Scan' $null
     [void]$scan.DropDownItems.AddRange([System.Windows.Forms.ToolStripItem[]]@($run, $remediate, $advanced))
     $content = & $newItem '&Content' $null
-    [void]$content.DropDownItems.Add($openContent)
+    [void]$content.DropDownItems.AddRange([System.Windows.Forms.ToolStripItem[]]@(
+        $contentDownload, $contentUpdate, $contentRemove, $contentUseForScan, $contentRefresh,
+        (New-Object System.Windows.Forms.ToolStripSeparator), $openContent))
     $integrations = & $newItem '&Integrations' $null
     [void]$integrations.DropDownItems.Add($openIntegrations)
     $help = & $newItem '&Help' $null
@@ -45,6 +53,8 @@ function New-WoscapGuiMenu {
 
     @{
         Menu = $menu; Run = $run; Remediate = $remediate; Export = $export; Exit = $exit; Advanced = $advanced
+        ContentDownload = $contentDownload; ContentUpdate = $contentUpdate; ContentRemove = $contentRemove
+        ContentUseForScan = $contentUseForScan; ContentRefresh = $contentRefresh
         OpenContent = $openContent; OpenIntegrations = $openIntegrations; Manual = $manual; About = $about
     }
 }

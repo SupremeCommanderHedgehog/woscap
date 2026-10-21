@@ -39,6 +39,16 @@ function Get-WoscapGuiOpenPath {
     if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { @($dlg.FileNames) } else { @() }
 }
 
+function Get-WoscapGuiFolderPath {
+    <# Thin seam over FolderBrowserDialog (mock this in tests); the chosen folder or $null. #>
+    [CmdletBinding()]
+    param()
+    $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+    try {
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dlg.SelectedPath } else { $null }
+    } finally { $dlg.Dispose() }
+}
+
 function Invoke-WoscapGuiProfileAdd {
     <# Profiles > Add...: pick one or more .psd1 files and append them. #>
     [CmdletBinding()]

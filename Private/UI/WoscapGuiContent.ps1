@@ -60,3 +60,67 @@ function Get-WoscapGuiContentDestination {
     if ([string]::IsNullOrWhiteSpace($text)) { return $null }
     $text.Trim()
 }
+
+function Update-WoscapGuiContentView {
+    <#
+        Re-lists the cache into the Content grid (row.Tag = the Get-WoscapBenchmark object) and
+        rebuilds the filter from every cached benchmark. Never throws: a failure clears the grid
+        and shows in the status line.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable] $Tag)
+
+    # Rebuilding the filter items raises its SelectedIndexChanged, which calls back here.
+    if ($Tag['ContentRefreshing']) { return }
+    $Tag['ContentRefreshing'] = $true
+    $Tag['ContentLoaded'] = $true
+    $grid = $Tag['ContentGrid']; $filter = $Tag['ContentFilter']
+    try {
+        $grid.Rows.Clear()
+        $splat = @{ ErrorAction = 'Stop' }
+        $destination = Get-WoscapGuiContentDestination -Tag $Tag
+        if ($destination) { $splat['Destination'] = $destination }
+        $all = @(Get-WoscapBenchmark @splat)
+
+        $names = @($all | ForEach-Object { [string]$_.Benchmark } | Sort-Object -Unique)
+        $wanted = [string]$filter.SelectedItem
+        if ($wanted -notin $names) { $wanted = 'All' }
+        $filter.BeginUpdate()
+        try {
+            $filter.Items.Clear()
+            [void]$filter.Items.Add('All')
+            foreach ($n in $names) { [void]$filter.Items.Add($n) }
+            $filter.SelectedItem = $wanted
+        } finally { $filter.EndUpdate() }
+
+        $rows = if ($wanted -eq 'All') { $all } else { @(Get-WoscapBenchmark @splat -Benchmark $wanted) }
+        foreach ($r in $rows) {
+            $hash = [string](Get-WoscapObjectProperty $r 'ContentHash' '')
+            if ($hash.Length -gt 12) { $hash = $hash.Substring(0, 12) }
+            $values = @(
+                [string](Get-WoscapObjectProperty $r 'Benchmark' ''), [string](Get-WoscapObjectProperty $r 'Revision' ''),
+                [string](Get-WoscapObjectProperty $r 'Title' ''), $hash, [string](Get-WoscapObjectProperty $r 'SourceUrl' '')
+            )
+            $idx = $grid.Rows.Add([object[]]$values)
+            $grid.Rows[$idx].Tag = $r
+        }
+        $Tag['ContentStatus'].Text = '{0} cached revision(s) in {1}' -f @($rows).Count, (Get-WoscapContentCacheRoot -Destination $destination)
+    } catch {
+        $grid.Rows.Clear()
+        $Tag['ContentStatus'].Text = 'Refresh failed: ' + $_.Exception.Message
+    } finally {
+        # A rebind must not leave an implicit selection that Remove / Use for scan would act on.
+        $grid.ClearSelection()
+        Update-WoscapGuiContentSelection -Tag $Tag
+        $Tag['ContentRefreshing'] = $false
+    }
+}
+
+function Update-WoscapGuiContentSelection {
+    <# Remove and Use for scan (button + menu) are enabled only while a grid row is selected. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable] $Tag)
+    $selected = $Tag['ContentGrid'].SelectedRows.Count -gt 0
+    Set-WoscapGuiActionEnabled -Tag $Tag -Action ContentRemove -Enabled $selected
+    Set-WoscapGuiActionEnabled -Tag $Tag -Action ContentUseForScan -Enabled $selected
+}
