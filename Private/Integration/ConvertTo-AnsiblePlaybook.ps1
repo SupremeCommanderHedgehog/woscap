@@ -1,4 +1,21 @@
 function ConvertTo-AnsiblePlaybook {
+    <#
+    .SYNOPSIS
+        Renders the remediation plan for failed rules as an Ansible playbook (YAML text).
+    .DESCRIPTION
+        Classification comes from Get-WoscapRemediationPlan. Each registry write is one
+        quoted, idempotent win_regedit task; a multi-write fix gets one task per write, in
+        order, named "(write i of n)". Audit fixes are enable-only win_powershell tasks, and
+        every Manual rule is a "# manual:" comment with its reason.
+    .PARAMETER FailedRule
+        Open findings; each needs StigId and Title.
+    .PARAMETER ContentPack
+        The loaded content pack, keyed by StigId.
+    .OUTPUTS
+        [string] The playbook.
+    .EXAMPLE
+        $yaml = ConvertTo-AnsiblePlaybook -FailedRule $open -ContentPack $pack
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $FailedRule,
@@ -19,16 +36,22 @@ function ConvertTo-AnsiblePlaybook {
     foreach ($action in $plan) {
         switch ($action.Type) {
             'Registry' {
-                $reg = $action.Registry
-                # Quote every scalar so YAML cannot re-type ('yes', '10') or misparse it.
-                # A dword stays a bare integer: the planner guarantees it is an Int32.
-                $data = if ($reg.Kind -eq 'dword') { [string][int]$reg.Data } else { ConvertTo-WoscapYamlString ([string]$reg.Data) }
-                [void]$sb.AppendLine("    - name: $(ConvertTo-WoscapYamlString "$($action.StigId) - $($action.Title)")")
-                [void]$sb.AppendLine('      win_regedit:')
-                [void]$sb.AppendLine("        path: $(ConvertTo-WoscapYamlString ([string]$reg.Path))")
-                [void]$sb.AppendLine("        name: $(ConvertTo-WoscapYamlString ([string]$reg.Name))")
-                [void]$sb.AppendLine("        data: $data")
-                [void]$sb.AppendLine("        type: $(ConvertTo-WoscapYamlString ([string]$reg.Kind))")
+                # One task per write; a multi-write fix numbers its tasks so each name is unique.
+                $writes = @($action.Writes)
+                for ($i = 0; $i -lt $writes.Count; $i++) {
+                    $reg = $writes[$i]
+                    $name = "$($action.StigId) - $($action.Title)"
+                    if ($writes.Count -gt 1) { $name += " (write $($i + 1) of $($writes.Count))" }
+                    # Quote every scalar so YAML cannot re-type ('yes', '10') or misparse it.
+                    # A dword stays a bare integer: the planner guarantees it is an Int32.
+                    $data = if ($reg.Kind -eq 'dword') { [string][int]$reg.Data } else { ConvertTo-WoscapYamlString ([string]$reg.Data) }
+                    [void]$sb.AppendLine("    - name: $(ConvertTo-WoscapYamlString $name)")
+                    [void]$sb.AppendLine('      win_regedit:')
+                    [void]$sb.AppendLine("        path: $(ConvertTo-WoscapYamlString ([string]$reg.Path))")
+                    [void]$sb.AppendLine("        name: $(ConvertTo-WoscapYamlString ([string]$reg.Name))")
+                    [void]$sb.AppendLine("        data: $data")
+                    [void]$sb.AppendLine("        type: $(ConvertTo-WoscapYamlString ([string]$reg.Kind))")
+                }
             }
             'AuditPolicy' {
                 # Enable-only win_powershell task (#21): win_audit_policy_system sets

@@ -95,7 +95,8 @@ Describe 'Firefox pack shape' {
         foreach ($d in $pack.Values) { $d.ContainsKey('AbsentIsPass') | Should -BeFalse }
     }
 
-    It 'automates only the single-value REG_DWORD eq rules' {
+    # All-composites of REG_DWORD eq leaves are one fix writing every leaf in order (#36).
+    It 'automates the REG_DWORD eq rules and composites of them' {
         InModuleScope woscap -Parameters @{ P = $script:PackPath } {
             $pack = Import-ContentPack -Path $P -WarningAction SilentlyContinue
             $rules = @($pack.Keys | ForEach-Object { [pscustomobject]@{ StigId = $_; Title = $_; Status = 'Open' } })
@@ -103,17 +104,19 @@ Describe 'Firefox pack shape' {
             $auto = @($plan | Where-Object { $_.Automatable })
             foreach ($a in $auto) {
                 $desc = $pack[$a.StigId]
-                $desc.Type | Should -Be 'Registry'
-                $desc.Operator | Should -Be 'eq'
-                $a.Registry.Kind | Should -Be 'dword'
-                $a.Registry.Path | Should -Be $desc.Path
-                $a.Registry.Name | Should -Be $desc.Name
+                $leaves = @(if ($desc.Type -eq 'All') { $desc.Checks } else { $desc })
+                @($leaves | ForEach-Object { "$($_.Type)|$($_.Operator)" } | Select-Object -Unique) | Should -Be @('Registry|eq')
+                @($a.Writes | ForEach-Object { "$($_.Path)|$($_.Name)|$($_.Kind)" }) |
+                    Should -Be @($leaves | ForEach-Object { "$($_.Path)|$($_.Name)|dword" })
+            }
+            foreach ($id in 'FFOX-00-000009', 'FFOX-00-000017', 'FFOX-00-000029', 'FFOX-00-000037') {
+                ($plan | Where-Object StigId -eq $id).Automatable | Should -BeTrue
             }
             # Case-sensitive string enums, nested composites and Preferences stay manual.
-            foreach ($id in 'FFOX-00-000002', 'FFOX-00-000021', 'FFOX-00-000009', 'FFOX-00-000017', 'FFOX-00-000029', 'FFOX-00-000037', 'FFOX-00-000003') {
+            foreach ($id in 'FFOX-00-000002', 'FFOX-00-000021', 'FFOX-00-000003') {
                 ($plan | Where-Object StigId -eq $id).Automatable | Should -BeFalse
             }
-            $auto.Count | Should -Be 18
+            $auto.Count | Should -Be 22
         }
     }
 }

@@ -429,9 +429,9 @@ your ticks (a merged audit-policy fix lists every
 STIG ID it covers; manual items are greyed and never applied). **Apply** is never
 the default button, and it is disabled unless woscap runs as administrator. Only
 the ticked fixes are applied; a report then shows each fix's State and After
-status (plus the preview's manual items, and unticked fixes as `Skipped` /
+status, with counts per State, including `PartiallyApplied` (plus the preview's manual items, and unticked fixes as `Skipped` /
 `Not selected`) and offers **Re-scan**, which scans with the same benchmark and
-content path. Once a fix is applied, Remediate stays disabled until a scan
+content path. Once a fix is applied, even partly, Remediate stays disabled until a scan
 completes. If you close the report without re-scanning, the status line notes that the grid predates the fixes.
 Warnings from the preview or the apply appear on the status line, with the
 detail on hover. Audit-policy fixes only enable the required directions
@@ -497,6 +497,43 @@ Every other Registry rule is reported `State='Manual'` with a reason in `Detail`
 - **Rules the content pack opts out** with `Remediate = $false` (for example the
   Defender Antivirus rules that are NA on classified systems). The reason says so.
 
+**Composite (multi-write) fixes (#36):** an `All` rule is fixed automatically when
+all of these hold:
+
+- every child is a Registry value that would be fixed automatically on its own (the
+  rules above: not HKCU, `eq`/`ge`/`le`, an Int32 or string `Expected`, a writable
+  kind, no `Remediate = $false`);
+- no two children write the same value (same `Path` and `Name`, ignoring case);
+- each child is either ungated or gated only by boolean machine facts
+  (`DomainJoined`, `TpmPresent`, `CameraPresent`, `BluetoothPresent`,
+  `HypervisorPresent`, `LocalAdminEnabled`, `AcrobatUnifiedApp`);
+- the rule itself does not set `Remediate = $false`.
+
+The fix writes every child's value, in order, under one confirmation, and `Action`
+lists every write. A child's fact gate does not stop its value being written: every
+value is written unconditionally. woscap's soundness tests prove that the writes
+make the rule pass for every true/false value of the facts its children depend on.
+A gate such as `OsBuildAtLeast` or `RegistryValueEquals` cannot be proven that way,
+so it makes the rule `Manual`.
+
+Writes stop at the first failure, and nothing is rolled back. If no write landed,
+the row is `Failed`. If some landed, the row is `PartiallyApplied`: the rule is
+re-checked once (`After`), and `Detail` names the writes that succeeded, the one
+that failed and those not attempted.
+
+When an `All` cannot be fixed, its reason names the first blocking child and why,
+for example `CheckType 'All' cannot be fixed automatically: child 2 (N): Registry
+path is under HKCU; ...`. An `All` with no Registry child at all keeps the reason
+`CheckType 'All' has no automated remediation.` `Any` composites are always
+`Manual`.
+
+The Ansible emitter writes one `win_regedit` task per write, named
+`(write i of n)`, and the GUI shows the fix as one row, so unticking it skips all
+of its writes. Shipped composites fixed this way: the 19 Acrobat Reader
+FeatureLockDown rules, Firefox `FFOX-00-000009`, `-000017`, `-000029` and
+`-000037`, and Windows 11 `WN11-CC-000039` (the four `runasuser` Classes keys) and
+`WN11-CC-000210` (SmartScreen).
+
 The reason names the operator or the HKCU path. The Ansible playbook emitter
 uses the same rules and writes a `# manual:` line for each of these.
 
@@ -523,8 +560,8 @@ re-runs and the outcome is reported in `After` — `NotAFinding` (fixed), `Open`
 (still failing), or `Error`.
 
 **Elevation:** writing registry / audit policy requires an elevated session. A
-permission error on a single rule surfaces as `State='Failed'` (with the error in
-`Detail`) and the batch continues — one failure never aborts the run.
+permission error on a single rule surfaces as `State='Failed'`, or `'PartiallyApplied'`
+when part of a multi-write fix landed (with the error in `Detail`), and the batch continues — one failure never aborts the run.
 
 ```powershell
 # Plan only — show what would change, write nothing:
@@ -540,7 +577,7 @@ $fixes | Format-Table StigId, State, Before, After, Detail
 Each result is a `RemediationResult`: `Host`, `StigId`, `StigIds` (every
 finding the action covers; a merged audit-policy action lists all of its rules),
 `Title`, `CheckType`,
-`Action`, `State` (`Planned` / `Applied` / `Failed` / `Skipped` / `Manual`),
+`Action`, `State` (`Planned` / `Applied` / `PartiallyApplied` / `Failed` / `Skipped` / `Manual`),
 `Before`, `After`, `Detail`.
 
 > **Known limitation (v1):** for an AuditPolicy subcategory with paired
@@ -921,10 +958,17 @@ An optional `Applicability` hashtable marks a rule Not Applicable from
 
 | Predicate | Argument |
 |---|---|
-| `DomainJoined`, `TpmPresent`, `CameraPresent`, `BluetoothPresent`, `HypervisorPresent`, `LocalAdminEnabled` | `$true` / `$false` |
+| `DomainJoined`, `TpmPresent`, `CameraPresent`, `BluetoothPresent`, `HypervisorPresent`, `LocalAdminEnabled`, `AcrobatUnifiedApp` | `$true` / `$false` |
 | `OsBuildAtLeast`, `OsBuildBelow` | a build number |
 | `RegistryValueEquals` | `@{ Path; Name; Value }` — a **negative** gate: NA *when* the value matches |
 | `RegistryValueIn` | `@{ Path; Name; Values }` — a **negative** gate over a set: NA *when* the value is one of `Values`. Absent applies; unreadable is `Error` |
+
+`AcrobatUnifiedApp` is true when the unified Adobe Acrobat app's key
+`HKLM\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer` exists in the native or the
+`WOW6432Node` view, and false when it exists in neither. Any other failure to read
+either key (for example access denied) is `Error`, never NA. Like every fact it is
+read once per scan. Its NA reason is "Not applicable: the unified Adobe Acrobat app
+is not installed."
 
 Both registry gates match only a value of the right kind. Integer gate values need a
 `REG_DWORD`, and string gate values need a `REG_SZ` or `REG_EXPAND_SZ`. Any other stored kind
@@ -1114,8 +1158,9 @@ fetch the content via `Save-WoscapStigContent -Benchmark DefenderAntivirus -Allo
 ### Mozilla Firefox pack
 
 **`Content/Firefox/checks.psd1`** — Mozilla Firefox STIG V6R9 (benchmark date 30 Sep
-2026): **30 of 33 rules authored, 24 automated, 6 manual**; 18 of them have an automatic
-registry fix in `Invoke-WoscapRemediation`. Hand-authored, not generated. DISA's checks read
+2026): **30 of 33 rules authored, 24 automated, 6 manual**; 22 of them have an automatic
+registry fix in `Invoke-WoscapRemediation`, including the four `All` composites (`000009`,
+`000017`, `000029`, `000037`), which write every value they check (#36). Hand-authored, not generated. DISA's checks read
 `about:policies`, so the policy name and required value come from the check-content and only
 the registry location and type come from Mozilla's
 [policy templates](https://github.com/mozilla/policy-templates) (`windows/firefox.admx`).
@@ -1167,6 +1212,9 @@ the registry location and type come from Mozilla's
   `REG_DWORD` is a `Fail`, as Firefox rejects it. Every `Registry` descriptor sets
   `NameCase = 'Exact'`, because Firefox matches value and subkey names case-sensitively. A
   hand-edited `locked` where Firefox expects `Locked` therefore reads as absent and is `Open`.
+  A fix cannot repair that: writing `Locked` over an existing `locked` keeps the stored
+  name `locked`, so the re-check reports `After = Open`, never `NotAFinding`. Delete the
+  wrongly cased value by hand, then remediate again.
 - **Known limitation.** woscap reads only the named values, so it does not detect a malformed
   sibling value that makes Firefox reject the whole object policy. Group Policy writes
   well-formed values, so this needs hand-edited registry data.
@@ -1177,8 +1225,8 @@ via `Save-WoscapStigContent -Benchmark Firefox -AllowScrape`.
 ### Adobe Acrobat Reader DC pack
 
 **`Content/AcrobatReader/checks.psd1`** — Adobe Acrobat Reader DC Continuous Track STIG V2R1
-(benchmark date 23 Jul 2021): **26 of 26 rules authored, 22 automated, 4 manual**. No rule has
-an automatic fix in `Invoke-WoscapRemediation` (see below). Hand-authored from the Manual
+(benchmark date 23 Jul 2021): **26 of 26 rules authored, 22 automated, 4 manual**. 19 rules
+have an automatic fix in `Invoke-WoscapRemediation` (see below). Hand-authored from the Manual
 XCCDF check-content, not generated, and not DISA content. A wrong path or value would be a
 silent false Pass, so verify against the official release.
 
@@ -1195,15 +1243,18 @@ silent false Pass, so verify against the official release.
   `Acrobat Reader\DC` (Adobe Admin Guide, single installer; Adobe's Acrobat 64-bit enterprise
   notes name `HKLM\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown`). A GPO that writes
   only DISA's `Acrobat Reader` path is not enforced there.
-  - *Detection:* the key `HKLM\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer` exists in the native
-    or the `Wow6432Node` view. The unified app writes its installer state there
-    (`bIsSingleClientApp`, `bIsSCRdrAppInstalled`, `Is64BitProduct`, `DisableMaintenance`). A
-    classic Reader writes it under `Acrobat Reader\DC\Installer`. Each view is also probed by
-    reading `Is64BitProduct`, so an unreadable key is `Error`, never "not detected".
+  - *Detection:* the `AcrobatUnifiedApp` machine fact (see
+    [Applicability](#applicability)): the key `HKLM\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer`
+    exists in the native or the `Wow6432Node` view. The unified app writes its installer state
+    there (`bIsSingleClientApp`, `bIsSCRdrAppInstalled`, `Is64BitProduct`,
+    `DisableMaintenance`). A classic Reader writes it under `Acrobat Reader\DC\Installer`. An
+    unreadable key is `Error`, never "not detected".
   - *When detected,* each FeatureLockDown rule requires DISA's value **and** the same value
     under `HKLM\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\...` (same subkey and
-    name). A value under only one of the two roots is a finding. When not detected, only DISA's
-    path is read.
+    name). A value under only one of the two roots is a finding. Each rule is
+    `All(DISA's value, the Adobe Acrobat value gated on AcrobatUnifiedApp)`.
+  - *When not detected,* only DISA's path counts. The Adobe Acrobat value is NA and is not
+    read, so an unreadable Adobe Acrobat policy key does not make the rule `Error` (#36).
   - *False `Open`.* Acrobat Pro installed next to a classic 32-bit Reader also creates the
     `Adobe Acrobat\DC\Installer` key. Such a host then needs the values under both roots. This
     can report `Open` on a compliant host, but never a false `Pass`.
@@ -1212,14 +1263,17 @@ silent false Pass, so verify against the official release.
   `HKLM\SOFTWARE\Wow6432Node\Adobe\Acrobat Reader\DC\Installer` "for 64 bit". Each branch is
   gated on `Win32_OperatingSystem.OSArchitecture` (`64` or `32`), so the other view can never
   satisfy the rule, and an unknown architecture is a finding. When the unified app is
-  detected, `DisableMaintenance = 1` is also required in the app's own
+  detected (the same `AcrobatUnifiedApp` fact), `DisableMaintenance = 1` is also required in the app's own
   `HKLM\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer` key. It must be in the native view whenever
   that key exists there. Only when the key exists solely under `Wow6432Node` (for example,
   32-bit Acrobat on 64-bit Windows) is the `Wow6432Node` value accepted. A stale Reader value
   alone therefore does not pass.
-- **No automatic remediation.** Every check depends on the OS architecture or on unified-app
-  detection, so no single registry write provably passes on every host (#23). All 26 rules
-  report `Manual` in remediation. A fix must write both roots on a unified-app host.
+- **19 automatic fixes, always to both roots (#36).** Each FeatureLockDown fix writes DISA's
+  value under both `Acrobat Reader\DC\FeatureLockDown` and `Adobe Acrobat\DC\FeatureLockDown`,
+  whether or not the unified app is detected, so the rule passes either way. On a host with
+  Acrobat Pro this also sets those values in the root Pro reads, which hardens Pro the same
+  way. `000025` and `000100` stay `Manual` (`Remediate = $false`, below). `000070` stays
+  `Manual`, because its branches depend on the OS architecture.
 - **NA and risk acceptance are not modelled.** `000025` (`iURLPerms`) accepts `0` only with a
   documented ISSO risk acceptance, and `000100` (SharePoint) is NA when Reader is configured
   for an approved DoD SharePoint server. woscap cannot see either, so both require `1`. They
@@ -1413,7 +1467,7 @@ today**. Do not assume they work:
 | **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering (`Invoke-WoscapIntegration`) shipped (#23). |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Partially shipped** (#22). `Invoke-WoscapRemediation` applies **Registry + AuditPolicy** fixes on the **local** host, `-WhatIf`/`-Confirm`-gated (`ConfirmImpact='High'`), with auto re-check; other check types report `Manual`. Ansible remediation-as-code (playbook emitter) shipped in #18. Remote fleet remediation, Service/UserRight/SecEdit application, and rollback remain Phase 4. |
 | **`Get-WoscapBenchmark`** (list cached downloaded STIG content) | **Shipped** (#53). Lists the operator-local download cache (`Save-WoscapStigContent` output) by benchmark + revision; supports `-Benchmark` / `-Destination` filters. |
-| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), application packs for **Edge** and **Chrome** (#21) ship, **Windows Defender Firewall** V2R2 ships at 21/21 rules (20 automated, 1 manual, #26), **Microsoft Defender Antivirus** V2R10 ships at 67/67 rules (66 automated, 1 manual, #26), **Mozilla Firefox** V6R9 ships at 30/33 rules (24 automated, 6 manual, 3 not authored, #26), and **Adobe Acrobat Reader DC** Continuous V2R1 ships at 26/26 rules (22 automated, 4 manual, #26); Windows Server MS/DC packs remain. |
+| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), application packs for **Edge** and **Chrome** (#21) ship, **Windows Defender Firewall** V2R2 ships at 21/21 rules (20 automated, 1 manual, #26), **Microsoft Defender Antivirus** V2R10 ships at 67/67 rules (66 automated, 1 manual, #26), **Mozilla Firefox** V6R9 ships at 30/33 rules (24 automated, 6 manual, 3 not authored, #26), and **Adobe Acrobat Reader DC** Continuous V2R1 ships at 26/26 rules (22 automated, 4 manual, 19 automatic fixes, #26, #36); Windows Server MS/DC packs remain. |
 
 Per the roadmap, **Phase 2 is complete**: all five reporters, the
 exception/profile system, remote fleet execution over WinRM

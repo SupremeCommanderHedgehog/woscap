@@ -68,7 +68,7 @@ Describe 'R4: one integer classification everywhere' {
             # Planner: an Int32-range integer Expected is written as a DWORD.
             $plan = @(Get-WoscapRemediationPlan -FailedRule @([pscustomobject]@{ StigId='R'; Title='r'; Status='Open' }) `
                         -ContentPack @{ R = @{ Type='Registry'; Path='HKLM:\S'; Name='N'; Operator='eq'; Expected=$V } })[0]
-            ($plan.Automatable -and $plan.Registry.Kind -eq 'dword') | Should -Be $Int
+            ($plan.Automatable -and $plan.Writes[0].Kind -eq 'dword') | Should -Be $Int
         }
     }
     It 'the planner keeps an integer outside Int32 Manual (<Name>)' -ForEach @(

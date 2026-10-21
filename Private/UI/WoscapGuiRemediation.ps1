@@ -175,8 +175,9 @@ function Start-WoscapGuiRemediationApply {
     $onApplied = {
         param($Results)
         $t = $script:WoscapGuiTag
+        # A partial fix changed the host too.
         $t['RemediationApplied'] = @($Results | Where-Object {
-            [string](Get-WoscapObjectProperty $_ 'State' '') -eq 'Applied' }).Count -gt 0
+            [string](Get-WoscapObjectProperty $_ 'State' '') -in @('Applied', 'PartiallyApplied') }).Count -gt 0
         # The grid's Open statuses predate the fix; only a completed scan clears this.
         if ($t['RemediationApplied']) { $t['ResultsStale'] = $true }
         Set-WoscapGuiRemediationBusy -Tag $t -Busy $false

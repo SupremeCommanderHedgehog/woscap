@@ -135,7 +135,7 @@ function Show-WoscapGuiRemediationDialog {
 }
 
 function New-WoscapGuiRemediationReport {
-    <# Builds (does not show) the post-apply report: per-fix State/After plus counts. #>
+    <# Builds (does not show) the post-apply report: per-fix State/After plus counts per State. #>
     [CmdletBinding()]
     [OutputType([System.Windows.Forms.Form])]
     param(
@@ -160,7 +160,7 @@ function New-WoscapGuiRemediationReport {
     $summary = New-Object System.Windows.Forms.Label
     $summary.Dock = 'Fill'; $summary.AutoSize = $true
     $summary.Padding = New-Object System.Windows.Forms.Padding(6)
-    $summary.Text = 'Applied: {0}   Failed: {1}   Skipped: {2}   Manual: {3}' -f (& $count 'Applied'), (& $count 'Failed'), (& $count 'Skipped'), (& $count 'Manual')
+    $summary.Text = 'Applied: {0}   Partially applied: {1}   Failed: {2}   Skipped: {3}   Manual: {4}' -f (& $count 'Applied'), (& $count 'PartiallyApplied'), (& $count 'Failed'), (& $count 'Skipped'), (& $count 'Manual')
 
     $grid = New-Object System.Windows.Forms.DataGridView
     $grid.Dock = 'Fill'; $grid.ReadOnly = $true

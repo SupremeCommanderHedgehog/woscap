@@ -26,7 +26,7 @@ function Test-WoscapApplicability {
     foreach ($name in @($Applicability.Keys)) {
         $arg = $Applicability[$name]
         switch ($name) {
-            { $_ -in @('DomainJoined','TpmPresent','CameraPresent','BluetoothPresent','HypervisorPresent','LocalAdminEnabled') } {
+            { $_ -in $script:WoscapBooleanFacts } {
                 $fact = Get-WoscapMachineFact -Fact $name
                 if (Test-WoscapUnreadable -Value $fact) {
                     return [pscustomobject]@{
@@ -37,14 +37,16 @@ function Test-WoscapApplicability {
                 $actual = [bool]$fact
                 if ($actual -ne [bool]$arg) {
                     $label = switch ($name) {
-                        'DomainJoined'      { if ($actual) { 'is domain-joined' } else { 'is not domain-joined' } }
-                        'TpmPresent'        { if ($actual) { 'has a TPM' }        else { 'has no TPM' } }
-                        'CameraPresent'     { if ($actual) { 'has a camera' }     else { 'has no camera' } }
-                        'BluetoothPresent'  { if ($actual) { 'has Bluetooth' }    else { 'has no Bluetooth' } }
-                        'HypervisorPresent' { if ($actual) { 'has a hypervisor' } else { 'has no hypervisor' } }
-                        'LocalAdminEnabled' { if ($actual) { 'has an enabled local administrator' } else { 'has no enabled local administrator' } }
+                        'DomainJoined'      { if ($actual) { 'system is domain-joined' } else { 'system is not domain-joined' } }
+                        'TpmPresent'        { if ($actual) { 'system has a TPM' }        else { 'system has no TPM' } }
+                        'CameraPresent'     { if ($actual) { 'system has a camera' }     else { 'system has no camera' } }
+                        'BluetoothPresent'  { if ($actual) { 'system has Bluetooth' }    else { 'system has no Bluetooth' } }
+                        'HypervisorPresent' { if ($actual) { 'system has a hypervisor' } else { 'system has no hypervisor' } }
+                        'LocalAdminEnabled' { if ($actual) { 'system has an enabled local administrator' } else { 'system has no enabled local administrator' } }
+                        'AcrobatUnifiedApp' { if ($actual) { 'the unified Adobe Acrobat app is installed' } else { 'the unified Adobe Acrobat app is not installed' } }
+                        default             { throw "woscap: no applicability label for fact '$name'." }
                     }
-                    return [pscustomobject]@{ Applies = $false; Unreadable = $false; Reason = "Not applicable: system $label." }
+                    return [pscustomobject]@{ Applies = $false; Unreadable = $false; Reason = "Not applicable: $label." }
                 }
                 break
             }
