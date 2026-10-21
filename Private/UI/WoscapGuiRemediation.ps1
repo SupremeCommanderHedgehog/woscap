@@ -2,6 +2,7 @@ function Set-WoscapGuiRemediationBusy {
     <# Run and Remediate are mutually exclusive with an in-flight remediation. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable] $Tag, [Parameter(Mandatory)][bool] $Busy, [string] $Status = '')
+    $Tag['Busy'] = if ($Busy) { 'Remediation' } else { $null }
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled (-not $Busy)
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled ((-not $Busy) -and @($Tag['Results']).Count -gt 0 -and -not $Tag['ResultsStale'])
     $Tag['Progress'].Style = if ($Busy) { 'Marquee' } else { 'Continuous' }

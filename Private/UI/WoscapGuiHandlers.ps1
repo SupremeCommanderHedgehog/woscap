@@ -140,6 +140,7 @@ function Invoke-WoscapGuiRun {
         -ThrottleLimit ([int]$Tag['ThrottleLimit'].Value) `
         -JsonPath $jsonPath
 
+    $Tag['Busy'] = 'Scan'
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $false
     Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled $false
     $Tag['Status'].Text = 'Scanning...'
@@ -171,6 +172,7 @@ function Invoke-WoscapGuiRun {
         $t['Status'].Text = 'Done.'
         # Clear any tooltip left by a prior partial scan; OnWarning re-sets it if needed.
         Set-WoscapGuiStatusTip -Tag $t -Text ''
+        $t['Busy'] = $null
         Set-WoscapGuiActionEnabled -Tag $t -Action Run -Enabled $true
     }
     $onWarning = {
@@ -201,6 +203,7 @@ function Invoke-WoscapGuiRun {
         $t['Progress'].Style = 'Continuous'; $t['Progress'].Value = 0
         Set-WoscapGuiStatusTip -Tag $t -Text ''
         $t['Status'].Text = 'Failed.'
+        $t['Busy'] = $null
         Set-WoscapGuiActionEnabled -Tag $t -Action Run -Enabled $true
     }
 
@@ -214,6 +217,7 @@ function Invoke-WoscapGuiRun {
         $Tag['Status'].Text = 'Failed.'
         $Tag['Progress'].Style = 'Continuous'; $Tag['Progress'].Value = 0
         Set-WoscapGuiActionEnabled -Tag $Tag -Action Remediate -Enabled (@($Tag['Results']).Count -gt 0 -and -not $Tag['ResultsStale'])
+        $Tag['Busy'] = $null
         Set-WoscapGuiActionEnabled -Tag $Tag -Action Run -Enabled $true
         return $false
     }

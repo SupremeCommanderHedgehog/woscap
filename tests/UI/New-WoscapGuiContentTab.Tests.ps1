@@ -181,7 +181,7 @@ Describe 'Content tab' -Skip:(-not $script:IsSta) {
         }
     }
 
-    It 'passes the filter as -Benchmark and the trimmed Cache folder as -Destination' {
+    It 'lists once per refresh with the trimmed Cache folder as -Destination and filters in memory' {
         InModuleScope woscap -Parameters @{ Cache = $script:Cache } {
             param($Cache)
             Mock Get-WoscapBenchmark -ParameterFilter { $Destination } {
@@ -195,8 +195,11 @@ Describe 'Content tab' -Skip:(-not $script:IsSta) {
                 $t['ContentDestination'].Text = "  $Cache "
                 Update-WoscapGuiContentView -Tag $t
                 $t['ContentFilter'].SelectedItem = 'Edge'
-                Should -Invoke Get-WoscapBenchmark -ParameterFilter { $Benchmark -eq 'Edge' -and $Destination -eq $Cache }
+                # Two refreshes (initial + filter change), one listing each, never a second -Benchmark call.
+                Should -Invoke Get-WoscapBenchmark -Times 2 -Exactly -ParameterFilter { $Destination -eq $Cache }
+                Should -Invoke Get-WoscapBenchmark -Times 0 -Exactly -ParameterFilter { $Benchmark }
                 $t['ContentGrid'].Rows.Count | Should -Be 1
+                $t['ContentGrid'].Rows[0].Tag.Benchmark | Should -Be 'Edge'
             } finally { $form.Dispose() }
         }
     }

@@ -63,8 +63,10 @@ function New-WoscapMainForm {
         # The Content grid lists the cache on first selection of its tab, not at build time.
         ContentLoaded = $false
         ContentRefreshing = $false
-        # True while a content download/update job runs in the background.
-        ContentBusy = $false
+        # The one background job in flight: 'Scan', 'Remediation', 'Content', or $null.
+        Busy = $null
+        # Resolved cache root the Content grid was last listed from; content actions refuse another.
+        ContentListedRoot = $null
     }
     foreach ($key in $scan.Keys) { if ($key -ne 'TabPage') { $tag[$key] = $scan[$key] } }
     foreach ($key in $content.Keys) { if ($key -ne 'TabPage') { $tag[$key] = $content[$key] } }

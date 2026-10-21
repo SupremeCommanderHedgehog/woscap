@@ -38,7 +38,10 @@ Describe 'Resolve-WoscapGuiDisaTerms' {
         InModuleScope woscap -Parameters @{ Cache = $script:Cache } {
             param($Cache)
             Mock Show-WoscapGuiDisaTermsDialog { throw 'boom' }
-            (Resolve-WoscapGuiDisaTerms -CacheRoot $Cache).Proceed | Should -BeFalse
+            $r = Resolve-WoscapGuiDisaTerms -CacheRoot $Cache
+            $r.Proceed | Should -BeFalse
+            $r.AcceptSwitch | Should -BeFalse
+            $r['Error'] | Should -Match 'boom' -Because 'the caller must show the failure, not a silent cancel'
         }
     }
 

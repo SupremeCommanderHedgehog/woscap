@@ -5,7 +5,7 @@ function Set-WoscapGuiContentBusy {
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable] $Tag, [Parameter(Mandatory)][bool] $Busy, [string] $Status = '')
-    $Tag['ContentBusy'] = $Busy
+    $Tag['Busy'] = if ($Busy) { 'Content' } else { $null }
     Set-WoscapGuiActionEnabled -Tag $Tag -Action ContentDownload -Enabled (-not $Busy)
     Set-WoscapGuiActionEnabled -Tag $Tag -Action ContentUpdate -Enabled (-not $Busy)
     Update-WoscapGuiContentSelection -Tag $Tag
@@ -16,16 +16,38 @@ function Set-WoscapGuiContentBusy {
 }
 
 function Test-WoscapGuiContentIdle {
-    <# $true when a content background job may start; Run is disabled only while a scan or remediation runs. #>
+    <# $true when no scan, remediation or content job is in flight (Tag 'Busy'); otherwise says so. #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][hashtable] $Tag)
-    if ($Tag['ContentBusy']) { return $false }
-    if (-not $Tag['Run'].Enabled) {
-        Show-WoscapGuiMessage -Text 'A scan or remediation is running; wait for it to finish.'
-        return $false
+    $busy = [string]$Tag['Busy']
+    if (-not $busy) { return $true }
+    $what = switch ($busy) { 'Scan' { 'A scan' } 'Remediation' { 'A remediation' } default { 'A content download or update' } }
+    Show-WoscapGuiMessage -Text "$what is running; wait for it to finish."
+    $false
+}
+
+function Get-WoscapGuiContentTarget {
+    <#
+        @{ Destination; Root } for a content action, or $null (after a message) when the Cache
+        folder no longer names the root the grid was listed from: rows must never be acted on
+        against a different cache.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable] $Tag)
+    $destination = Get-WoscapGuiContentDestination -Tag $Tag
+    try {
+        $root = Get-WoscapContentCacheRoot -Destination $destination
+    } catch {
+        Show-WoscapGuiMessage -Text "Cache folder is not a valid path: $($_.Exception.Message)"
+        return $null
     }
-    $true
+    $listed = [string]$Tag['ContentListedRoot']
+    if ($listed -and $root -ne $listed) {
+        Show-WoscapGuiMessage -Text "The Cache folder changed since the list was shown ($listed). Click Refresh first."
+        return $null
+    }
+    @{ Destination = $destination; Root = $root }
 }
 
 function Get-WoscapGuiContentSelectedRow {
@@ -80,11 +102,18 @@ function Invoke-WoscapGuiContentDownload {
     param([Parameter(Mandatory)][hashtable] $Tag)
     $script:WoscapGuiTag = $Tag
     if (-not (Test-WoscapGuiContentIdle -Tag $Tag)) { return }
+    $target = Get-WoscapGuiContentTarget -Tag $Tag
+    if (-not $target) { return }
 
     $request = Show-WoscapGuiDownloadDialog
     if ($null -eq $request) { return }
-    $destination = Get-WoscapGuiContentDestination -Tag $Tag
-    $terms = Resolve-WoscapGuiDisaTerms -CacheRoot (Get-WoscapContentCacheRoot -Destination $destination)
+    $destination = $target.Destination
+    $terms = Resolve-WoscapGuiDisaTerms -CacheRoot $target.Root
+    if ($terms['Error']) {
+        Show-WoscapGuiMessage -Text "Could not show the DISA terms: $($terms['Error'])"
+        $Tag['ContentStatus'].Text = 'Download not started.'
+        return
+    }
     if (-not $terms.Proceed) {
         $Tag['ContentStatus'].Text = 'Download cancelled.'
         return
@@ -96,7 +125,7 @@ function Invoke-WoscapGuiContentDownload {
     if ($request.Force) { $splat['Force'] = $true }
     if ($destination) { $splat['Destination'] = $destination }
     if ($terms.AcceptSwitch) { $splat['AcceptDisaTerms'] = $true }
-    $Tag['ContentJob'] = @{ Benchmark = $splat['Benchmark']; Destination = $destination; Remember = [bool]$terms.Remember }
+    $Tag['ContentJob'] = @{ Benchmark = $splat['Benchmark']; Destination = $destination; Remember = [bool]$terms.Remember; Succeeded = $false }
 
     Set-WoscapGuiContentBusy -Tag $Tag -Busy $true -Status "Downloading $($splat['Benchmark'])..."
 
@@ -113,6 +142,7 @@ function Invoke-WoscapGuiContentDownload {
             Set-WoscapGuiContentBusy -Tag $t -Busy $false -Status 'Download failed.'
             return
         }
+        $job['Succeeded'] = $true
         $note = Save-WoscapGuiDisaTermsChoice -Job $job
         Set-WoscapGuiContentBusy -Tag $t -Busy $false
         # The new revision must be visible to be selected.
@@ -121,13 +151,20 @@ function Invoke-WoscapGuiContentDownload {
             $t['ContentRefreshing'] = $true
             try { $filter.SelectedItem = 'All' } finally { $t['ContentRefreshing'] = $false }
         }
-        Update-WoscapGuiContentView -Tag $t
+        # The job's root, not the Cache folder box, which may have been edited meanwhile.
+        Update-WoscapGuiContentView -Tag $t -Destination $job.Destination
         Select-WoscapGuiContentRow -Tag $t -Path $path
         $t['ContentStatus'].Text = "Downloaded $($job.Benchmark) to $path$note"
     }
+    # Also reached when OnSettled itself throws (the runner's tick catch).
     $onError = {
         param($Message)
         $t = $script:WoscapGuiTag
+        if ($t['ContentJob']['Succeeded']) {
+            Show-WoscapGuiMessage -Text "Download completed, but a follow-up step failed: $Message"
+            Set-WoscapGuiContentBusy -Tag $t -Busy $false -Status 'Download completed; a follow-up step failed.'
+            return
+        }
         Show-WoscapGuiMessage -Text "Download failed: $Message"
         Set-WoscapGuiContentBusy -Tag $t -Busy $false -Status 'Download failed.'
     }
@@ -150,13 +187,15 @@ function Invoke-WoscapGuiContentUpdate {
     param([Parameter(Mandatory)][hashtable] $Tag)
     $script:WoscapGuiTag = $Tag
     if (-not (Test-WoscapGuiContentIdle -Tag $Tag)) { return }
+    $target = Get-WoscapGuiContentTarget -Tag $Tag
+    if (-not $target) { return }
 
     $row = Get-WoscapGuiContentSelectedRow -Tag $Tag
     $benchmark = if ($row) { [string](Get-WoscapObjectProperty $row 'Benchmark' '') } else { '' }
     $options = Show-WoscapGuiUpdateDialog -Benchmark $benchmark
     if ($null -eq $options) { return }
 
-    $destination = Get-WoscapGuiContentDestination -Tag $Tag
+    $destination = $target.Destination
     $base = @{}
     if ($benchmark) {
         $base['Benchmark'] = $benchmark
@@ -165,7 +204,7 @@ function Invoke-WoscapGuiContentUpdate {
     }
     if ($options.AllowScrape) { $base['AllowScrape'] = $true }
     if ($destination) { $base['Destination'] = $destination }
-    $Tag['ContentJob'] = @{ Base = $base; Destination = $destination; Remember = $false }
+    $Tag['ContentJob'] = @{ Base = $base; Destination = $destination; Root = $target.Root; Remember = $false; Succeeded = $false }
 
     $preview = $base.Clone()
     $preview['WhatIf'] = $true
@@ -186,7 +225,12 @@ function Invoke-WoscapGuiContentUpdate {
             return
         }
         $job = $t['ContentJob']
-        $terms = Resolve-WoscapGuiDisaTerms -CacheRoot (Get-WoscapContentCacheRoot -Destination $job.Destination)
+        $terms = Resolve-WoscapGuiDisaTerms -CacheRoot $job.Root
+        if ($terms['Error']) {
+            Show-WoscapGuiMessage -Text "Could not show the DISA terms: $($terms['Error'])"
+            Set-WoscapGuiContentBusy -Tag $t -Busy $false -Status 'Update not started.'
+            return
+        }
         if (-not $terms.Proceed) {
             Set-WoscapGuiContentBusy -Tag $t -Busy $false -Status 'Update cancelled.'
             return
@@ -223,23 +267,28 @@ function Start-WoscapGuiContentUpdateApply {
         param($Results, $Outcome)
         $t = $script:WoscapGuiTag
         if ($Outcome.Kind -eq 'Error') { return }
+        $job = $t['ContentJob']
+        $job['Succeeded'] = $true
         $rows = @($Results)
         $count = { param($s) @($rows | Where-Object { [string](Get-WoscapObjectProperty $_ 'Status' '') -eq $s }).Count }
         $updated = & $count 'Updated'; $current = & $count 'AlreadyCurrent'; $failed = & $count 'Failed'
         # Update reports per-benchmark failures as rows, so success means at least one benchmark got through.
-        $note = if ($updated + $current -gt 0) { Save-WoscapGuiDisaTermsChoice -Job $t['ContentJob'] } else { '' }
+        $note = if ($updated + $current -gt 0) { Save-WoscapGuiDisaTermsChoice -Job $job } else { '' }
         Set-WoscapGuiContentBusy -Tag $t -Busy $false
-        Update-WoscapGuiContentView -Tag $t
+        Update-WoscapGuiContentView -Tag $t -Destination $job.Destination
         $t['ContentStatus'].Text = "Update done: $updated updated, $current already current, $failed failed.$note"
         Show-WoscapGuiUpdateReport -Result $rows
     }
+    # Also reached when OnSettled itself throws (the runner's tick catch).
     $onError = {
         param($Message)
         $t = $script:WoscapGuiTag
-        Show-WoscapGuiMessage -Text "Update failed: $Message"
+        $job = $t['ContentJob']
+        $text = if ($job['Succeeded']) { "Update completed, but a follow-up step failed: $Message" } else { "Update failed: $Message" }
+        Show-WoscapGuiMessage -Text $text
         Set-WoscapGuiContentBusy -Tag $t -Busy $false
-        Update-WoscapGuiContentView -Tag $t
-        $t['ContentStatus'].Text = 'Update failed.'
+        Update-WoscapGuiContentView -Tag $t -Destination $job.Destination
+        $t['ContentStatus'].Text = if ($job['Succeeded']) { 'Update completed; a follow-up step failed.' } else { 'Update failed.' }
     }
 
     try {
@@ -259,12 +308,14 @@ function Invoke-WoscapGuiContentRemove {
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable] $Tag)
     $script:WoscapGuiTag = $Tag
-    if ($Tag['ContentBusy']) { return }
+    if (-not (Test-WoscapGuiContentIdle -Tag $Tag)) { return }
     $row = Get-WoscapGuiContentSelectedRow -Tag $Tag
     if (-not $row) { return }
+    $target = Get-WoscapGuiContentTarget -Tag $Tag
+    if (-not $target) { return }
 
-    $destination = Get-WoscapGuiContentDestination -Tag $Tag
-    $root = Get-WoscapContentCacheRoot -Destination $destination
+    $destination = $target.Destination
+    $root = $target.Root
     $choice = Show-WoscapGuiRemoveDialog -Benchmark ([string](Get-WoscapObjectProperty $row 'Benchmark' '')) `
         -Revision ([string](Get-WoscapObjectProperty $row 'Revision' '')) -CacheRoot $root
     if ($null -eq $choice) { return }
@@ -293,8 +344,10 @@ function Invoke-WoscapGuiContentUseForScan {
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable] $Tag)
+    if (-not (Test-WoscapGuiContentIdle -Tag $Tag)) { return }
     $row = Get-WoscapGuiContentSelectedRow -Tag $Tag
     if (-not $row) { return }
+    if (-not (Get-WoscapGuiContentTarget -Tag $Tag)) { return }
     $benchmark = [string](Get-WoscapObjectProperty $row 'Benchmark' '')
     $Tag['Xccdf'].Text = [string](Get-WoscapObjectProperty $row 'Path' '')
     $pack = Find-WoscapGuiContentPack -Benchmark $benchmark -Available @($Tag['Benchmark'].Items | ForEach-Object { [string]$_ })
@@ -302,6 +355,8 @@ function Invoke-WoscapGuiContentUseForScan {
         $Tag['Benchmark'].SelectedItem = $pack
         $Tag['Status'].Text = "Ready to scan with $benchmark $([string](Get-WoscapObjectProperty $row 'Revision' ''))."
     } else {
+        # A stale pack must not pair with this XCCDF; Run's validation then asks for one.
+        $Tag['Benchmark'].SelectedIndex = -1
         $Tag['Status'].Text = "No content pack for '$benchmark'; results would be Not_Reviewed."
     }
     $Tag['Tabs'].SelectedTab = $Tag['ScanTab']

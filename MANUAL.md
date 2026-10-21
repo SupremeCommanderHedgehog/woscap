@@ -361,7 +361,9 @@ module version; Help > Open manual opens this file.
 The **Content** tab (also the Content menu) manages the operator-local STIG
 cache through the §5.1 cmdlets. **Cache folder** (blank = the default shown
 underneath) is passed as `-Destination` to every action; the grid lists cached
-revisions (`Get-WoscapBenchmark`), narrowed by the **Benchmark** filter.
+revisions (`Get-WoscapBenchmark`), narrowed by the **Benchmark** filter. If you
+edit the Cache folder, click **Refresh** before acting: actions refuse to run
+against a folder other than the one the list came from.
 - **Download…** asks for a benchmark (manifest names, or type your own), an
   optional URL, *look up newest on the DISA page* (`-AllowScrape`) and
   *re-download* (`-Force`), then runs `Save-WoscapStigContent` in the background.
@@ -375,10 +377,12 @@ revisions (`Get-WoscapBenchmark`), narrowed by the **Benchmark** filter.
 - **Remove…** deletes the selected revision, or every revision of that benchmark
   if you choose, after a confirmation that names the cache folder.
 - **Use for scan** puts the selected revision's XCCDF on the Scan tab and selects
-  the matching content pack; if there is none it warns that results would be
-  Not_Reviewed. It never starts a scan.
-Update and Remove only run after their GUI confirmation; no action starts while
-a scan or remediation is running.
+  the matching content pack; if there is none it clears the Benchmark selection
+  (pick one before Run) and warns that results would be Not_Reviewed. It never
+  starts a scan.
+Update and Remove only run after their GUI confirmation. Only one background job
+runs at a time: no content action starts while a scan, remediation, download or
+update is running, and Run/Remediate wait for a content job to finish.
 
 **Remediate…** (Scan tab, or Scan > Remediate…) fixes Open findings on **this
 computer** via `Invoke-WoscapRemediation`. It uses the grid rows you selected

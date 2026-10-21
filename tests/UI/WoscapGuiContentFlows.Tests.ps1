@@ -26,7 +26,7 @@ BeforeAll {
     }
 
     # Every test: no real modal, no network, no real cache, no marker write.
-    function Set-ContentFlowMocks {
+    function Set-ContentFlowMocks([switch] $RealRun) {
         Mock -ModuleName woscap Show-WoscapGuiMessage { }
         Mock -ModuleName woscap Show-WoscapGuiDownloadDialog { $null }
         Mock -ModuleName woscap Show-WoscapGuiUpdateDialog { $null }
@@ -42,7 +42,7 @@ BeforeAll {
         Mock -ModuleName woscap Save-WoscapStigContent { throw 'Save-WoscapStigContent must never run in a GUI test' }
         Mock -ModuleName woscap Update-WoscapBenchmark { throw 'Update-WoscapBenchmark must never run in a GUI test' }
         Mock -ModuleName woscap Invoke-WoscapGuiScan { }
-        Mock -ModuleName woscap Invoke-WoscapGuiRun { $false }
+        if (-not $RealRun) { Mock -ModuleName woscap Invoke-WoscapGuiRun { $false } }
         Mock -ModuleName woscap Resolve-WoscapGuiDisaTerms { @{ Proceed = $true; AcceptSwitch = $false; Remember = $false } }
         Mock -ModuleName woscap Get-WoscapBenchmark {
             if ([string]::IsNullOrWhiteSpace($Destination)) { throw 'test tried to list the real content cache' }
@@ -100,7 +100,7 @@ BeforeAll {
                 foreach ($k in 'ContentDownload','ContentUpdate','MenuContentDownload','MenuContentUpdate','Run','MenuRun') {
                     $T[$k].Enabled | Should -BeTrue -Because "$k must be restored after the content job"
                 }
-                $T['ContentBusy'] | Should -BeFalse
+                $T['Busy'] | Should -BeNullOrEmpty
             }
         }
     }
@@ -291,7 +291,7 @@ Describe 'Invoke-WoscapGuiContentDownload' -Skip:(-not $script:IsSta) {
 
     It 'refuses to start while a scan or remediation is running' {
         InModuleScope woscap {
-            Set-WoscapGuiActionEnabled -Tag $script:form.Tag -Action Run -Enabled $false
+            $script:form.Tag['Busy'] = 'Scan'
             Invoke-WoscapGuiContentDownload -Tag $script:form.Tag
             Should -Invoke Show-WoscapGuiDownloadDialog -Times 0 -Exactly
             Should -Invoke Invoke-WoscapGuiScan -Times 0 -Exactly
@@ -509,7 +509,7 @@ Describe 'Invoke-WoscapGuiContentUpdate' -Skip:(-not $script:IsSta) {
 
     It 'refuses to start while a scan or remediation is running' {
         InModuleScope woscap {
-            Set-WoscapGuiActionEnabled -Tag $script:form.Tag -Action Run -Enabled $false
+            $script:form.Tag['Busy'] = 'Remediation'
             Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
             Should -Invoke Show-WoscapGuiUpdateDialog -Times 0 -Exactly
             Should -Invoke Invoke-WoscapGuiScan -Times 0 -Exactly
@@ -577,6 +577,8 @@ Describe 'Invoke-WoscapGuiContentRemove' -Skip:(-not $script:IsSta) {
         InModuleScope woscap {
             $null = Select-TestRow $script:form.Tag 'Edge' 'V2R1'
             $script:form.Tag['ContentDestination'].Text = '  '
+            # As if the grid had been listed from the default root (the guard mock never lists it).
+            $script:form.Tag['ContentListedRoot'] = Get-WoscapContentCacheRoot
             Mock Show-WoscapGuiRemoveDialog { @{ AllRevisions = $false } }
             Mock Remove-WoscapBenchmark { Save-TestRemoveArgs }
             Invoke-WoscapGuiContentRemove -Tag $script:form.Tag
@@ -650,14 +652,15 @@ Describe 'Invoke-WoscapGuiContentUseForScan' -Skip:(-not $script:IsSta) {
         }
     }
 
-    It 'warns about Not_Reviewed results and leaves the pack alone when no pack matches' {
+    It 'warns about Not_Reviewed results and clears the pack selection when no pack matches' {
         InModuleScope woscap {
             $t = $script:form.Tag
             $t['Benchmark'].SelectedItem = 'Windows11'
             $row = Select-TestRow $t 'Firewall' 'V1R1'
             Invoke-WoscapGuiContentUseForScan -Tag $t
             $t['Xccdf'].Text | Should -BeExactly ([string]$row.Tag.Path)
-            $t['Benchmark'].SelectedItem | Should -Be 'Windows11'
+            # A stale pack must not pair with this XCCDF; Run's validation then asks for one.
+            $t['Benchmark'].SelectedIndex | Should -Be -1
             $t['Status'].Text | Should -Be "No content pack for 'Firewall'; results would be Not_Reviewed."
             $t['Tabs'].SelectedTab | Should -Be $t['ScanTab']
             Should -Invoke Invoke-WoscapGuiRun -Times 0 -Exactly
@@ -672,6 +675,307 @@ Describe 'Invoke-WoscapGuiContentUseForScan' -Skip:(-not $script:IsSta) {
             Invoke-WoscapGuiContentUseForScan -Tag $t
             $t['Xccdf'].Text | Should -Be 'C:\keep.xml'
             $t['Tabs'].SelectedTab | Should -Be $t['ContentTab']
+        }
+    }
+}
+
+Describe 'Shared busy state across scan, remediation and content jobs' -Skip:(-not $script:IsSta) {
+    BeforeEach {
+        Set-ContentFlowMocks -RealRun
+        $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
+        $script:ScanXccdf = Join-Path $TestDrive 'scan-xccdf.xml'
+        Set-Content -LiteralPath $script:ScanXccdf -Value '<Benchmark/>'
+        New-ContentFlowForm $script:Cache
+        InModuleScope woscap -Parameters @{ X = $script:ScanXccdf } {
+            param($X)
+            $t = $script:form.Tag
+            $t['Xccdf'].Text = $X
+            $t['Benchmark'].SelectedItem = 'Windows11'
+            Update-WoscapGuiContentView -Tag $t
+            Mock Get-WoscapGuiSelectedResult { @() }
+            Mock Test-WoscapGuiElevated { $true }
+        }
+    }
+    AfterEach { InModuleScope woscap { $script:form.Dispose() } }
+
+    It 'refuses every content action while a scan runs' {
+        InModuleScope woscap -Parameters @{ X = $script:ScanXccdf } {
+            param($X)
+            $t = $script:form.Tag
+            Mock Invoke-WoscapGuiScan { }
+            Invoke-WoscapGuiRun -Tag $t | Should -BeTrue
+            $t['Busy'] | Should -Be 'Scan'
+            $null = Select-TestRow $t 'Edge' 'V2R1'
+            Invoke-WoscapGuiContentDownload -Tag $t
+            Invoke-WoscapGuiContentUpdate -Tag $t
+            Invoke-WoscapGuiContentRemove -Tag $t
+            Invoke-WoscapGuiContentUseForScan -Tag $t
+            Should -Invoke Show-WoscapGuiDownloadDialog -Times 0 -Exactly
+            Should -Invoke Show-WoscapGuiUpdateDialog -Times 0 -Exactly
+            Should -Invoke Show-WoscapGuiRemoveDialog -Times 0 -Exactly
+            Should -Invoke Remove-WoscapBenchmark -Times 0 -Exactly
+            $t['Xccdf'].Text | Should -Be $X -Because 'Use for scan must not swap the XCCDF under a running scan'
+            Should -Invoke Show-WoscapGuiMessage -Times 4 -Exactly
+            $t['Run'].Enabled | Should -BeFalse
+        }
+    }
+
+    It 'refuses every content action while a remediation runs' {
+        InModuleScope woscap {
+            $t = $script:form.Tag
+            Set-TestScanResults $t
+            Update-WoscapGuiView -Tag $t
+            Mock Invoke-WoscapGuiScan { }
+            Invoke-WoscapGuiRemediate -Tag $t
+            $t['Busy'] | Should -Be 'Remediation'
+            $null = Select-TestRow $t 'Edge' 'V2R1'
+            Invoke-WoscapGuiContentDownload -Tag $t
+            Invoke-WoscapGuiContentRemove -Tag $t
+            Should -Invoke Show-WoscapGuiDownloadDialog -Times 0 -Exactly
+            Should -Invoke Show-WoscapGuiRemoveDialog -Times 0 -Exactly
+            Should -Invoke Show-WoscapGuiMessage -Times 2 -Exactly
+        }
+    }
+
+    It 'marks a content job busy so Run and Remediate stay disabled' {
+        InModuleScope woscap {
+            $t = $script:form.Tag
+            Mock Show-WoscapGuiDownloadDialog { @{ Benchmark = 'Edge'; Url = ''; AllowScrape = $false; Force = $false } }
+            Mock Invoke-WoscapGuiScan { $script:busyKind = $script:form.Tag['Busy'] }
+            Invoke-WoscapGuiContentDownload -Tag $t
+            $script:busyKind | Should -Be 'Content'
+            $t['Run'].Enabled | Should -BeFalse
+        }
+    }
+
+    It 'a scan clears the busy state on <exit>' -ForEach @(
+        @{ exit = 'success' }, @{ exit = 'error' }, @{ exit = 'start-throw' }
+    ) {
+        InModuleScope woscap -Parameters @{ Exit = $exit } {
+            param($Exit)
+            $script:exitKind = $Exit
+            $t = $script:form.Tag
+            Mock Invoke-WoscapGuiScan {
+                switch ($script:exitKind) {
+                    'success' { & $OnComplete -Results @() }
+                    'error' { & $OnError -Message 'scan broke' }
+                    'start-throw' { throw 'runspace exploded' }
+                }
+            }
+            $null = Invoke-WoscapGuiRun -Tag $t
+            $t['Busy'] | Should -BeNullOrEmpty
+            Mock Show-WoscapGuiDownloadDialog { $null }
+            Invoke-WoscapGuiContentDownload -Tag $t
+            Should -Invoke Show-WoscapGuiDownloadDialog -Times 1 -Exactly
+        }
+    }
+
+    It 'a remediation clears the busy state on <exit>' -ForEach @(
+        @{ exit = 'cancel' }, @{ exit = 'nothing' }, @{ exit = 'preview-error' }, @{ exit = 'start-throw' },
+        @{ exit = 'apply-success' }, @{ exit = 'apply-error' }
+    ) {
+        InModuleScope woscap -Parameters @{ Exit = $exit } {
+            param($Exit)
+            $script:exitKind = $Exit
+            $t = $script:form.Tag
+            Set-TestScanResults $t
+            Update-WoscapGuiView -Tag $t
+            $script:plan = @([pscustomobject]@{ StigId = 'R-1'; StigIds = @('R-1'); Title = 'r1'; Action = 'a1'; State = 'Planned'; Detail = '' })
+            $script:inFlight = $null
+            Mock Show-WoscapGuiRemediationDialog { if ($script:exitKind -ne 'cancel') { @('R-1') } }
+            Mock Invoke-WoscapGuiScan {
+                $script:inFlight = $script:form.Tag['Busy']
+                if ($script:exitKind -eq 'start-throw') { throw 'runspace exploded' }
+                if ($ScanParameters.ContainsKey('WhatIf')) {
+                    if ($script:exitKind -eq 'preview-error') { & $OnError -Message 'broke'; return }
+                    $plan = if ($script:exitKind -eq 'nothing') { @() } else { $script:plan }
+                    & $OnSettled -Results $plan -Outcome $script:none
+                } elseif ($script:exitKind -eq 'apply-error') {
+                    & $OnError -Message 'broke'
+                } else {
+                    & $OnComplete -Results @([pscustomobject]@{ StigId = 'R-1'; StigIds = @('R-1'); Title = 'r1'; Action = 'a1'; State = 'Applied'; After = 'NotAFinding'; Detail = '' })
+                }
+            }
+            Invoke-WoscapGuiRemediate -Tag $t
+            $script:inFlight | Should -Be 'Remediation'
+            $t['Busy'] | Should -BeNullOrEmpty
+        }
+    }
+}
+
+Describe 'Content actions target the listed cache root' -Skip:(-not $script:IsSta) {
+    BeforeEach {
+        Set-ContentFlowMocks
+        $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
+        $script:Other = Join-Path $TestDrive ('other-' + [guid]::NewGuid().ToString('N'))
+        New-ContentFlowForm $script:Cache
+        InModuleScope woscap { Update-WoscapGuiContentView -Tag $script:form.Tag }
+    }
+    AfterEach { InModuleScope woscap { $script:form.Dispose() } }
+
+    It 'refuses <action> and asks for Refresh when the Cache folder was edited since the listing' -ForEach @(
+        @{ action = 'Download' }, @{ action = 'Update' }, @{ action = 'Remove' }, @{ action = 'UseForScan' }
+    ) {
+        InModuleScope woscap -Parameters @{ Other = $script:Other; Action = $action } {
+            param($Other, $Action)
+            $t = $script:form.Tag
+            $null = Select-TestRow $t 'Edge' 'V2R1'
+            $t['Xccdf'].Text = 'C:\keep.xml'
+            $t['ContentDestination'].Text = $Other
+            Mock Show-WoscapGuiDownloadDialog { @{ Benchmark = 'Edge'; Url = ''; AllowScrape = $false; Force = $false } }
+            Mock Show-WoscapGuiUpdateDialog { @{ Url = ''; AllowScrape = $false } }
+            Mock Show-WoscapGuiRemoveDialog { @{ AllRevisions = $false } }
+            & "Invoke-WoscapGuiContent$Action" -Tag $t
+            Should -Invoke Invoke-WoscapGuiScan -Times 0 -Exactly
+            Should -Invoke Remove-WoscapBenchmark -Times 0 -Exactly
+            $t['Xccdf'].Text | Should -Be 'C:\keep.xml'
+            Should -Invoke Show-WoscapGuiMessage -Times 1 -Exactly -ParameterFilter { $Text -match 'Refresh' }
+        }
+    }
+
+    It 'proceeds once the edited Cache folder has been listed' {
+        InModuleScope woscap -Parameters @{ Other = $script:Other } {
+            param($Other)
+            $t = $script:form.Tag
+            $t['ContentDestination'].Text = $Other
+            Update-WoscapGuiContentView -Tag $t
+            Mock Show-WoscapGuiUpdateDialog { @{ Url = ''; AllowScrape = $false } }
+            Mock Invoke-WoscapGuiScan { $script:runs.Add(@{ Command = $Command; Params = $ScanParameters.Clone() }) }
+            Invoke-WoscapGuiContentUpdate -Tag $t
+            $script:runs[0].Params['Destination'] | Should -Be $Other
+        }
+    }
+
+    It 'refreshes and selects from the download root even if the Cache folder is edited during the job' {
+        $newXccdf = Add-TestRevision -Root $script:Cache -Bench 'Edge' -Rev 'V2R2' -Hash ('D' * 64) -Title 'Edge STIG'
+        InModuleScope woscap -Parameters @{ NewXccdf = $newXccdf; Other = $script:Other } {
+            param($NewXccdf, $Other)
+            $script:newXccdf = $NewXccdf; $script:other = $Other
+            Mock Show-WoscapGuiDownloadDialog { @{ Benchmark = 'Edge'; Url = ''; AllowScrape = $false; Force = $false } }
+            Mock Invoke-WoscapGuiScan {
+                $script:form.Tag['ContentDestination'].Text = $script:other
+                & $OnSettled -Results @($script:newXccdf) -Outcome $script:none
+            }
+            Invoke-WoscapGuiContentDownload -Tag $script:form.Tag
+            $t = $script:form.Tag
+            $t['ContentGrid'].Rows.Count | Should -Be 4
+            $t['ContentGrid'].SelectedRows[0].Tag.Revision | Should -Be 'V2R2'
+        }
+    }
+
+    It 'refreshes from the update root even if the Cache folder is edited during the job' {
+        InModuleScope woscap -Parameters @{ Other = $script:Other } {
+            param($Other)
+            $script:other = $Other
+            Mock Show-WoscapGuiUpdateDialog { @{ Url = ''; AllowScrape = $false } }
+            Mock Show-WoscapGuiUpdateConfirmDialog { $true }
+            Mock Invoke-WoscapGuiScan {
+                $row = [pscustomobject]@{ Benchmark = 'Edge'; Status = 'WhatIf'; FromRevision = 'V2R1'; ToRevision = ''; Reason = '' }
+                if ($ScanParameters.ContainsKey('WhatIf')) { & $OnSettled -Results @($row) -Outcome $script:none }
+                else {
+                    $script:form.Tag['ContentDestination'].Text = $script:other
+                    & $OnSettled -Results @($row) -Outcome $script:none
+                }
+            }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            $script:form.Tag['ContentGrid'].Rows.Count | Should -Be 3
+        }
+    }
+}
+
+Describe 'Follow-up failures after a successful content job' -Skip:(-not $script:IsSta) {
+    BeforeEach {
+        Set-ContentFlowMocks
+        $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
+        New-ContentFlowForm $script:Cache
+        InModuleScope woscap {
+            $script:shown = @()
+            Mock Show-WoscapGuiMessage { $script:shown += $Text }
+            Mock Resolve-WoscapGuiDisaTerms { @{ Proceed = $true; AcceptSwitch = $true; Remember = $true } }
+        }
+    }
+    AfterEach { InModuleScope woscap { $script:form.Dispose() } }
+
+    It 'reports a failing step after a successful download as completed, and still writes the marker' {
+        InModuleScope woscap {
+            Mock Show-WoscapGuiDownloadDialog { @{ Benchmark = 'Edge'; Url = ''; AllowScrape = $false; Force = $false } }
+            Mock Select-WoscapGuiContentRow { throw 'select broke' }
+            # The runner's tick catch turns a throwing OnSettled into OnError.
+            Mock Invoke-WoscapGuiScan {
+                try { & $OnSettled -Results @('C:\x\Edge\V2R2\U_Edge_Manual-xccdf.xml') -Outcome $script:none }
+                catch { & $OnError -Message $_.Exception.Message }
+            }
+            Invoke-WoscapGuiContentDownload -Tag $script:form.Tag
+            $script:shown.Count | Should -Be 1
+            $script:shown[0] | Should -Match 'completed, but a follow-up step failed: select broke'
+            $script:shown[0] | Should -Not -Match 'Download failed'
+            $script:form.Tag['ContentStatus'].Text | Should -Not -Match 'Download failed'
+            Should -Invoke Write-WoscapDisaTermsMarker -Times 1 -Exactly
+            Assert-TestIdle $script:form.Tag
+        }
+    }
+
+    It 'reports a failing report dialog after a successful update as completed, and still writes the marker' {
+        InModuleScope woscap {
+            Mock Show-WoscapGuiUpdateDialog { @{ Url = ''; AllowScrape = $false } }
+            Mock Show-WoscapGuiUpdateConfirmDialog { $true }
+            Mock Show-WoscapGuiUpdateReport { throw 'report broke' }
+            Mock Invoke-WoscapGuiScan {
+                if ($ScanParameters.ContainsKey('WhatIf')) {
+                    & $OnSettled -Results @([pscustomobject]@{ Benchmark = 'Edge'; Status = 'WhatIf'; FromRevision = 'V2R1'; ToRevision = ''; Reason = '' }) -Outcome $script:none
+                } else {
+                    try { & $OnSettled -Results @([pscustomobject]@{ Benchmark = 'Edge'; Status = 'Updated'; FromRevision = 'V2R1'; ToRevision = 'V2R2'; Reason = '' }) -Outcome $script:none }
+                    catch { & $OnError -Message $_.Exception.Message }
+                }
+            }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            $script:shown.Count | Should -Be 1
+            $script:shown[0] | Should -Match 'completed, but a follow-up step failed: report broke'
+            $script:shown[0] | Should -Not -Match 'Update failed'
+            $script:form.Tag['ContentStatus'].Text | Should -Not -Match 'Update failed'
+            Should -Invoke Write-WoscapDisaTermsMarker -Times 1 -Exactly
+            Assert-TestIdle $script:form.Tag
+        }
+    }
+}
+
+Describe 'DISA terms dialog failure' -Skip:(-not $script:IsSta) {
+    BeforeEach {
+        Set-ContentFlowMocks
+        $script:Cache = New-TestCache (Join-Path $TestDrive ('cache-' + [guid]::NewGuid().ToString('N')))
+        New-ContentFlowForm $script:Cache
+        InModuleScope woscap {
+            # The real gate against a marker-less TestDrive cache, with a dialog that throws.
+            Mock Resolve-WoscapGuiDisaTerms { & (Get-Item -LiteralPath function:Resolve-WoscapGuiDisaTerms) -CacheRoot $CacheRoot }
+            Mock Show-WoscapGuiDisaTermsDialog { throw 'dialog broke' }
+        }
+    }
+    AfterEach { InModuleScope woscap { $script:form.Dispose() } }
+
+    It 'shows the error and downloads nothing' {
+        InModuleScope woscap {
+            Mock Show-WoscapGuiDownloadDialog { @{ Benchmark = 'Edge'; Url = ''; AllowScrape = $false; Force = $false } }
+            Invoke-WoscapGuiContentDownload -Tag $script:form.Tag
+            Should -Invoke Invoke-WoscapGuiScan -Times 0 -Exactly
+            Should -Invoke Write-WoscapDisaTermsMarker -Times 0 -Exactly
+            Should -Invoke Show-WoscapGuiMessage -Times 1 -Exactly -ParameterFilter { $Text -match 'dialog broke' }
+            Assert-TestIdle $script:form.Tag
+        }
+    }
+
+    It 'shows the error and runs no real update' {
+        InModuleScope woscap {
+            Mock Show-WoscapGuiUpdateDialog { @{ Url = ''; AllowScrape = $false } }
+            Mock Show-WoscapGuiUpdateConfirmDialog { $true }
+            Mock Invoke-WoscapGuiScan {
+                $script:runs.Add(@{ Command = $Command; Params = $ScanParameters.Clone() })
+                & $OnSettled -Results @([pscustomobject]@{ Benchmark = 'Edge'; Status = 'WhatIf'; FromRevision = 'V2R1'; ToRevision = ''; Reason = '' }) -Outcome $script:none
+            }
+            Invoke-WoscapGuiContentUpdate -Tag $script:form.Tag
+            $script:runs.Count | Should -Be 1 -Because 'only the preview may run'
+            Should -Invoke Write-WoscapDisaTermsMarker -Times 0 -Exactly
+            Should -Invoke Show-WoscapGuiMessage -Times 1 -Exactly -ParameterFilter { $Text -match 'dialog broke' }
+            Assert-TestIdle $script:form.Tag
         }
     }
 }

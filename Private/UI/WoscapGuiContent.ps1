@@ -9,8 +9,9 @@ function Resolve-WoscapGuiDisaTerms {
     if (Test-WoscapDisaTermsAccepted -CacheRoot $CacheRoot) {
         return @{ Proceed = $true; AcceptSwitch = $false; Remember = $false }
     }
-    # A failing dialog must never count as acceptance.
-    try { $answer = Show-WoscapGuiDisaTermsDialog -Notice (Get-WoscapDisaNotice) } catch { $answer = $null }
+    # A failing dialog must never count as acceptance; Error lets the caller show why.
+    try { $answer = Show-WoscapGuiDisaTermsDialog -Notice (Get-WoscapDisaNotice) }
+    catch { return @{ Proceed = $false; AcceptSwitch = $false; Remember = $false; Error = $_.Exception.Message } }
     if ($null -eq $answer) {
         return @{ Proceed = $false; AcceptSwitch = $false; Remember = $false }
     }
@@ -68,7 +69,11 @@ function Update-WoscapGuiContentView {
         and shows in the status line.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][hashtable] $Tag)
+    param(
+        [Parameter(Mandatory)][hashtable] $Tag,
+        # Lists this root instead of the Cache folder box (a finished job's root; blank = default).
+        [AllowNull()][AllowEmptyString()][string] $Destination
+    )
 
     # Rebuilding the filter items raises its SelectedIndexChanged, which calls back here.
     if ($Tag['ContentRefreshing']) { return }
@@ -78,9 +83,13 @@ function Update-WoscapGuiContentView {
     try {
         $grid.Rows.Clear()
         $splat = @{ ErrorAction = 'Stop' }
-        $destination = Get-WoscapGuiContentDestination -Tag $Tag
+        $destination = if ($PSBoundParameters.ContainsKey('Destination')) { $Destination } else { Get-WoscapGuiContentDestination -Tag $Tag }
         if ($destination) { $splat['Destination'] = $destination }
+        $Tag['ContentListedRoot'] = $null
+        $root = Get-WoscapContentCacheRoot -Destination $destination
         $all = @(Get-WoscapBenchmark @splat)
+        # Content actions act only on the root these rows came from.
+        $Tag['ContentListedRoot'] = $root
 
         $names = @($all | ForEach-Object { [string]$_.Benchmark } | Sort-Object -Unique)
         $wanted = [string]$filter.SelectedItem
@@ -93,7 +102,7 @@ function Update-WoscapGuiContentView {
             $filter.SelectedItem = $wanted
         } finally { $filter.EndUpdate() }
 
-        $rows = if ($wanted -eq 'All') { $all } else { @(Get-WoscapBenchmark @splat -Benchmark $wanted) }
+        $rows = if ($wanted -eq 'All') { $all } else { @($all | Where-Object { [string]$_.Benchmark -eq $wanted }) }
         foreach ($r in $rows) {
             $hash = [string](Get-WoscapObjectProperty $r 'ContentHash' '')
             if ($hash.Length -gt 12) { $hash = $hash.Substring(0, 12) }
@@ -104,7 +113,7 @@ function Update-WoscapGuiContentView {
             $idx = $grid.Rows.Add([object[]]$values)
             $grid.Rows[$idx].Tag = $r
         }
-        $Tag['ContentStatus'].Text = '{0} cached revision(s) in {1}' -f @($rows).Count, (Get-WoscapContentCacheRoot -Destination $destination)
+        $Tag['ContentStatus'].Text = '{0} cached revision(s) in {1}' -f @($rows).Count, $root
     } catch {
         $grid.Rows.Clear()
         $Tag['ContentStatus'].Text = 'Refresh failed: ' + $_.Exception.Message
@@ -120,7 +129,7 @@ function Update-WoscapGuiContentSelection {
     <# Remove and Use for scan (button + menu) are enabled only while a grid row is selected and no content job runs. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable] $Tag)
-    $selected = (-not $Tag['ContentBusy']) -and $Tag['ContentGrid'].SelectedRows.Count -gt 0
+    $selected = ($Tag['Busy'] -ne 'Content') -and $Tag['ContentGrid'].SelectedRows.Count -gt 0
     Set-WoscapGuiActionEnabled -Tag $Tag -Action ContentRemove -Enabled $selected
     Set-WoscapGuiActionEnabled -Tag $Tag -Action ContentUseForScan -Enabled $selected
 }
