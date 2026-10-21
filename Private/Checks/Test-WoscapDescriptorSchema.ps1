@@ -118,6 +118,18 @@ function Test-WoscapDescriptorSchema {
                 if ($validPredicates -notcontains [string]$predicate) {
                     $problems.Add("$Context has unknown applicability predicate '$predicate'")
                 }
+                # The gate matches by kind (integers vs REG_DWORD, strings vs
+                # REG_SZ), so mixed or other value types have no single meaning.
+                $gate = $Descriptor.Applicability[$predicate]
+                if ([string]$predicate -in @('RegistryValueEquals', 'RegistryValueIn') -and $gate -is [hashtable]) {
+                    $gateKey = if ([string]$predicate -eq 'RegistryValueEquals') { 'Value' } else { 'Values' }
+                    $gateValues = @(if ($gate.ContainsKey($gateKey)) { $gate[$gateKey] })
+                    $allInt = @($gateValues | Where-Object { -not ($_ -is [int] -or $_ -is [long] -or $_ -is [uint32]) }).Count -eq 0
+                    $allStr = @($gateValues | Where-Object { $_ -isnot [string] }).Count -eq 0
+                    if ($gateValues.Count -eq 0 -or -not ($allInt -or $allStr)) {
+                        $problems.Add("$Context has a $predicate gate whose $gateKey must be all integers or all strings")
+                    }
+                }
             }
         }
     }

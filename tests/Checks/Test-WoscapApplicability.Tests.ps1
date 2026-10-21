@@ -1,5 +1,6 @@
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
@@ -49,7 +50,7 @@ Describe 'Test-WoscapApplicability' {
     }
     It 'honours RegistryValueEquals' {
         InModuleScope woscap {
-            Mock Get-RegValue { 2 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry 2 }
             $a = @{ RegistryValueEquals = @{ Path='HKLM:\X'; Name='V'; Value=2 } }
             (Test-WoscapApplicability -Applicability $a).Applies | Should -BeFalse
             $b = @{ RegistryValueEquals = @{ Path='HKLM:\X'; Name='V'; Value=9 } }
@@ -59,21 +60,19 @@ Describe 'Test-WoscapApplicability' {
     It 'honours RegistryValueIn: NA only when the value is one of the set' {
         InModuleScope woscap {
             $a = @{ RegistryValueIn = @{ Path='HKLM:\X'; Name='V'; Values=@('2', '3') } }
-            Mock Get-RegValue { '3' }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry '3' }
             (Test-WoscapApplicability -Applicability $a).Applies | Should -BeFalse
-            Mock Get-RegValue { 3 }
-            (Test-WoscapApplicability -Applicability $a).Applies | Should -BeFalse
-            Mock Get-RegValue { '6' }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry '6' }
             (Test-WoscapApplicability -Applicability $a).Applies | Should -BeTrue
-            Mock Get-RegValue { ' 3' }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ' 3' }
             (Test-WoscapApplicability -Applicability $a).Applies | Should -BeTrue
-            Mock Get-RegValue { $null }
+            Mock Get-RegValueEntry { $null }
             (Test-WoscapApplicability -Applicability $a).Applies | Should -BeTrue
         }
     }
     It 'flags Unreadable when a RegistryValueIn gate cannot read the value' {
         InModuleScope woscap {
-            Mock Get-RegValue { New-WoscapUnreadable -Reason 'access denied' }
+            Mock Get-RegValueEntry { New-WoscapUnreadable -Reason 'access denied' }
             $r = Test-WoscapApplicability -Applicability @{ RegistryValueIn = @{ Path='HKLM:\X'; Name='V'; Values=@(0, 1) } }
             $r.Unreadable | Should -BeTrue
             $r.Applies | Should -BeFalse
@@ -101,7 +100,7 @@ Describe 'Test-WoscapApplicability' {
     }
     It 'flags Unreadable when a RegistryValueEquals gate cannot read the value' {
         InModuleScope woscap {
-            Mock Get-RegValue { New-WoscapUnreadable -Reason 'access denied' }
+            Mock Get-RegValueEntry { New-WoscapUnreadable -Reason 'access denied' }
             $a = @{ RegistryValueEquals = @{ Path='HKLM:\X'; Name='V'; Value=2 } }
             (Test-WoscapApplicability -Applicability $a).Unreadable | Should -BeTrue
         }
@@ -152,6 +151,47 @@ Describe 'Get-WoscapMachineFact' {
     It 'rejects an unknown fact name' {
         InModuleScope woscap {
             { Get-WoscapMachineFact -Fact 'Bogus' } | Should -Throw
+        }
+    }
+}
+
+# Spec section 5 (#29): a gate matches only on a compatible kind, so a wrong-kind
+# value can never make a rule Not Applicable.
+Describe 'Registry applicability gates honour the value kind' {
+    BeforeDiscovery {
+        $script:gateCases = foreach ($gate in 'RegistryValueEquals', 'RegistryValueIn') {
+            @{ Gate = $gate; Case = 'int gate, DWord equal';          GateValue = 1;   Stored = 'dword1';  Applies = $false }
+            @{ Gate = $gate; Case = 'int gate, String "1"';           GateValue = 1;   Stored = 'string1'; Applies = $true }
+            @{ Gate = $gate; Case = 'int gate, MultiString with 1';   GateValue = 1;   Stored = 'multi1';  Applies = $true }
+            @{ Gate = $gate; Case = 'int gate, Binary';               GateValue = 1;   Stored = 'binary1'; Applies = $true }
+            @{ Gate = $gate; Case = 'int gate, QWord equal';          GateValue = 1;   Stored = 'qword1';  Applies = $true }
+            @{ Gate = $gate; Case = 'string gate, String equal';      GateValue = '1'; Stored = 'string1'; Applies = $false }
+            @{ Gate = $gate; Case = 'string gate, ExpandString equal'; GateValue = '1'; Stored = 'expand1'; Applies = $false }
+            @{ Gate = $gate; Case = 'string gate, DWord';             GateValue = '1'; Stored = 'dword1';  Applies = $true }
+            @{ Gate = $gate; Case = 'absent';                         GateValue = 1;   Stored = 'absent';  Applies = $true }
+            @{ Gate = $gate; Case = 'unreadable';                     GateValue = 1;   Stored = 'unreadable'; Applies = $false }
+        }
+    }
+    It '<Gate>: <Case>' -ForEach $script:gateCases {
+        InModuleScope woscap -Parameters @{ Gate = $Gate; GateValue = $GateValue; Stored = $Stored; Want = $Applies } {
+            param($Gate, $GateValue, $Stored, $Want)
+            Clear-WoscapReadCache
+            $script:gateEntry = switch ($Stored) {
+                'dword1'     { New-WoscapTestRegEntry 1 }
+                'qword1'     { New-WoscapTestRegEntry ([long]1) }
+                'string1'    { New-WoscapTestRegEntry '1' }
+                'expand1'    { New-WoscapTestRegEntry '1' -Kind ExpandString }
+                'multi1'     { New-WoscapTestRegEntry @('1') }
+                'binary1'    { New-WoscapTestRegEntry ([byte[]]@(1)) }
+                'absent'     { $null }
+                'unreadable' { New-WoscapUnreadable -Reason 'access denied' }
+            }
+            Mock Get-RegValueEntry { $script:gateEntry }
+            $arg = if ($Gate -eq 'RegistryValueEquals') { @{ Path='HKLM:\X'; Name='V'; Value=$GateValue } }
+                   else { @{ Path='HKLM:\X'; Name='V'; Values=@($GateValue, $GateValue) } }
+            $r = Test-WoscapApplicability -Applicability @{ $Gate = $arg }
+            $r.Applies | Should -Be $Want
+            $r.Unreadable | Should -Be ($Stored -eq 'unreadable')
         }
     }
 }

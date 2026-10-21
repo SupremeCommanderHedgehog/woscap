@@ -153,7 +153,6 @@ Describe 'Composite descriptors' {
     }
     It 'reports every child reading in Observed' {
         InModuleScope woscap {
-            Mock Get-RegValue { 7 }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry (7) }
             $d = @{ Type='All'; Checks=@(
                 @{ Type='Registry'; Path='HKLM:\X'; Name='A'; Operator='eq'; Expected=1 }
@@ -164,7 +163,6 @@ Describe 'Composite descriptors' {
     }
     It 'expresses a range excluding zero as an All of ne and le' {
         InModuleScope woscap {
-            Mock Get-RegValue { 0 }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry (0) }
             $d = @{ Type='All'; Checks=@(
                 @{ Type='Registry'; Path='HKLM:\X'; Name='MaximumPasswordAge'; Operator='ne'; Expected=0 }

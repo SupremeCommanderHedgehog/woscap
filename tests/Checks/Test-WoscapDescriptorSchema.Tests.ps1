@@ -204,3 +204,32 @@ Describe 'Shipped content packs pass the descriptor schema' {
         }
     }
 }
+
+Describe 'Test-WoscapDescriptorSchema registry gate value types (#29)' {
+    It 'rejects a RegistryValueIn gate mixing integer and string values' {
+        InModuleScope woscap {
+            $d = @{ Applicability=@{ RegistryValueIn=@{ Path='HKLM:\X'; Name='V'; Values=@(1, '2') } }
+                    Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1 }
+            @(Test-WoscapDescriptorSchema -Descriptor $d) | Should -Match 'RegistryValueIn'
+        }
+    }
+    It 'rejects a RegistryValueEquals gate whose value is neither an integer nor a string' {
+        InModuleScope woscap {
+            $d = @{ Applicability=@{ RegistryValueEquals=@{ Path='HKLM:\X'; Name='V'; Value=$true } }
+                    Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1 }
+            @(Test-WoscapDescriptorSchema -Descriptor $d) | Should -Match 'RegistryValueEquals'
+        }
+    }
+    It 'accepts all-integer and all-string gate values' {
+        InModuleScope woscap {
+            foreach ($a in @(
+                @{ RegistryValueIn=@{ Path='HKLM:\X'; Name='V'; Values=@(1, 2) } }
+                @{ RegistryValueIn=@{ Path='HKLM:\X'; Name='V'; Values=@('2', '3') } }
+                @{ RegistryValueEquals=@{ Path='HKLM:\X'; Name='V'; Value='x' } }
+            )) {
+                $d = @{ Applicability=$a; Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1 }
+                @(Test-WoscapDescriptorSchema -Descriptor $d).Count | Should -Be 0
+            }
+        }
+    }
+}

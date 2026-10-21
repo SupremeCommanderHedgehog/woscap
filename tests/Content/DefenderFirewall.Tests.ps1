@@ -118,7 +118,6 @@ Describe 'Defender Firewall verdicts over generated registry states' {
             $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)[$Rule.Id]
             $bad = New-WoscapUnreadable -Reason 'test: access denied'
             $script:reg = @{}
-            Mock Get-RegValue { $k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null } }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry $($k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null }) }
             Mock Get-WoscapMachineFact { $true } -ParameterFilter { $Fact -eq 'DomainJoined' }
 
@@ -172,7 +171,6 @@ Describe 'Defender Firewall verdicts over generated registry states' {
         InModuleScope woscap -Parameters @{ P = $script:PackPath; Rule = $_ } {
             param($P, $Rule)
             $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)[$Rule.Id]
-            Mock Get-RegValue { $null }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry ($null) }
             Mock Get-WoscapMachineFact { $false } -ParameterFilter { $Fact -eq 'DomainJoined' }
             $offDomain = (Test-Descriptor -Descriptor $d).Result

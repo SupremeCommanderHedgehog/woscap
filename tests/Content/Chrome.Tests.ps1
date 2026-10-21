@@ -49,10 +49,8 @@ Describe 'Chrome content pack' {
     It 'evaluates end-to-end through the engine against a mocked registry read' {
         InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
             $p = Import-ContentPack -Path $PackPath
-            Mock Get-RegValue { 0 }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry (0) }
             (Test-Descriptor -Descriptor $p['DTBC-0011']).Result | Should -Be 'Pass'   # PasswordManagerEnabled=0
-            Mock Get-RegValue { 1 }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) }
             (Test-Descriptor -Descriptor $p['DTBC-0011']).Result | Should -Be 'Fail'
         }

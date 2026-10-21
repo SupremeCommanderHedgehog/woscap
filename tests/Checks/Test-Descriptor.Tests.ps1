@@ -7,7 +7,6 @@ AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 Describe 'Test-Descriptor' {
     It 'passes a Registry descriptor when the value matches' {
         InModuleScope woscap {
-            Mock Get-RegValue { 1 }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) }
             $d = @{ Type='Registry'; Path='HKLM:\X'; Name='EnableLUA'; Operator='eq'; Expected=1 }
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'Pass'
@@ -15,7 +14,6 @@ Describe 'Test-Descriptor' {
     }
     It 'fails a Registry descriptor when the value differs and records Observed' {
         InModuleScope woscap {
-            Mock Get-RegValue { 0 }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry (0) }
             $d = @{ Type='Registry'; Path='HKLM:\X'; Name='EnableLUA'; Operator='eq'; Expected=1 }
             $r = Test-Descriptor -Descriptor $d
@@ -41,7 +39,6 @@ Describe 'Test-Descriptor' {
     }
     It 'returns Error (fail closed) when the check throws' {
         InModuleScope woscap {
-            Mock Get-RegValue { throw 'boom' }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry $(throw 'boom') }
             $d = @{ Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1 }
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'Error'
@@ -49,7 +46,6 @@ Describe 'Test-Descriptor' {
     }
     It 'returns Error (no unhandled throw) when Expected is omitted and the check throws' {
         InModuleScope woscap {
-            Mock Get-RegValue { throw 'boom' }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry $(throw 'boom') }
             $d = @{ Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq' }  # no Expected key
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'Error'
@@ -112,7 +108,6 @@ Describe 'Test-Descriptor' {
     }
     It 'passes an absent registry value when AbsentIsPass is set' {
         InModuleScope woscap {
-            Mock Get-RegValue { $null }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry ($null) }
             $d = @{ Type='Registry'; Path='HKLM:\X'; Name='SafeForScripting'; Operator='ne'; Expected=1; AbsentIsPass=$true }
             $r = Test-Descriptor -Descriptor $d
@@ -122,7 +117,6 @@ Describe 'Test-Descriptor' {
     }
     It 'still evaluates a present value normally when AbsentIsPass is set' {
         InModuleScope woscap {
-            Mock Get-RegValue { 1 }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) }
             $d = @{ Type='Registry'; Path='HKLM:\X'; Name='SafeForScripting'; Operator='ne'; Expected=1; AbsentIsPass=$true }
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'Fail'
@@ -130,7 +124,6 @@ Describe 'Test-Descriptor' {
     }
     It 'fails an absent registry value when AbsentIsPass is not set' {
         InModuleScope woscap {
-            Mock Get-RegValue { $null }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry ($null) }
             $d = @{ Type='Registry'; Path='HKLM:\X'; Name='Missing'; Operator='eq'; Expected=1 }
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'Fail'
@@ -139,7 +132,6 @@ Describe 'Test-Descriptor' {
     It 'returns NA with a reason when applicability is not met' {
         InModuleScope woscap {
             Mock Get-WoscapMachineFact { $false } -ParameterFilter { $Fact -eq 'DomainJoined' }
-            Mock Get-RegValue { throw 'must not be read' }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry $(throw 'must not be read') }
             $d = @{ Applicability=@{ DomainJoined=$true }; Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1 }
             $r = Test-Descriptor -Descriptor $d
@@ -150,7 +142,6 @@ Describe 'Test-Descriptor' {
     It 'evaluates normally when applicability is met' {
         InModuleScope woscap {
             Mock Get-WoscapMachineFact { $true } -ParameterFilter { $Fact -eq 'DomainJoined' }
-            Mock Get-RegValue { 1 }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) }
             $d = @{ Applicability=@{ DomainJoined=$true }; Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1 }
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'Pass'
@@ -320,7 +311,6 @@ Describe 'Test-Descriptor' {
             # A dropped or misspelled Operator is a pack defect. Reporting it as
             # NotReviewed made it indistinguishable from "no check authored" and
             # excluded the rule from the Open count and compliance percentage.
-            Mock Get-RegValue { 0 }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry (0) }
             $r = Test-Descriptor -Descriptor @{ Type='Registry'; Path='HKLM:\X'; Name='NoLMHash'; Expected=1 }
             $r.Result   | Should -Be 'Error'
@@ -329,7 +319,6 @@ Describe 'Test-Descriptor' {
     }
     It 'gathers without judging only when GatherOnly is explicitly set' {
         InModuleScope woscap {
-            Mock Get-RegValue { 7 }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry (7) }
             $r = Test-Descriptor -Descriptor @{ Type='Registry'; Path='HKLM:\X'; Name='Y' } -GatherOnly
             $r.Result   | Should -Be 'NotReviewed'
