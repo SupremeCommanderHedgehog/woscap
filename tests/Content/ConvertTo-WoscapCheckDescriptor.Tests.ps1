@@ -139,3 +139,32 @@ Describe 'ConvertTo-WoscapCheckDescriptor emits the DISA-stated kind' {
         }
     }
 }
+
+# A REG_DWORD above 0x7FFFFFFF reads back as a negative Int32 (#29 review R7).
+Describe 'ConvertTo-WoscapCheckDescriptor high REG_DWORD values' {
+    BeforeAll { . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1') }
+    It 'REG_DWORD = <Raw> passes on a host storing that DWORD (read back as <Signed>)' -ForEach @(
+        @{ Raw = '0x80000000';               Signed = [int]::MinValue }
+        @{ Raw = '0xFFFFFFFF';               Signed = -1 }
+        @{ Raw = '0xFFFFFFFF (4294967295)';  Signed = -1 }
+        @{ Raw = '4294967294';               Signed = -2 }
+        @{ Raw = '0x7FFFFFFF';               Signed = [int]::MaxValue }
+    ) {
+        InModuleScope woscap -Parameters @{ Raw = $Raw; Signed = $Signed } {
+            param($Raw, $Signed)
+            $ct = "Use the Windows Registry Editor to navigate to the following key: HKLM\SOFTWARE\Policies\Microsoft\Edge  If the value for ""Setting"" is not set to ""REG_DWORD = $Raw"", this is a finding."
+            $d = ConvertTo-WoscapCheckDescriptor -Rule (New-Rule $ct)
+            $d.Expected | Should -BeOfType [int]
+            $d.Expected | Should -Be $Signed
+            $script:hiEntry = New-WoscapTestRegEntry ([int]$Signed)
+            Mock Get-RegValueEntry { $script:hiEntry }
+            (Test-Descriptor -Descriptor $d).Result | Should -Be 'Pass'
+        }
+    }
+    It 'a REG_DWORD above 0xFFFFFFFF is not representable and is not emitted' {
+        InModuleScope woscap {
+            $ct = 'Use the Windows Registry Editor to navigate to the following key: HKLM\SOFTWARE\Policies\Microsoft\Edge  If the value for "Setting" is not set to "REG_DWORD = 0x100000000", this is a finding.'
+            ConvertTo-WoscapCheckDescriptor -Rule (New-Rule $ct) | Should -BeNullOrEmpty
+        }
+    }
+}

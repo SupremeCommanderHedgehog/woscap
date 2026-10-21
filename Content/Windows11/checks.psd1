@@ -14,7 +14,10 @@
     'WN11-00-000126' = @{ Type='Registry'; Path='HKLM:\SOFTWARE\Policies\Microsoft\MicrosoftAccount'; Name='DisableUserAuth'; Operator='eq'; Expected=1 }
     'WN11-00-000150' = @{ Type='Registry'; Path='HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel'; Name='DisableExceptionChainValidation'; Operator='eq'; Expected=0 }
     'WN11-00-000165' = @{ Type='Registry'; Path='HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'; Name='SMB1'; Operator='eq'; Expected=0 }
-    'WN11-00-000170' = @{ Type='Registry'; Path='HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'; Name='Start'; Operator='eq'; Expected=4 }
+    # A missing mrxsmb10 key means the SMBv1 client is removed (DISA: NA when WN11-00-000160
+    # is configured); a fix would create a stub service key, so it is never written.
+    'WN11-00-000170' = @{ Type='Registry'; Path='HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'; Name='Start'; Operator='eq'; Expected=4
+        Remediate = $false; RemediateReason = 'writing Start would create a stub mrxsmb10 service key where the SMBv1 client is already removed (DISA: NA when WN11-00-000160 is configured)' }
     'WN11-00-000210' = @{ Applicability=@{ BluetoothPresent=$true }; Type='Registry'; Path='HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Connectivity'; Name='AllowBluetooth'; Operator='eq'; Expected=0 }
     'WN11-AU-000005' = @{ Type='AuditPolicy'; Subcategory='Credential Validation'; Operator='includes'; Expected='Failure' }
     'WN11-AU-000010' = @{ Type='AuditPolicy'; Subcategory='Credential Validation'; Operator='includes'; Expected='Success' }

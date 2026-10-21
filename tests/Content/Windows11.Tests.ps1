@@ -24,8 +24,9 @@ Describe 'Windows11 content pack' {
             foreach ($key in $p.Keys) { $p[$key].Type | Should -BeIn $valid }
         }
     }
-    # Only a REG_DWORD 4 disables SMBv1; a wrong-kind "4" must never pass (#29).
-    It 'WN11-00-000170 SMBv1 override: <Case> gives <Want>' -ForEach @(
+    # DISA states REG_DWORD 4 and "not configured as specified" is a finding, which the
+    # declarative descriptor expresses exactly; no override shadows it (#29 review R2).
+    It 'WN11-00-000170 SMBv1 (declarative): <Case> gives <Want>' -ForEach @(
         @{ Case = 'DWord 4';        Stored = 'dword4';    Want = 'Pass' }
         @{ Case = 'DWord 3';        Stored = 'dword3';    Want = 'Fail' }
         @{ Case = 'String "4"';     Stored = 'string4';   Want = 'Fail' }
@@ -46,8 +47,9 @@ Describe 'Windows11 content pack' {
                 'unreadable' { New-WoscapUnreadable -Reason 'access denied' }
             }
             Mock Get-RegValueEntry { $script:smbEntry } -ParameterFilter { $Path -eq 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10' -and $Name -eq 'Start' }
-            Mock Get-RegValue { throw 'the SMBv1 override must read through Get-RegValueEntry' }
+            Mock Get-RegValue { throw "WN11-00-000170 must read through Get-RegValueEntry" }
             $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            $p['WN11-00-000170'].Type | Should -Be 'Registry'
             (Test-Descriptor -Descriptor $p['WN11-00-000170']).Result | Should -Be $Want
         }
     }

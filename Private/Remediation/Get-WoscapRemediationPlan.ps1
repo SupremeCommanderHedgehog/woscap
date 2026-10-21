@@ -90,8 +90,9 @@ function Get-WoscapRemediationPlan {
                 }
                 $exp = $desc.Expected
                 # REG_DWORD reads back as Int32, so only Int32 values round-trip unchanged.
-                $isInt32 = ($exp -is [int] -or $exp -is [long] -or $exp -is [uint32]) -and
-                           [long]$exp -ge [int]::MinValue -and [long]$exp -le [int]::MaxValue
+                # [decimal] holds every integer type, so a UInt64 cannot overflow the range test.
+                $isInt32 = (Test-WoscapIntegerValue $exp) -and
+                           [decimal]$exp -ge [int]::MinValue -and [decimal]$exp -le [int]::MaxValue
                 # A declared Kind keeps the value's registry type (e.g. a REG_SZ holding a number).
                 $declared = [string]$desc['Kind']
                 if (-not $declared) { $declared = if ($isInt32) { 'dword' } elseif ($exp -is [string]) { 'string' } else { '' } }
@@ -111,6 +112,7 @@ function Get-WoscapRemediationPlan {
                     $actions.Add((& $newManual $stig $title 'Registry' "Registry operator '$op' with Expected '$exp' ($typeName) has no value that is safe to write$kindNote."))
                     break
                 }
+                if ($kind -eq 'dword') { $data = [int]$data }   # e.g. a [byte] Expected is written as Int32
                 $writtenKind = if ($kind -eq 'dword') { 'DWord' } else { 'String' }
                 if (@($required.Kinds) -notcontains $writtenKind) {
                     $actions.Add((& $newManual $stig $title 'Registry' "Registry operator '$op' requires a $(@($required.Kinds) -join ' or ') value, but the only safe write is $writtenKind."))

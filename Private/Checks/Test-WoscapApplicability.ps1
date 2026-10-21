@@ -79,10 +79,10 @@ function Test-WoscapApplicability {
                 # matches, so it can never make a rule NA.
                 $matched = $false
                 if ($null -ne $entry -and $gateValues.Count -gt 0) {
-                    $intGate = @($gateValues | Where-Object { -not ($_ -is [int] -or $_ -is [long] -or $_ -is [uint32]) }).Count -eq 0
+                    $intGate = @($gateValues | Where-Object { -not (Test-WoscapIntegerValue $_) }).Count -eq 0
                     $strGate = @($gateValues | Where-Object { $_ -isnot [string] }).Count -eq 0
                     if ($intGate -and $entry.Kind -eq 'DWord') {
-                        $matched = @($gateValues | ForEach-Object { [long]$_ }) -contains [long]$entry.Value
+                        $matched = @($gateValues | ForEach-Object { [decimal]$_ }) -contains [decimal]$entry.Value
                     } elseif ($strGate -and $entry.Kind -in @('String', 'ExpandString')) {
                         $matched = $gateValues -contains [string]$entry.Value
                     }

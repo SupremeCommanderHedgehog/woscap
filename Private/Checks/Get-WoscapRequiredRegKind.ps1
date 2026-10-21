@@ -16,7 +16,9 @@ function Get-WoscapRequiredRegKind {
         dword/qword need integer Expected values. string/expandstring take
         string Expected values with eq/ne/in/notin/regex, and integer values
         (a REG_SZ holding a number) with eq/ne/ge/le/in/notin. multistring
-        takes the set operators. Any of them may use exists.
+        takes the set operators. Any of them may use exists. A descriptor with
+        a declared Kind and no Operator (Evidence that is reported, never
+        judged) returns the declared Kind's kinds.
 
         Without a declared Kind the kinds are inferred from Operator and the
         element types of Expected:
@@ -25,9 +27,15 @@ function Get-WoscapRequiredRegKind {
             eq ne in notin regex, all strings              -> String, ExpandString
             setequals subsetof supersetof sequence includes -> MultiString
 
-        Every other combination - an unknown Kind or Operator, a missing
-        Operator, an empty or null Expected, mixed element types, ge/le on a
-        string - returns an Error. Binary is never accepted.
+        Integer means any type Test-WoscapIntegerValue accepts. exists and the
+        set operators accept any Expected, including an empty or null one. Every
+        other operator needs at least one Expected element, all integers or all
+        strings as the tables say.
+
+        Every other combination returns an Error. Examples are an unknown Kind
+        or Operator, a missing Operator without a Kind, an empty or null
+        Expected for eq/ne/ge/le/in/notin/regex, mixed element types, and ge/le
+        on a string. Binary is never accepted.
     .PARAMETER Descriptor
         A Registry check descriptor hashtable (Operator, Expected, optional Kind).
     .EXAMPLE
@@ -48,7 +56,24 @@ function Get-WoscapRequiredRegKind {
         $r
     }
 
+    $kindMap = @{
+        'dword'        = @('DWord')
+        'qword'        = @('QWord')
+        'string'       = @('String', 'ExpandString')
+        'expandstring' = @('ExpandString')
+        'multistring'  = @('MultiString')
+    }
+    $kind = $null
+    if ($Descriptor.ContainsKey('Kind')) {
+        $kind = [string]$Descriptor.Kind
+        if (-not $kindMap.ContainsKey($kind) -or $kind -cne $kind.ToLowerInvariant()) {
+            return (& $fail "Registry Kind '$kind' is unknown (expected dword, qword, string, expandstring or multistring)")
+        }
+    }
+
     if (-not $Descriptor.ContainsKey('Operator') -or [string]::IsNullOrEmpty([string]$Descriptor.Operator)) {
+        # Operator-less Evidence is reported, not judged; its declared Kind still says what is expected.
+        if ($kind) { return (& $ok $kindMap[$kind]) }
         return (& $fail 'Registry descriptor declares no Operator, so its value kind cannot be determined')
     }
     $op = [string]$Descriptor.Operator
@@ -57,32 +82,19 @@ function Get-WoscapRequiredRegKind {
     if ($known -notcontains $op) { return (& $fail "Registry operator '$op' is unknown") }
 
     # Classify Expected's elements: 'int', 'string', 'mixed', or 'none'.
-    $intTypes = @([int], [long], [uint32], [int16], [uint16], [uint64], [byte], [sbyte])
     $exp = if ($Descriptor.ContainsKey('Expected')) { $Descriptor.Expected } else { $null }
     $elements = @(if ($null -ne $exp) { $exp })
     $shape = 'none'
     foreach ($e in $elements) {
         $t = if ($null -eq $e) { 'other' }
              elseif ($e -is [string]) { 'string' }
-             elseif (@($intTypes | Where-Object { $e -is $_ }).Count -gt 0) { 'int' }
+             elseif (Test-WoscapIntegerValue $e) { 'int' }
              else { 'other' }
         if ($shape -eq 'none') { $shape = $t } elseif ($shape -ne $t) { $shape = 'mixed' }
     }
     $expDesc = if ($shape -eq 'none') { 'an empty or null Expected' } else { "Expected of element type '$shape'" }
 
-    $kindMap = @{
-        'dword'        = @('DWord')
-        'qword'        = @('QWord')
-        'string'       = @('String', 'ExpandString')
-        'expandstring' = @('ExpandString')
-        'multistring'  = @('MultiString')
-    }
-
-    if ($Descriptor.ContainsKey('Kind')) {
-        $kind = [string]$Descriptor.Kind
-        if (-not $kindMap.ContainsKey($kind) -or $kind -cne $kind.ToLowerInvariant()) {
-            return (& $fail "Registry Kind '$kind' is unknown (expected dword, qword, string, expandstring or multistring)")
-        }
+    if ($kind) {
         if ($op -eq 'exists') { return (& $ok $kindMap[$kind]) }
         $allowed = switch ($kind) {
             { $_ -in @('dword', 'qword') } {

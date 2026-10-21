@@ -31,6 +31,14 @@ function Test-Descriptor {
         $regKind = $null
         switch ($Descriptor.Type) {
             'Registry' {
+                # A descriptor whose kind cannot be resolved is a pack defect, so it
+                # is Error before any read: never Pass via AbsentIsPass, never Fail.
+                if (-not $GatherOnly) {
+                    $kindCheck = Get-WoscapRequiredRegKind -Descriptor $Descriptor
+                    if ($kindCheck.Error) {
+                        return [pscustomobject]@{ Result = 'Error'; Observed = "content pack defect: $($kindCheck.Error)"; Expected = $expected }
+                    }
+                }
                 $readSplat = @{ Path = $Descriptor.Path; Name = $Descriptor.Name }
                 if ($Descriptor.ContainsKey('NameCase') -and [string]$Descriptor.NameCase -eq 'Exact') {
                     $readSplat['ExactNameCase'] = $true
@@ -198,9 +206,6 @@ function Test-Descriptor {
                 Observed = "descriptor of Type '$($Descriptor.Type)' declares no Operator"
                 Expected = $expected
             }
-        }
-        if ($null -ne $requiredKind -and $requiredKind.Error) {
-            return [pscustomobject]@{ Result = 'Error'; Observed = "content pack defect: $($requiredKind.Error)"; Expected = $expected }
         }
         if ($kindMismatch) {
             return [pscustomobject]@{

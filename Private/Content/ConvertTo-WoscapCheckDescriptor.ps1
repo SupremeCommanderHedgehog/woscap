@@ -43,8 +43,13 @@ function ConvertTo-WoscapCheckDescriptor {
                  elseif ($raw -match '0x([0-9a-fA-F]+)') { [Convert]::ToInt64($matches[1], 16) }
                  else                                    { [int64] $raw }
         } catch { return $null }   # value outside Int64 range -> fail closed, don't crash generation
-        $expected = if ($type -eq 'REG_QWORD') { [long] $n }
-                    elseif ($n -ge [int]::MinValue -and $n -le [int]::MaxValue) { [int] $n } else { $n }
+        if ($type -eq 'REG_QWORD') {
+            $expected = [long] $n
+        } else {
+            # A REG_DWORD reads back as a signed Int32, so 0x80000000-0xFFFFFFFF become negative.
+            if ($n -lt [int]::MinValue -or $n -gt 4294967295) { return $null }
+            $expected = if ($n -gt [int]::MaxValue) { [int] ($n - 4294967296) } else { [int] $n }
+        }
         # A wrong stored kind fails the check (#29); an undeclared integer Expected means REG_DWORD.
         if ($type -eq 'REG_QWORD') { $kind = 'qword' }
     } elseif ($type -in @('REG_SZ', 'REG_EXPAND_SZ')) {

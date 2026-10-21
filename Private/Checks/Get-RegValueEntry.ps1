@@ -41,6 +41,8 @@ function Get-RegValueEntry {
         [Parameter(Mandatory)] [string] $Name,
         [switch] $ExactNameCase
     )
+    # Every RegistryKey obtained here, including the Get-Item one, is disposed
+    # in finally, so a scan never accumulates open registry handles.
     $opened = New-Object System.Collections.Generic.List[object]
     try {
         if ($ExactNameCase) {
@@ -48,6 +50,7 @@ function Get-RegValueEntry {
             # only visible by enumerating each parent.
             $m = [regex]::Match($Path, '^(?<root>(?:(?:Microsoft\.PowerShell\.Core\\)?Registry::)?[^\\]+)(?:\\(?<rest>.*))?$')
             $key = Get-Item -LiteralPath ($m.Groups['root'].Value + '\') -ErrorAction Stop
+            $opened.Add($key)
             foreach ($segment in @($m.Groups['rest'].Value -split '\\' | Where-Object { $_ })) {
                 if (-not (@($key.GetSubKeyNames()) -ccontains $segment)) { return $null }
                 $key = $key.OpenSubKey($segment)
@@ -57,10 +60,14 @@ function Get-RegValueEntry {
             if (-not (@($key.GetValueNames()) -ccontains $Name)) { return $null }
         } else {
             $key = Get-Item -LiteralPath $Path -ErrorAction Stop
-            if (-not (@($key.GetValueNames()) -contains $Name)) { return $null }
+            $opened.Add($key)
         }
+        # A private default object marks "no such value" without enumerating names.
+        $missing = New-Object System.Object
+        $value = $key.GetValue($Name, $missing)
+        if ([object]::ReferenceEquals($value, $missing)) { return $null }
         [pscustomobject]@{
-            Value = $key.GetValue($Name)
+            Value = $value
             Kind  = $key.GetValueKind($Name).ToString()
         }
     } catch {
@@ -71,6 +78,6 @@ function Get-RegValueEntry {
             New-WoscapUnreadable -Reason "cannot read ${Path}\${Name}: $($_.Exception.Message)"
         }
     } finally {
-        foreach ($k in $opened) { $k.Close() }
+        foreach ($k in $opened) { $k.Dispose() }
     }
 }
