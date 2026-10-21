@@ -1110,6 +1110,78 @@ the registry location and type come from Mozilla's
 Scan with `Invoke-WoscapScan -XccdfPath <firefox-xccdf> -Benchmark Firefox`; fetch the content
 via `Save-WoscapStigContent -Benchmark Firefox -AllowScrape`.
 
+### Adobe Acrobat Reader DC pack
+
+**`Content/AcrobatReader/checks.psd1`** — Adobe Acrobat Reader DC Continuous Track STIG V2R1
+(benchmark date 23 Jul 2021): **26 of 26 rules authored, 22 automated, 4 manual**. No rule has
+an automatic fix in `Invoke-WoscapRemediation` (see below). Hand-authored from the Manual
+XCCDF check-content, not generated, and not DISA content. A wrong path or value would be a
+silent false Pass, so verify against the official release.
+
+- **Where DISA's values live.** 21 rules read one `REG_DWORD` under
+  `HKLM\Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown` or its subkeys
+  `cCloud`, `cDefaultLaunchURLPerms`, `cServices`, `cSharePoint`, `cWebmailProfiles` and
+  `cWelcomeScreen`. `HKLM\SOFTWARE\Policies` is shared between the 32- and 64-bit registry
+  views, so these reads do not depend on Reader's or woscap's bitness.
+- **Value required; absence is a finding.** Every rule says "... or does not exist, then this
+  is a finding". No rule uses `AbsentIsPass`.
+- **Unified Acrobat app.** 64-bit Reader ships as the single Acrobat app running in Reader
+  mode, and Adobe migrates existing installs to it. That app shares one executable and
+  registry hive with Acrobat, under the `Adobe Acrobat\DC` product root rather than
+  `Acrobat Reader\DC` (Adobe Admin Guide, single installer; Adobe's Acrobat 64-bit enterprise
+  notes name `HKLM\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown`). A GPO that writes
+  only DISA's `Acrobat Reader` path is not enforced there.
+  - *Detection:* the key `HKLM\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer` exists in the native
+    or the `Wow6432Node` view. The unified app writes its installer state there
+    (`bIsSingleClientApp`, `bIsSCRdrAppInstalled`, `Is64BitProduct`, `DisableMaintenance`). A
+    classic Reader writes it under `Acrobat Reader\DC\Installer`. Each view is also probed by
+    reading `Is64BitProduct`, so an unreadable key is `Error`, never "not detected".
+  - *When detected,* each FeatureLockDown rule requires DISA's value **and** the same value
+    under `HKLM\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\...` (same subkey and
+    name). A value under only one of the two roots is a finding. When not detected, only DISA's
+    path is read.
+  - *False `Open`.* Acrobat Pro installed next to a classic 32-bit Reader also creates the
+    `Adobe Acrobat\DC\Installer` key. Such a host then needs the values under both roots. This
+    can report `Open` on a compliant host, but never a false `Pass`.
+- **`ARDC-CN-000070` (repair installation) picks the view by OS bitness.** DISA names
+  `HKLM\Software\Adobe\Acrobat Reader\DC\Installer` "for 32 bit" and
+  `HKLM\SOFTWARE\Wow6432Node\Adobe\Acrobat Reader\DC\Installer` "for 64 bit". Each branch is
+  gated on `Win32_OperatingSystem.OSArchitecture` (`64` or `32`), so the other view can never
+  satisfy the rule, and an unknown architecture is a finding. When the unified app is
+  detected, `DisableMaintenance = 1` is also required in the app's own
+  `HKLM\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer` key. It must be in the native view whenever
+  that key exists there. Only when the key exists solely under `Wow6432Node` (for example,
+  32-bit Acrobat on 64-bit Windows) is the `Wow6432Node` value accepted. A stale Reader value
+  alone therefore does not pass.
+- **No automatic remediation.** Every check depends on the OS architecture or on unified-app
+  detection, so no single registry write provably passes on every host (#23). All 26 rules
+  report `Manual` in remediation. A fix must write both roots on a unified-app host.
+- **NA and risk acceptance are not modelled.** `000025` (`iURLPerms`) accepts `0` only with a
+  documented ISSO risk acceptance, and `000100` (SharePoint) is NA when Reader is configured
+  for an approved DoD SharePoint server. woscap cannot see either, so both require `1`. They
+  also set `Remediate = $false`. Record the exception in an exception profile.
+- **HKCU rules are `Manual`** (`000330`, `000335`, `000345`). DISA checks
+  `HKCU\Software\Adobe\Acrobat Reader\DC\...`, and `HKCU` is the hive of the account running
+  the scan (see [Known limitation: `HKCU` rules](#known-limitation-hkcu-rules)). On a
+  unified-app host the effective per-user values are under
+  `HKCU\Software\Adobe\Adobe Acrobat\DC\...`. The evidence shows the scanning account's value
+  under both roots, and the reviewer confirms each Reader user's profile.
+- **`000340` (latest security updates) is `Manual`.**
+- **No install gate.** As with the other application packs, there is no "Reader installed"
+  check. Scanning a host without Reader reports the policy rules `Open`.
+- **Known limitation: value type is ignored (#29).** DISA requires `REG_DWORD`, but all 22
+  automated rules also pass on:
+  - a `REG_SZ` that is exactly the required digit (`"0"`, `"1"`, `"2"` or `"3"`);
+  - a `REG_QWORD` with the required value;
+  - a `REG_MULTI_SZ` containing that digit;
+  - a `REG_BINARY` with a byte equal to the required value. For `Expected = 0` it needs at
+    least two zero bytes, because a single matching `0` is falsy.
+
+  Group Policy writes `REG_DWORD`, so this exposure needs a hand edit.
+
+Scan with `Invoke-WoscapScan -XccdfPath <reader-xccdf> -Benchmark AcrobatReader`; fetch the
+content via `Save-WoscapStigContent -Benchmark AcrobatReader -AllowScrape`.
+
 ---
 
 ## 10. Architecture & internals
@@ -1278,7 +1350,7 @@ today**. Do not assume they work:
 | **Bundled integration plugins** (OpenVAS / Ansible / Zabbix under `Integrations/`) | **Shipped** (#17 / #18 / #19). Report ingest + correlation, inventory targets + playbook remediation, and sender-protocol metrics. Live OpenVAS GMP triggering (`Invoke-WoscapIntegration`) shipped (#23). |
 | **Remediation** (`Invoke-WoscapRemediation`, gated in-place fixes, Ansible remediation-as-code) | **Partially shipped** (#22). `Invoke-WoscapRemediation` applies **Registry + AuditPolicy** fixes on the **local** host, `-WhatIf`/`-Confirm`-gated (`ConfirmImpact='High'`), with auto re-check; other check types report `Manual`. Ansible remediation-as-code (playbook emitter) shipped in #18. Remote fleet remediation, Service/UserRight/SecEdit application, and rollback remain Phase 4. |
 | **`Get-WoscapBenchmark`** (list cached downloaded STIG content) | **Shipped** (#53). Lists the operator-local download cache (`Save-WoscapStigContent` output) by benchmark + revision; supports `-Benchmark` / `-Destination` filters. |
-| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), application packs for **Edge** and **Chrome** (#21) ship, **Windows Defender Firewall** V2R2 ships at 21/21 rules (20 automated, 1 manual, #26), **Microsoft Defender Antivirus** V2R10 ships at 67/67 rules (66 automated, 1 manual, #26), and **Mozilla Firefox** V6R9 ships at 30/33 rules (24 automated, 6 manual, 3 not authored, #26); Windows Server MS/DC packs remain. |
+| **Additional content packs** (Server 2019/2022 MS+DC) | **Partially shipped.** Windows 11 is **complete at 257/257 rules of V2R11** (242 automated, 15 manual, #70, #26), application packs for **Edge** and **Chrome** (#21) ship, **Windows Defender Firewall** V2R2 ships at 21/21 rules (20 automated, 1 manual, #26), **Microsoft Defender Antivirus** V2R10 ships at 67/67 rules (66 automated, 1 manual, #26), **Mozilla Firefox** V6R9 ships at 30/33 rules (24 automated, 6 manual, 3 not authored, #26), and **Adobe Acrobat Reader DC** Continuous V2R1 ships at 26/26 rules (22 automated, 4 manual, #26); Windows Server MS/DC packs remain. |
 
 Per the roadmap, **Phase 2 is complete**: all five reporters, the
 exception/profile system, remote fleet execution over WinRM

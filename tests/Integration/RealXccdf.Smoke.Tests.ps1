@@ -98,3 +98,31 @@ Describe 'Real Mozilla Firefox XCCDF smoke' -Skip:(-not (Test-Path (Join-Path (S
         ($res | Where-Object StigId -eq 'FFOX-00-000014').Status | Should -BeIn @('Open', 'NotAFinding')
     }
 }
+
+Describe 'Real Adobe Acrobat Reader DC XCCDF smoke' -Skip:(-not (Test-Path (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'STIG/U_Adobe_Acrobat_Reader_DC_Continuous_V2R1_STIG.zip'))) {
+    BeforeAll {
+        # Read from the licensed archive; the XCCDF is copied only into TestDrive.
+        Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+        $zipPath = Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'STIG/U_Adobe_Acrobat_Reader_DC_Continuous_V2R1_STIG.zip'
+        $script:ArXccdf = Join-Path $TestDrive 'U_Adobe_Acrobat_Reader_DC_Continuous_STIG_V2R1_Manual-xccdf.xml'
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+        try {
+            $entry = @($zip.Entries | Where-Object { $_.FullName -like '*Manual-xccdf.xml' })[0]
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $script:ArXccdf, $true)
+        } finally { $zip.Dispose() }
+    }
+    It 'parses the real benchmark into 26 rules' {
+        InModuleScope woscap -Parameters @{ Xccdf = $script:ArXccdf } {
+            (Import-Xccdf -Path $Xccdf).Count | Should -Be 26
+        }
+    }
+    It 'runs a read-only scan with no Error and only the Manual rules unreviewed' {
+        $res = Invoke-WoscapScan -XccdfPath $script:ArXccdf -Benchmark AcrobatReader -Quiet
+        @($res).Count | Should -Be 26
+        @($res | Where-Object Result -eq 'Error') | Should -BeNullOrEmpty
+        # Three HKCU rules and the latest-updates rule are Manual.
+        @($res | Where-Object Result -eq 'NotReviewed' | ForEach-Object StigId | Sort-Object) | Should -Be @(
+            'ARDC-CN-000330', 'ARDC-CN-000335', 'ARDC-CN-000340', 'ARDC-CN-000345')
+        ($res | Where-Object StigId -eq 'ARDC-CN-000070').Status | Should -BeIn @('Open', 'NotAFinding')
+    }
+}
