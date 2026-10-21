@@ -264,3 +264,35 @@ Describe 'Firefox spec reconciles with the V6R9 XCCDF' -Skip:$script:NoXccdf {
         $script:Rules['FFOX-00-000016'] | Should -Match 'AO-approved certificates'
     }
 }
+
+# Firefox reads policy names case-sensitively, so a wrong-case name is absent (#29).
+Describe 'Firefox exact name case' {
+    It 'every Registry descriptor, including composite and Evidence children, declares NameCase Exact' {
+        InModuleScope woscap -Parameters @{ P = $script:PackPath } {
+            param($P)
+            $data = Import-ContentPack -Path $P -WarningAction SilentlyContinue
+            $walk = {
+                param($d, $ctx)
+                if ($d -isnot [hashtable]) { return }
+                if ($d.ContainsKey('Type') -and $d.Type -eq 'Registry' -and -not ($d.ContainsKey('NameCase') -and $d.NameCase -ceq 'Exact')) { $ctx }
+                if ($d.ContainsKey('Checks')) { $i = 0; foreach ($c in @($d.Checks)) { & $walk $c "$ctx.Checks[$i]"; $i++ } }
+                if ($d.ContainsKey('Evidence')) { & $walk $d.Evidence "$ctx.Evidence" }
+            }
+            $missing = foreach ($k in @($data.Keys)) { & $walk $data[$k] $k }
+            @($missing) | Should -BeNullOrEmpty
+        }
+    }
+    It 'FFOX-00-000009 fails when PopupBlocking holds "locked" instead of "Locked"' {
+        InModuleScope woscap -Parameters @{ P = $script:PackPath } {
+            param($P)
+            $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)['FFOX-00-000009']
+            # Simulates the registry: Default is stored correctly, Locked is stored as "locked".
+            Mock Get-RegValueEntry {
+                $stored = @{ Default = 1; locked = 1 }
+                $hit = @($stored.Keys | Where-Object { if ($ExactNameCase) { $_ -ceq $Name } else { $_ -eq $Name } })
+                if ($hit.Count -eq 1) { New-WoscapTestRegEntry $stored[$hit[0]] } else { $null }
+            }
+            (Test-Descriptor -Descriptor $d).Result | Should -Be 'Fail'
+        }
+    }
+}
