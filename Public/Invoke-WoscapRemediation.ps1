@@ -7,6 +7,9 @@ function Invoke-WoscapRemediation {
         This is woscap's only deliberate write path. Requires an elevated session for
         real writes. Only Open findings are processed; every other status is ignored.
 
+        Refuses to run from a 32-bit PowerShell on 64-bit Windows (WOW64), including with
+        -WhatIf, because registry writes would land in the redirected 32-bit view.
+
         A Registry rule is auto-applied only when writing its Expected value is
         guaranteed to make the same rule pass:
           - Operator 'eq' with an Int32 Expected (written as REG_DWORD) or a string
@@ -92,6 +95,7 @@ function Invoke-WoscapRemediation {
         [switch] $Quiet
     )
     begin {
+        if (Test-WoscapWow64Process) { throw $script:WoscapWow64RefusalMessage }
         $buffer = [System.Collections.Generic.List[object]]::new()
     }
     process {
