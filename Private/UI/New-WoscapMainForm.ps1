@@ -169,6 +169,17 @@ function New-WoscapMainForm {
     $integration.IntegrationGrid.Add_SelectionChanged({ Update-WoscapGuiIntegrationSelection -Tag $script:WoscapGuiTag })
     $integration.IntegrationRefresh.Add_Click({ Update-WoscapGuiIntegrationView -Tag $script:WoscapGuiTag })
     $menu.IntegrationRefresh.Add_Click({ Update-WoscapGuiIntegrationView -Tag $script:WoscapGuiTag })
+    # The Invoke-WoscapGuiIntegration* handlers resolve at click time.
+    $integration.IntegrationImportTargets.Add_Click({ Invoke-WoscapGuiIntegrationImportTargets -Tag $script:WoscapGuiTag })
+    $integration.IntegrationImportFindings.Add_Click({ Invoke-WoscapGuiIntegrationImportFindings -Tag $script:WoscapGuiTag })
+    $integration.IntegrationRunScan.Add_Click({ Invoke-WoscapGuiIntegrationRunScan -Tag $script:WoscapGuiTag })
+    $integration.IntegrationExportFindings.Add_Click({ Invoke-WoscapGuiIntegrationExportFindings -Tag $script:WoscapGuiTag })
+    $integration.IntegrationExportRemediation.Add_Click({ Invoke-WoscapGuiIntegrationExportRemediation -Tag $script:WoscapGuiTag })
+    $menu.IntegrationImportTargets.Add_Click({ Invoke-WoscapGuiIntegrationImportTargets -Tag $script:WoscapGuiTag })
+    $menu.IntegrationImportFindings.Add_Click({ Invoke-WoscapGuiIntegrationImportFindings -Tag $script:WoscapGuiTag })
+    $menu.IntegrationRunScan.Add_Click({ Invoke-WoscapGuiIntegrationRunScan -Tag $script:WoscapGuiTag })
+    $menu.IntegrationExportFindings.Add_Click({ Invoke-WoscapGuiIntegrationExportFindings -Tag $script:WoscapGuiTag })
+    $menu.IntegrationExportRemediation.Add_Click({ Invoke-WoscapGuiIntegrationExportRemediation -Tag $script:WoscapGuiTag })
 
     $menu.Run.Add_Click({ Invoke-WoscapGuiRun -Tag $script:WoscapGuiTag })
     $menu.Export.Add_Click({ Invoke-WoscapGuiExport -Tag $script:WoscapGuiTag })
