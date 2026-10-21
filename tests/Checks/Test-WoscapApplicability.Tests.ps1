@@ -267,3 +267,38 @@ Describe 'Registry applicability gates honour the value kind' {
         }
     }
 }
+
+# R8 (#36): one shared list of boolean facts drives every consumer.
+Describe 'Shared boolean fact list' {
+    BeforeDiscovery {
+        Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
+        $script:factCases = @(& (Get-Module woscap) { $script:WoscapBooleanFacts } | ForEach-Object { @{ Fact = $_ } })
+    }
+    It 'includes AcrobatUnifiedApp and the six original facts' {
+        InModuleScope woscap {
+            @($script:WoscapBooleanFacts | Sort-Object) | Should -Be @('AcrobatUnifiedApp', 'BluetoothPresent', 'CameraPresent',
+                'DomainJoined', 'HypervisorPresent', 'LocalAdminEnabled', 'TpmPresent')
+        }
+    }
+    It '<Fact> is a valid fact read, applicability gate with an NA reason, and schema predicate' -ForEach $script:factCases {
+        InModuleScope woscap -Parameters @{ Fact = $Fact } {
+            param($Fact)
+            Mock Get-WoscapCachedValue { 'cached' }
+            Get-WoscapMachineFact -Fact $Fact | Should -Be 'cached'
+            Mock Get-WoscapMachineFact { $false }
+            $r = Test-WoscapApplicability -Applicability @{ $Fact = $true }
+            $r.Applies | Should -BeFalse
+            $r.Reason | Should -Match '^Not applicable: \S'
+            $d = @{ Applicability = @{ $Fact = $true }; Type = 'Registry'; Path = 'HKLM:\X'; Name = 'Y'; Operator = 'eq'; Expected = 1 }
+            @(Test-WoscapDescriptorSchema -Descriptor $d).Count | Should -Be 0
+        }
+    }
+    It 'still accepts OsBuild as a fact read and rejects anything else' {
+        InModuleScope woscap {
+            Mock Get-WoscapCachedValue { 22631 }
+            Get-WoscapMachineFact -Fact 'OsBuild' | Should -Be 22631
+            { Get-WoscapMachineFact -Fact 'OsBuildAtLeast' } | Should -Throw
+        }
+    }
+}
+

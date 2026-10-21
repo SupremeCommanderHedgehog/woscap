@@ -161,3 +161,17 @@ Describe 'Remediation report dialog' -Skip:(-not $script:IsSta) {
         } finally { $d.Close(); $d.Dispose() }
     }
 }
+
+Describe 'Remediation report with a partial fix' -Skip:(-not $script:IsSta) {
+    It 'counts PartiallyApplied separately' {
+        InModuleScope woscap {
+            $d = New-WoscapGuiRemediationReport -Result @(
+                [pscustomobject]@{ StigIds = @('C-1'); Title = 'c'; Action = 'a; b'; State = 'PartiallyApplied'; After = 'Open'; Detail = 'Succeeded: a. Failed: b: x. Not attempted: none.' }
+                [pscustomobject]@{ StigIds = @('R-1'); Title = 'r'; Action = 'a'; State = 'Applied'; After = 'NotAFinding'; Detail = '' })
+            try {
+                $d.Tag['Summary'].Text | Should -Match 'Applied: 1   Partially applied: 1   Failed: 0'
+            } finally { $d.Dispose() }
+        }
+    }
+}
+

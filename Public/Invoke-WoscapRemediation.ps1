@@ -19,14 +19,26 @@ function Invoke-WoscapRemediation {
           - When the rule declares Kind = 'dword' or 'string', the value is written
             as that registry type (for example, the number 10 is written as the
             REG_SZ '10'). A Kind the value cannot be written as makes the rule Manual.
-        An All rule whose every check is such a Registry value is fixed by writing
-        each of those values, in order, under one confirmation. Every value is
-        written, including one the rule only checks on some hosts (for example the
-        Adobe Acrobat root, checked only when the unified app is installed). The
-        writes stop at the first failure, and that row's Detail names the writes
-        that succeeded, the one that failed and those not attempted. Any other
-        composite (Any, nested, or with a non-Registry or non-automatable check)
-        is reported as 'Manual'.
+        An All rule is auto-applied as one fix with several writes when all of
+        these hold:
+          - every check in it is a Registry value that would be auto-applied on
+            its own (the rules above);
+          - no two checks write the same value (Path and Name, ignoring case);
+          - each check is either ungated or gated only by boolean machine facts
+            (DomainJoined, TpmPresent, CameraPresent, BluetoothPresent,
+            HypervisorPresent, LocalAdminEnabled, AcrobatUnifiedApp).
+        Every value is written unconditionally, including one the rule checks only
+        on some hosts (for example the Adobe Acrobat root, checked only when the
+        unified app is installed). woscap's soundness tests prove that the writes
+        make the rule pass for every true/false value of those facts. Any other
+        composite (Any, nested, a non-Registry check, a duplicate value, or a gate
+        such as OsBuildAtLeast or RegistryValueEquals) is reported as 'Manual',
+        with Detail naming the first check that blocked it.
+
+        The writes run in order and stop at the first failure; nothing is rolled
+        back. If no write landed the row is 'Failed'. If some landed the row is
+        'PartiallyApplied', the rule is re-checked, and Detail names the writes
+        that succeeded, the one that failed and those not attempted.
         These Registry rules are reported as 'Manual' and never written:
           - A path under HKCU. An elevated fix would write the operator's own hive,
             not the audited user's.
@@ -49,7 +61,8 @@ function Invoke-WoscapRemediation {
 
         After a fix is applied, the rule's descriptor is evaluated again and the
         outcome is reported in After: NotAFinding, Open, or Error. If one fix fails,
-        that row is reported as 'Failed' and the remaining fixes still run.
+        that row is reported as 'Failed' (or 'PartiallyApplied', above) and the
+        remaining fixes still run.
     .PARAMETER Result
         Findings to remediate, usually piped from Invoke-WoscapScan. Only rows with
         Status 'Open' are acted on; each row's StigId selects its content descriptor.
@@ -63,18 +76,21 @@ function Invoke-WoscapRemediation {
         Apply without prompting, for unattended runs. An explicit -Confirm still
         prompts, and -WhatIf still only plans.
     .PARAMETER Quiet
-        Suppress the console summary (Applied / Failed / Manual / Planned counts).
+        Suppress the console summary (Applied / Partial / Failed / Manual / Planned
+        counts).
         The result objects are returned either way.
     .PARAMETER WhatIf
         Plan only. Every rule that would be auto-applied is returned with
         State 'Planned', and nothing is written. A multi-write fix lists every
         write in its Action.
     .PARAMETER Confirm
-        Prompt before each write. Prompting is already the default because
+        Prompt once per rule before applying it. For a multi-write fix that single
+        prompt lists every write. Prompting is already the default because
         ConfirmImpact is High.
     .OUTPUTS
         RemediationResult objects (Host, StigId, StigIds, Title, CheckType, Action,
-        State, Before, After, Detail). State is one of Applied, Failed, Manual,
+        State, Before, After, Detail). State is one of Applied, PartiallyApplied
+        (some writes of a multi-write fix landed before one failed), Failed, Manual,
         Planned (-WhatIf) or Skipped (declined at the prompt). For a Manual row,
         Detail gives the reason.
     .EXAMPLE
@@ -150,14 +166,17 @@ function Invoke-WoscapRemediation {
                 continue
             }
 
+            $landed = 0; $partial = $null
             try {
                 if ($action.Type -eq 'Registry') {
-                    # In order, stopping at the first failure; the row names how far it got.
+                    # In order, stopping at the first failure. No rollback: what landed stays,
+                    # and the row says how far it got.
                     $writes = @($action.Writes)
                     for ($i = 0; $i -lt $writes.Count; $i++) {
                         $w = $writes[$i]
                         try {
                             Set-WoscapRegValue -Path $w.Path -Name $w.Name -Data $w.Data -Kind $w.Kind
+                            $landed++
                         } catch {
                             if ($writes.Count -eq 1) { throw }
                             $label = { param($x) "$($x.Path)\$($x.Name)" }
@@ -165,7 +184,10 @@ function Invoke-WoscapRemediation {
                             $rest = @(if ($i -lt $writes.Count - 1) { $writes[($i + 1)..($writes.Count - 1)] | ForEach-Object { & $label $_ } })
                             $succeeded = if ($done.Count) { $done -join ', ' } else { 'none' }
                             $skipped = if ($rest.Count) { $rest -join ', ' } else { 'none' }
-                            throw "Succeeded: $succeeded. Failed: $(& $label $w): $($_.Exception.Message). Not attempted: $skipped."
+                            $report = "Succeeded: $succeeded. Failed: $(& $label $w): $($_.Exception.Message). Not attempted: $skipped."
+                            if ($landed -eq 0) { throw $report }
+                            $partial = $report
+                            break
                         }
                     }
                 } else {
@@ -188,22 +210,28 @@ function Invoke-WoscapRemediation {
                     'Fail'  { 'Open' }
                     default { 'Error' }
                 }
+                $state = if ($partial) { 'PartiallyApplied' } else { 'Applied' }
                 $results.Add((New-WoscapRemediationResult -StigId $action.StigId -StigIds $action.StigIds -Title $action.Title `
-                    -CheckType $action.CheckType -Action $summary -State 'Applied' -After $after -Detail ''))
+                    -CheckType $action.CheckType -Action $summary -State $state -After $after -Detail ([string]$partial)))
             } catch {
+                # Some writes landed, so the host changed even though the re-check could not run.
+                $state = if ($partial) { 'PartiallyApplied' } else { 'Failed' }
+                $detail = if ($partial) { "$partial Re-check failed: $_" } else { "$_" }
                 $results.Add((New-WoscapRemediationResult -StigId $action.StigId -StigIds $action.StigIds -Title $action.Title `
-                    -CheckType $action.CheckType -Action $summary -State 'Failed' -Detail "$_"))
+                    -CheckType $action.CheckType -Action $summary -State $state -Detail $detail))
             }
         }
 
         if (-not $Quiet) {
             $applied = @($results | Where-Object { $_.State -eq 'Applied' }).Count
+            $partly  = @($results | Where-Object { $_.State -eq 'PartiallyApplied' }).Count
             $failed  = @($results | Where-Object { $_.State -eq 'Failed' }).Count
             $manual  = @($results | Where-Object { $_.State -eq 'Manual' }).Count
             $planned = @($results | Where-Object { $_.State -in @('Planned','Skipped') }).Count
             Write-Host ""
             Write-Host "woscap remediation - $env:COMPUTERNAME"
             Write-Host ("  Applied:  {0}" -f $applied)
+            Write-Host ("  Partial:  {0}" -f $partly)
             Write-Host ("  Failed:   {0}" -f $failed)
             Write-Host ("  Manual:   {0}" -f $manual)
             Write-Host ("  Planned:  {0}" -f $planned)

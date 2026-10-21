@@ -429,9 +429,9 @@ your ticks (a merged audit-policy fix lists every
 STIG ID it covers; manual items are greyed and never applied). **Apply** is never
 the default button, and it is disabled unless woscap runs as administrator. Only
 the ticked fixes are applied; a report then shows each fix's State and After
-status (plus the preview's manual items, and unticked fixes as `Skipped` /
+status, with counts per State, including `PartiallyApplied` (plus the preview's manual items, and unticked fixes as `Skipped` /
 `Not selected`) and offers **Re-scan**, which scans with the same benchmark and
-content path. Once a fix is applied, Remediate stays disabled until a scan
+content path. Once a fix is applied, even partly, Remediate stays disabled until a scan
 completes. If you close the report without re-scanning, the status line notes that the grid predates the fixes.
 Warnings from the preview or the apply appear on the status line, with the
 detail on hover. Audit-policy fixes only enable the required directions
@@ -498,17 +498,36 @@ Every other Registry rule is reported `State='Manual'` with a reason in `Detail`
   Defender Antivirus rules that are NA on classified systems). The reason says so.
 
 **Composite (multi-write) fixes (#36):** an `All` rule is fixed automatically when
-every child is a Registry value that would be fixed automatically on its own (the
-rules above: not HKCU, `eq`/`ge`/`le`, an Int32 or string `Expected`, a writable
-kind) and the rule does not set `Remediate = $false`. The fix writes every child's
-value, in order, under one confirmation, and `Action` lists every write. A child's
-own `Applicability` does not stop it being written: every value is written
-unconditionally, so the rule passes whichever way that gate resolves. Writes stop
-at the first failure, and that row's `Detail` names the writes that succeeded, the
-one that failed and those not attempted. The rule is then re-checked once as a
-whole. Any other composite (`Any`, a nested composite, or a child that is not such
-a Registry value) stays `Manual` with the reason `CheckType 'All' has no automated
-remediation.` The Ansible emitter writes one `win_regedit` task per write, named
+all of these hold:
+
+- every child is a Registry value that would be fixed automatically on its own (the
+  rules above: not HKCU, `eq`/`ge`/`le`, an Int32 or string `Expected`, a writable
+  kind, no `Remediate = $false`);
+- no two children write the same value (same `Path` and `Name`, ignoring case);
+- each child is either ungated or gated only by boolean machine facts
+  (`DomainJoined`, `TpmPresent`, `CameraPresent`, `BluetoothPresent`,
+  `HypervisorPresent`, `LocalAdminEnabled`, `AcrobatUnifiedApp`);
+- the rule itself does not set `Remediate = $false`.
+
+The fix writes every child's value, in order, under one confirmation, and `Action`
+lists every write. A child's fact gate does not stop its value being written: every
+value is written unconditionally. woscap's soundness tests prove that the writes
+make the rule pass for every true/false value of the facts its children depend on.
+A gate such as `OsBuildAtLeast` or `RegistryValueEquals` cannot be proven that way,
+so it makes the rule `Manual`.
+
+Writes stop at the first failure, and nothing is rolled back. If no write landed,
+the row is `Failed`. If some landed, the row is `PartiallyApplied`: the rule is
+re-checked once (`After`), and `Detail` names the writes that succeeded, the one
+that failed and those not attempted.
+
+When an `All` cannot be fixed, its reason names the first blocking child and why,
+for example `CheckType 'All' cannot be fixed automatically: child 2 (N): Registry
+path is under HKCU; ...`. An `All` with no Registry child at all keeps the reason
+`CheckType 'All' has no automated remediation.` `Any` composites are always
+`Manual`.
+
+The Ansible emitter writes one `win_regedit` task per write, named
 `(write i of n)`, and the GUI shows the fix as one row, so unticking it skips all
 of its writes. Shipped composites fixed this way: the 19 Acrobat Reader
 FeatureLockDown rules, Firefox `FFOX-00-000009`, `-000017`, `-000029` and
@@ -541,8 +560,8 @@ re-runs and the outcome is reported in `After` — `NotAFinding` (fixed), `Open`
 (still failing), or `Error`.
 
 **Elevation:** writing registry / audit policy requires an elevated session. A
-permission error on a single rule surfaces as `State='Failed'` (with the error in
-`Detail`) and the batch continues — one failure never aborts the run.
+permission error on a single rule surfaces as `State='Failed'`, or `'PartiallyApplied'`
+when part of a multi-write fix landed (with the error in `Detail`), and the batch continues — one failure never aborts the run.
 
 ```powershell
 # Plan only — show what would change, write nothing:
@@ -558,7 +577,7 @@ $fixes | Format-Table StigId, State, Before, After, Detail
 Each result is a `RemediationResult`: `Host`, `StigId`, `StigIds` (every
 finding the action covers; a merged audit-policy action lists all of its rules),
 `Title`, `CheckType`,
-`Action`, `State` (`Planned` / `Applied` / `Failed` / `Skipped` / `Manual`),
+`Action`, `State` (`Planned` / `Applied` / `PartiallyApplied` / `Failed` / `Skipped` / `Manual`),
 `Before`, `After`, `Detail`.
 
 > **Known limitation (v1):** for an AuditPolicy subcategory with paired

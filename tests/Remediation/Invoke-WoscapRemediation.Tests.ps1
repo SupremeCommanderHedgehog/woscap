@@ -275,18 +275,55 @@ Describe 'Invoke-WoscapRemediation multi-write fixes' {
         }
     }
 
-    It 'stops at the first failed write and names what succeeded, failed and was not attempted' {
+    It 'is PartiallyApplied, re-checked, when a later write fails; it names what succeeded, failed and was not attempted' {
         InModuleScope woscap {
             $script:failOn = 'HKLM:\SOFTWARE\B\Two'
+            Mock Test-Descriptor { [pscustomobject]@{ Result = 'Fail'; Observed = 0; Expected = 1 } }
             $rules = @([pscustomobject]@{ StigId = 'C-1'; Title = 'Multi'; Status = 'Open' })
             $out = @(Invoke-WoscapRemediation -Result $rules -ContentPath 'TestDrive:\pack' -Force -Quiet)
             @($script:written) | Should -Be @('HKLM:\SOFTWARE\A\One=1(dword)')
             Should -Invoke Set-WoscapRegValue -Exactly 0 -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\C' }
-            $out[0].State | Should -Be 'Failed'
+            Should -Invoke Test-Descriptor -Exactly 1
+            $out[0].State | Should -Be 'PartiallyApplied'
+            $out[0].After | Should -Be 'Open'
             $out[0].Detail | Should -Match ([regex]::Escape('Succeeded: HKLM:\SOFTWARE\A\One'))
             $out[0].Detail | Should -Match ([regex]::Escape('Failed: HKLM:\SOFTWARE\B\Two'))
             $out[0].Detail | Should -Match 'access denied'
             $out[0].Detail | Should -Match ([regex]::Escape('Not attempted: HKLM:\SOFTWARE\C\Three'))
+        }
+    }
+
+    It 'is Failed, with no re-check, when the first write fails' {
+        InModuleScope woscap {
+            $script:failOn = 'HKLM:\SOFTWARE\A\One'
+            $rules = @([pscustomobject]@{ StigId = 'C-1'; Title = 'Multi'; Status = 'Open' })
+            $out = @(Invoke-WoscapRemediation -Result $rules -ContentPath 'TestDrive:\pack' -Force -Quiet)
+            @($script:written).Count | Should -Be 0
+            Should -Invoke Test-Descriptor -Exactly 0
+            $out[0].State | Should -Be 'Failed'
+            $out[0].Detail | Should -Match ([regex]::Escape('Succeeded: none. Failed: HKLM:\SOFTWARE\A\One'))
+        }
+    }
+
+    It 'stays PartiallyApplied when the re-check itself throws' {
+        InModuleScope woscap {
+            $script:failOn = 'HKLM:\SOFTWARE\C\Three'
+            Mock Test-Descriptor { throw 'recheck boom' }
+            $rules = @([pscustomobject]@{ StigId = 'C-1'; Title = 'Multi'; Status = 'Open' })
+            $out = @(Invoke-WoscapRemediation -Result $rules -ContentPath 'TestDrive:\pack' -Force -Quiet)
+            $out[0].State | Should -Be 'PartiallyApplied'
+            $out[0].Detail | Should -Match 'Re-check failed: recheck boom'
+        }
+    }
+
+    It 'counts a partial fix in the console summary' {
+        InModuleScope woscap {
+            $script:failOn = 'HKLM:\SOFTWARE\B\Two'
+            $rules = @([pscustomobject]@{ StigId = 'C-1'; Title = 'Multi'; Status = 'Open' })
+            $text = @(Invoke-WoscapRemediation -Result $rules -ContentPath 'TestDrive:\pack' -Force 6>&1 |
+                Where-Object { $_ -is [System.Management.Automation.InformationRecord] } | ForEach-Object { "$_" })
+            $text | Should -Contain '  Partial:  1'
+            $text | Should -Contain '  Applied:  0'
         }
     }
 

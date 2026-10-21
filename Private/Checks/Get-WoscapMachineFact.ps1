@@ -30,7 +30,7 @@ function Get-WoscapMachineFact {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('DomainJoined','TpmPresent','CameraPresent','BluetoothPresent','HypervisorPresent','OsBuild','LocalAdminEnabled','AcrobatUnifiedApp')]
+        [ValidateScript({ $_ -in (@($script:WoscapBooleanFacts) + 'OsBuild') })]
         [string] $Fact
     )
     Get-WoscapCachedValue -Key "fact:$Fact" -Producer {

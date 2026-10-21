@@ -6,6 +6,11 @@ $script:WoscapModuleRoot = $PSScriptRoot
 # Invoke-CheckEval clears this at the start of every scan.
 $script:WoscapReadCache = @{}
 
+# Boolean machine facts: the one list behind fact reads, applicability, the schema
+# check and the planner's composite gate (#36).
+$script:WoscapBooleanFacts = @('DomainJoined', 'TpmPresent', 'CameraPresent', 'BluetoothPresent',
+    'HypervisorPresent', 'LocalAdminEnabled', 'AcrobatUnifiedApp')
+
 $private = @( Get-ChildItem -Path (Join-Path $PSScriptRoot 'Private') -Recurse -Filter '*.ps1' -ErrorAction SilentlyContinue )
 $public  = @( Get-ChildItem -Path (Join-Path $PSScriptRoot 'Public')  -Recurse -Filter '*.ps1' -ErrorAction SilentlyContinue )
 

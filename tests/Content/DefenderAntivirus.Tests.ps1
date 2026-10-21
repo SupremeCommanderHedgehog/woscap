@@ -127,7 +127,7 @@ Describe 'Defender Antivirus pack shape' {
                 $desc = $pack[$a.StigId]
                 $desc.Type | Should -Be 'Registry'
                 $desc.Operator | Should -Be 'eq'
-                if ($desc.Path -match 'ASR\\Rules$') { $a.Registry.Kind | Should -Be 'string' } else { $a.Registry.Kind | Should -Be 'dword' }
+                if ($desc.Path -match 'ASR\\Rules$') { $a.Writes[0].Kind | Should -Be 'string' } else { $a.Writes[0].Kind | Should -Be 'dword' }
             }
             # Composites, sets, exists and Manual stay manual.
             foreach ($id in 'WNDF-AV-000001', 'WNDF-AV-000004', 'WNDF-AV-000010', 'WNDF-AV-000028', 'WNDF-AV-000040', 'WNDF-AV-000068') {

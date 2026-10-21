@@ -8,9 +8,11 @@ function Get-WoscapRemediationPlan {
 
         A Registry rule is automatic only when writing one value provably makes it
         pass (#23, #29). An All composite whose every child is such a Registry leaf
-        is one automatic fix with one write per leaf, in order (#36). A child's
-        Applicability does not block this: every leaf is written unconditionally.
-        Any other composite stays Manual.
+        is one automatic fix with one write per leaf, in order (#36), provided no two
+        leaves write the same value and every child gate is a boolean machine fact
+        (the soundness guard proves the writes pass for every value of those facts).
+        Every leaf is written unconditionally. Any other composite stays Manual, and
+        its reason names the first blocking child.
 
         AuditPolicy rules for one subcategory merge into a single enable-only action.
         A rule whose descriptor sets Remediate = $false is always Manual.
@@ -21,8 +23,8 @@ function Get-WoscapRemediationPlan {
     .OUTPUTS
         One action per rule (one per subcategory for merged audit rules) with StigId,
         StigIds, Title, Type (Registry, AuditPolicy or Manual), CheckType, Automatable,
-        Writes (ordered @{ Path; Name; Data; Kind }), Registry (the write when there is
-        exactly one, else $null), Audit and ManualReason.
+        Writes (ordered @{ Path; Name; Data; Kind }; empty unless Type is Registry), Audit
+        and ManualReason.
     .EXAMPLE
         Get-WoscapRemediationPlan -FailedRule $open -ContentPack (Import-ContentPack -Path .\Content\AcrobatReader)
     #>
@@ -36,7 +38,7 @@ function Get-WoscapRemediationPlan {
         param($StigId, $Title, $CheckType, $Reason)
         [pscustomobject]@{
             StigId = $StigId; StigIds = @($StigId); Title = $Title; Type = 'Manual'; CheckType = $CheckType
-            Automatable = $false; Registry = $null; Writes = @(); Audit = $null; ManualReason = $Reason
+            Automatable = $false; Writes = @(); Audit = $null; ManualReason = $Reason
         }
     }
 
@@ -106,16 +108,20 @@ function Get-WoscapRemediationPlan {
         @{ Write = @{ Path = $path; Name = [string]$desc.Name; Data = $data; Kind = $kind } }
     }
 
-    # Writes holds every write in order. Registry mirrors a lone write and is $null for
-    # several, so a consumer that reads only Registry fails instead of applying one.
+    # Writes holds every write, in the order they must be applied.
     $newRegistryAction = {
         param($StigId, $Title, $CheckType, $Writes)
         [pscustomobject]@{
             StigId = $StigId; StigIds = @($StigId); Title = $Title; Type = 'Registry'; CheckType = $CheckType
-            Automatable = $true
-            Registry = if (@($Writes).Count -eq 1) { $Writes[0] } else { $null }
-            Writes = @($Writes); Audit = $null; ManualReason = $null
+            Automatable = $true; Writes = @($Writes); Audit = $null; ManualReason = $null
         }
+    }
+
+    # One spelling per key, so two children cannot write the same value under different spellings.
+    $normalizeRegKey = {
+        param($p)
+        $k = ([string]$p).TrimEnd('\') -replace '^(Microsoft\.PowerShell\.Core\\)?Registry::HKEY_LOCAL_MACHINE', 'HKLM:'
+        $k.ToUpperInvariant()
     }
 
     # First pass: union of required audit directions per subcategory across ALL open
@@ -166,16 +172,44 @@ function Get-WoscapRemediationPlan {
             'All' {
                 # Every leaf is written unconditionally; a child's Applicability only gates the check (#36).
                 $children = @(if ($desc.ContainsKey('Checks')) { $desc.Checks })
-                $writes = @(foreach ($child in $children) {
-                    if (-not ($child -is [hashtable] -and [string]$child['Type'] -eq 'Registry') -or (& $isOptedOut $child)) { break }
-                    $leaf = & $planLeaf $child
-                    if ($leaf.ContainsKey('Reason')) { break }
-                    $leaf.Write
-                })
-                if ($children.Count -gt 0 -and $writes.Count -eq $children.Count) {
-                    $actions.Add((& $newRegistryAction $stig $title 'All' $writes))
-                } else {
+                $leafCount = @($children | Where-Object { $_ -is [hashtable] -and [string]$_['Type'] -eq 'Registry' }).Count
+                if ($leafCount -eq 0) {
                     $actions.Add((& $newManual $stig $title 'All' "CheckType 'All' has no automated remediation."))
+                    break
+                }
+                $writes  = [System.Collections.Generic.List[object]]::new()
+                $writers = @{}   # normalized Path\Name (case-insensitive) -> child number that writes it
+                $blocked = $null
+                for ($i = 0; $i -lt $children.Count -and -not $blocked; $i++) {
+                    $child = $children[$i]
+                    $label = if ($child -is [hashtable] -and $child.ContainsKey('Name')) { "child $($i + 1) ($($child.Name))" } else { "child $($i + 1)" }
+                    if (-not ($child -is [hashtable] -and [string]$child['Type'] -eq 'Registry')) {
+                        $kind = if ($child -is [hashtable]) { "a '$($child['Type'])' check" } elseif ($null -eq $child) { 'empty' } else { "a $($child.GetType().Name)" }
+                        $blocked = "$label is $kind, not a Registry value."
+                        continue
+                    }
+                    if (& $isOptedOut $child) { $blocked = "$label opts out of automatic remediation (Remediate = `$false)."; continue }
+                    # Only gates the soundness guard can exercise both ways may be written past.
+                    $gates = @(if ($child.ContainsKey('Applicability') -and $child.Applicability -is [hashtable]) { $child.Applicability.Keys })
+                    $unmodelled = @($gates | Where-Object { $_ -notin $script:WoscapBooleanFacts })
+                    if ($unmodelled.Count -gt 0) {
+                        $blocked = "$label is gated by $($unmodelled -join ', '), which is not a boolean machine fact, so no write can be shown to satisfy it."
+                        continue
+                    }
+                    $leaf = & $planLeaf $child
+                    if ($leaf.ContainsKey('Reason')) { $blocked = "${label}: $($leaf.Reason)"; continue }
+                    $key = (& $normalizeRegKey $leaf.Write.Path) + '\' + $leaf.Write.Name
+                    if ($writers.ContainsKey($key)) {
+                        $blocked = "$label writes $($leaf.Write.Path)\$($leaf.Write.Name), which child $($writers[$key]) also writes."
+                        continue
+                    }
+                    $writers[$key] = $i + 1
+                    $writes.Add($leaf.Write)
+                }
+                if ($blocked) {
+                    $actions.Add((& $newManual $stig $title 'All' "CheckType 'All' cannot be fixed automatically: $blocked"))
+                } else {
+                    $actions.Add((& $newRegistryAction $stig $title 'All' $writes.ToArray()))
                 }
             }
             'AuditPolicy' {
@@ -197,7 +231,7 @@ function Get-WoscapRemediationPlan {
                 $actions.Add([pscustomobject]@{
                     StigId = $stig; StigIds = @($auditStigIds[$sub]); Title = $title; Type = 'AuditPolicy'; CheckType = 'AuditPolicy'
                     Automatable = $true
-                    Registry = $null; Writes = @()
+                    Writes = @()
                     Audit = @{ Subcategory = $sub; Directions = $directions }
                     ManualReason = $null
                 })

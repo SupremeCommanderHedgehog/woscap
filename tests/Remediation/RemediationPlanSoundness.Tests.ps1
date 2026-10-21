@@ -79,7 +79,8 @@ Describe 'Remediation plan soundness over shipped content' {
             Mock Get-RegValueEntry { $k = "$Path|$Name"; if ($script:store.ContainsKey($k)) { $script:store[$k] } else { $null } }
 
             # Facts gating a child decide whether that child votes, so each must be exercised.
-            $boolFacts = @('DomainJoined', 'TpmPresent', 'CameraPresent', 'BluetoothPresent', 'HypervisorPresent', 'LocalAdminEnabled', 'AcrobatUnifiedApp')
+            # The planner admits exactly these gates (R2, R8); anything else must not reach here.
+            $boolFacts = @($script:WoscapBooleanFacts)
             $children = @(if ($Descriptor.Type -eq 'All') { $leaves })
             $facts = @($children | Where-Object { $_.ContainsKey('Applicability') } | ForEach-Object { @($_.Applicability.Keys) } | Sort-Object -Unique)
             $unmodelled = @($facts | Where-Object { $_ -notin $boolFacts })
@@ -135,9 +136,9 @@ Describe 'Remediation plan soundness over shipped content' {
             $data['WN11-SO-000085'].Kind | Should -Be 'string'
             $rule = [pscustomobject]@{ StigId = 'WN11-SO-000085'; Title = 't'; Status = 'Open' }
             $action = @(Get-WoscapRemediationPlan -FailedRule @($rule) -ContentPack $data)[0]
-            $action.Registry.Kind | Should -Be 'string'
-            $action.Registry.Data | Should -BeOfType [string]
-            $action.Registry.Data | Should -Be '10'
+            $action.Writes[0].Kind | Should -Be 'string'
+            $action.Writes[0].Data | Should -BeOfType [string]
+            $action.Writes[0].Data | Should -Be '10'
         }
     }
 }

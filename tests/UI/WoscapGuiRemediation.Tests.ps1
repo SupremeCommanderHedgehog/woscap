@@ -773,4 +773,15 @@ Describe 'Invoke-WoscapGuiRemediate with a multi-write fix' -Skip:(-not $script:
             Should -Invoke Set-WoscapRegValue -Exactly 1 -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\B' }
         }
     }
+
+    It 'marks the grid stale and reports PartiallyApplied when a later write fails' {
+        InModuleScope woscap {
+            Mock Set-WoscapRegValue { if ($Path -eq 'HKLM:\SOFTWARE\B') { throw 'access denied' } }
+            Mock Show-WoscapGuiRemediationDialog { @('C-1') }
+            Mock Show-WoscapGuiRemediationReport { $script:reportRows = @($Result); 'Close' }
+            Invoke-WoscapGuiRemediate -Tag $script:form.Tag
+            @($script:reportRows | Where-Object StigId -eq 'C-1').State | Should -Be 'PartiallyApplied'
+            $script:form.Tag['ResultsStale'] | Should -BeTrue -Because 'a partial fix changed the host'
+        }
+    }
 }
