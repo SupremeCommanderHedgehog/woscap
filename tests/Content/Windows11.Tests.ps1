@@ -1,5 +1,6 @@
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
     $script:PackPath = Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'Content/Windows11'
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
@@ -23,11 +24,33 @@ Describe 'Windows11 content pack' {
             foreach ($key in $p.Keys) { $p[$key].Type | Should -BeIn $valid }
         }
     }
-    It 'the scriptblock override evaluates against a mocked registry read' {
-        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
-            Mock Get-RegValue { 4 }
-            $p = Import-ContentPack -Path $PackPath
-            (Test-Descriptor -Descriptor $p['WN11-00-000170']).Result | Should -Be 'Pass'
+    # DISA states REG_DWORD 4 and "not configured as specified" is a finding, which the
+    # declarative descriptor expresses exactly; no override shadows it (#29 review R2).
+    It 'WN11-00-000170 SMBv1 (declarative): <Case> gives <Want>' -ForEach @(
+        @{ Case = 'DWord 4';        Stored = 'dword4';    Want = 'Pass' }
+        @{ Case = 'DWord 3';        Stored = 'dword3';    Want = 'Fail' }
+        @{ Case = 'String "4"';     Stored = 'string4';   Want = 'Fail' }
+        @{ Case = 'MultiString 4';  Stored = 'multi4';    Want = 'Fail' }
+        @{ Case = 'Binary 4';       Stored = 'binary4';   Want = 'Fail' }
+        @{ Case = 'absent';         Stored = 'absent';    Want = 'Fail' }
+        @{ Case = 'unreadable';     Stored = 'unreadable'; Want = 'Error' }
+    ) {
+        InModuleScope woscap -Parameters @{ PackPath = $script:PackPath; Stored = $Stored; Want = $Want } {
+            param($PackPath, $Stored, $Want)
+            $script:smbEntry = switch ($Stored) {
+                'dword4'     { New-WoscapTestRegEntry 4 }
+                'dword3'     { New-WoscapTestRegEntry 3 }
+                'string4'    { New-WoscapTestRegEntry '4' }
+                'multi4'     { New-WoscapTestRegEntry @('4') }
+                'binary4'    { New-WoscapTestRegEntry ([byte[]]@(4, 0, 0, 0)) }
+                'absent'     { $null }
+                'unreadable' { New-WoscapUnreadable -Reason 'access denied' }
+            }
+            Mock Get-RegValueEntry { $script:smbEntry } -ParameterFilter { $Path -eq 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10' -and $Name -eq 'Start' }
+            Mock Get-RegValue { throw "WN11-00-000170 must read through Get-RegValueEntry" }
+            $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
+            $p['WN11-00-000170'].Type | Should -Be 'Registry'
+            (Test-Descriptor -Descriptor $p['WN11-00-000170']).Result | Should -Be $Want
         }
     }
     It 'WN11-00-000400 reads hidden Wi-Fi Direct adapters: <Case>' -ForEach @(
@@ -142,9 +165,9 @@ Describe 'Windows11 content pack' {
     ) {
         InModuleScope woscap -Parameters @{ PackPath = $script:PackPath; Policy = $Policy; Config = $Config; Expected = $Expected } {
             $script:policy = $Policy; $script:config = $Config
-            Mock Get-RegValue { $null }
-            Mock Get-RegValue { $script:policy } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization' -and $Name -eq 'DODownloadMode' }
-            Mock Get-RegValue { $script:config } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config' -and $Name -eq 'DODownloadMode' }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ($null) }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ($script:policy) } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization' -and $Name -eq 'DODownloadMode' }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ($script:config) } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config' -and $Name -eq 'DODownloadMode' }
             $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
             (Test-Descriptor -Descriptor $p['WN11-CC-000206']).Result | Should -Be $Expected
         }
@@ -152,7 +175,7 @@ Describe 'Windows11 content pack' {
     It 'WN11-00-000210 is NA on a system without Bluetooth' {
         InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
             Mock Get-WoscapMachineFact { $false } -ParameterFilter { $Fact -eq 'BluetoothPresent' }
-            Mock Get-RegValue { 1 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) }
             $p = Import-ContentPack -Path $PackPath -WarningAction SilentlyContinue
             (Test-Descriptor -Descriptor $p['WN11-00-000210']).Result | Should -Be 'NA'
         }
@@ -177,6 +200,7 @@ Describe 'Windows11 content pack' {
                 [pscustomobject]@{ Name = 'HOST\renamedadmin'; SID = [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-500' } }
                 [pscustomobject]@{ Name = 'HOST\opsadmin';     SID = [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-1001' } }
             ) }
+            # The LAPS evidence override reads through Get-RegValue.
             Mock Get-RegValue { $null }
             Mock Get-RegValue { 30 } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\LAPS' -and $Name -eq 'PasswordAgeDays' }
             $r = Test-Descriptor -Descriptor $d

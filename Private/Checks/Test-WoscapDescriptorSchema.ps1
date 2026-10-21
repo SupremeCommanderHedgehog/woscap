@@ -90,6 +90,21 @@ function Test-WoscapDescriptorSchema {
         }
     }
 
+    # A Registry value of the wrong kind is a Fail, so the descriptor must
+    # say (or imply) which kind it needs. Operator-less Evidence is never judged.
+    $operatorKnown = -not $Descriptor.ContainsKey('Operator') -or $validOperators -contains [string]$Descriptor.Operator
+    if ($type -eq 'Registry' -and $operatorKnown -and ($Descriptor.ContainsKey('Operator') -or $Descriptor.ContainsKey('Kind'))) {
+        $required = Get-WoscapRequiredRegKind -Descriptor $Descriptor
+        if ($required.Error) { $problems.Add("$Context has an invalid registry kind: $($required.Error)") }
+    }
+    if ($Descriptor.ContainsKey('NameCase')) {
+        if ($type -ne 'Registry') {
+            $problems.Add("$Context of Type '$type' cannot declare NameCase (Registry only)")
+        } elseif ([string]$Descriptor.NameCase -cne 'Exact') {
+            $problems.Add("$Context has NameCase '$($Descriptor.NameCase)'; the only accepted value is 'Exact'")
+        }
+    }
+
     # A non-boolean opt-out ('no', 0) would be read by intent, not by value; reject it.
     if ($Descriptor.ContainsKey('Remediate') -and $Descriptor.Remediate -isnot [bool]) {
         $problems.Add("$Context has a non-boolean Remediate")
@@ -102,6 +117,18 @@ function Test-WoscapDescriptorSchema {
             foreach ($predicate in @($Descriptor.Applicability.Keys)) {
                 if ($validPredicates -notcontains [string]$predicate) {
                     $problems.Add("$Context has unknown applicability predicate '$predicate'")
+                }
+                # The gate matches by kind (integers vs REG_DWORD, strings vs
+                # REG_SZ), so mixed or other value types have no single meaning.
+                $gate = $Descriptor.Applicability[$predicate]
+                if ([string]$predicate -in @('RegistryValueEquals', 'RegistryValueIn') -and $gate -is [hashtable]) {
+                    $gateKey = if ([string]$predicate -eq 'RegistryValueEquals') { 'Value' } else { 'Values' }
+                    $gateValues = @(if ($gate.ContainsKey($gateKey)) { $gate[$gateKey] })
+                    $allInt = @($gateValues | Where-Object { -not (Test-WoscapIntegerValue $_) }).Count -eq 0
+                    $allStr = @($gateValues | Where-Object { $_ -isnot [string] }).Count -eq 0
+                    if ($gateValues.Count -eq 0 -or -not ($allInt -or $allStr)) {
+                        $problems.Add("$Context has a $predicate gate whose $gateKey must be all integers or all strings")
+                    }
                 }
             }
         }

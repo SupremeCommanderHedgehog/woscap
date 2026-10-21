@@ -104,3 +104,67 @@ Describe 'ConvertTo-WoscapCheckDescriptor (Edge-format inline registry)' {
         }
     }
 }
+
+# #29: a check fails any stored kind outside its required kinds, so each emitted
+# descriptor must require the kind DISA states.
+Describe 'ConvertTo-WoscapCheckDescriptor emits the DISA-stated kind' {
+    It '<Type> = <Value> resolves to <Kind>' -ForEach @(
+        @{ Type = 'REG_DWORD';     Value = '1';             Kind = 'DWord';        Declared = $null }
+        @{ Type = 'REG_DWORD';     Value = '0x10 (16)';     Kind = 'DWord';        Declared = $null }
+        @{ Type = 'REG_QWORD';     Value = '5';             Kind = 'QWord';        Declared = 'qword' }
+        @{ Type = 'REG_QWORD';     Value = '4294967296';    Kind = 'QWord';        Declared = 'qword' }
+        @{ Type = 'REG_SZ';        Value = '1';             Kind = 'String';       Declared = 'string' }
+        @{ Type = 'REG_SZ';        Value = 'ntlm';          Kind = 'String';       Declared = 'string' }
+        @{ Type = 'REG_EXPAND_SZ'; Value = '%SystemRoot%';  Kind = 'ExpandString'; Declared = 'string' }
+    ) {
+        InModuleScope woscap -Parameters @{ T = $Type; V = $Value; K = $Kind; Declared = $Declared } {
+            param($T, $V, $K, $Declared)
+            $ct = "Use the Windows Registry Editor to navigate to the following key: HKLM\SOFTWARE\Policies\Microsoft\Edge  If the value for ""Setting"" is not set to ""$T = $V"", this is a finding."
+            $d = ConvertTo-WoscapCheckDescriptor -Rule (New-Rule $ct)
+            $d | Should -Not -BeNullOrEmpty
+            if ($Declared) { $d.Kind | Should -Be $Declared } else { $d.ContainsKey('Kind') | Should -BeFalse }
+            if ($K -eq 'QWord') { $d.Expected | Should -BeOfType [long] }
+            $r = Get-WoscapRequiredRegKind -Descriptor $d
+            $r.Error | Should -BeNullOrEmpty
+            @($r.Kinds) | Should -Contain $K
+            @(Test-WoscapDescriptorSchema -Descriptor $d).Count | Should -Be 0
+        }
+    }
+    It 'a Chrome boolean/integer policy resolves to DWord' {
+        InModuleScope woscap {
+            $rule = [pscustomobject]@{ StigId = 'DTBC-0001'; CheckText = 'If the policy "BackgroundModeEnabled" is not set to "false", this is a finding.' }
+            $d = ConvertTo-WoscapChromePolicyDescriptor -Rule $rule
+            $d | Should -Not -BeNullOrEmpty
+            @((Get-WoscapRequiredRegKind -Descriptor $d).Kinds) | Should -Be @('DWord')
+        }
+    }
+}
+
+# A REG_DWORD above 0x7FFFFFFF reads back as a negative Int32 (#29 review R7).
+Describe 'ConvertTo-WoscapCheckDescriptor high REG_DWORD values' {
+    BeforeAll { . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1') }
+    It 'REG_DWORD = <Raw> passes on a host storing that DWORD (read back as <Signed>)' -ForEach @(
+        @{ Raw = '0x80000000';               Signed = [int]::MinValue }
+        @{ Raw = '0xFFFFFFFF';               Signed = -1 }
+        @{ Raw = '0xFFFFFFFF (4294967295)';  Signed = -1 }
+        @{ Raw = '4294967294';               Signed = -2 }
+        @{ Raw = '0x7FFFFFFF';               Signed = [int]::MaxValue }
+    ) {
+        InModuleScope woscap -Parameters @{ Raw = $Raw; Signed = $Signed } {
+            param($Raw, $Signed)
+            $ct = "Use the Windows Registry Editor to navigate to the following key: HKLM\SOFTWARE\Policies\Microsoft\Edge  If the value for ""Setting"" is not set to ""REG_DWORD = $Raw"", this is a finding."
+            $d = ConvertTo-WoscapCheckDescriptor -Rule (New-Rule $ct)
+            $d.Expected | Should -BeOfType [int]
+            $d.Expected | Should -Be $Signed
+            $script:hiEntry = New-WoscapTestRegEntry ([int]$Signed)
+            Mock Get-RegValueEntry { $script:hiEntry }
+            (Test-Descriptor -Descriptor $d).Result | Should -Be 'Pass'
+        }
+    }
+    It 'a REG_DWORD above 0xFFFFFFFF is not representable and is not emitted' {
+        InModuleScope woscap {
+            $ct = 'Use the Windows Registry Editor to navigate to the following key: HKLM\SOFTWARE\Policies\Microsoft\Edge  If the value for "Setting" is not set to "REG_DWORD = 0x100000000", this is a finding.'
+            ConvertTo-WoscapCheckDescriptor -Rule (New-Rule $ct) | Should -BeNullOrEmpty
+        }
+    }
+}

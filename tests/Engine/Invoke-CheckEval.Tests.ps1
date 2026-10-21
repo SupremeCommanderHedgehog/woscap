@@ -1,5 +1,6 @@
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
@@ -12,7 +13,7 @@ Describe 'Invoke-CheckEval' {
     }
     It 'evaluates a rule that has a passing check -> NotAFinding' {
         InModuleScope woscap -Parameters @{ Rules = $script:Rules } {
-            Mock Get-RegValue { 1 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) }
             $pack = @{ 'WNTEST-00-000010' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
             $res = Invoke-CheckEval -Rules $Rules -ContentPack $pack
             $withCheck = $res | Where-Object StigId -eq 'WNTEST-00-000010'
@@ -31,7 +32,7 @@ Describe 'Invoke-CheckEval' {
     }
     It 'maps a failing check -> Open with observed value recorded' {
         InModuleScope woscap -Parameters @{ Rules = $script:Rules } {
-            Mock Get-RegValue { 0 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (0) }
             $pack = @{ 'WNTEST-00-000010' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
             $res = Invoke-CheckEval -Rules $Rules -ContentPack $pack
             $r = $res | Where-Object StigId -eq 'WNTEST-00-000010'
@@ -72,7 +73,7 @@ Describe 'Invoke-CheckEval' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='medium'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
             $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
-            Mock Get-RegValue { throw 'should not be called' }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $(throw 'should not be called') }
             $prof = @{ 'S1' = @{ Type='NotApplicable'; Justification='n/a here'; Author='jd' } }
             $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof
             $r.Status         | Should -Be 'Not_Applicable'
@@ -94,7 +95,7 @@ Describe 'Invoke-CheckEval' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='high'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
             $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
-            Mock Get-RegValue { 0 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (0) }
             $prof = @{ 'S1' = @{ Type='AcceptedRisk'; Justification='comp control' } }
             $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof
             $r.Status         | Should -Be 'Open'
@@ -105,7 +106,7 @@ Describe 'Invoke-CheckEval' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='medium'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
             $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
-            Mock Get-RegValue { 5 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (5) }
             $prof = @{ 'S1' = @{ Type='Override'; Justification='org value'; Expected=5 } }
             $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof
             $r.Status         | Should -Be 'NotAFinding'
@@ -116,7 +117,7 @@ Describe 'Invoke-CheckEval' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='high'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
             $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
-            Mock Get-RegValue { 1 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) }
             $prof = @{ 'S1' = @{ Type='Override'; Justification='downgrade'; Severity='low' } }
             $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof
             $r.Severity | Should -Be 'low'
@@ -126,7 +127,7 @@ Describe 'Invoke-CheckEval' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='medium'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
             $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
-            Mock Get-RegValue { 0 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (0) }
             $prof = @{ 'S1' = @{ Type='NotApplicable'; Justification='x'; Expires='2000-01-01' } }
             $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof -ReferenceDate ([datetime]'2026-07-11') -WarningAction SilentlyContinue
             $r.Status    | Should -Be 'Open'
@@ -136,7 +137,7 @@ Describe 'Invoke-CheckEval' {
     It 'still works with no exception profile (backward compatible)' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='medium'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
-            Mock Get-RegValue { 1 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) }
             $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
             (Invoke-CheckEval -Rules $rules -ContentPack $pack).Status | Should -Be 'NotAFinding'
         }
@@ -161,7 +162,7 @@ Describe 'Invoke-CheckEval' {
         InModuleScope woscap {
             $rules = @([pscustomobject]@{ GroupId='V-1'; RuleId='SV-1r1_rule'; StigId='S1'; Severity='high'; Title='T'; Cci=@(); Benchmark='B'; BenchmarkVersion='1' })
             $pack = @{ 'S1' = @{ Type='Registry'; Path='HKLM:\X'; Name='Foo'; Operator='eq'; Expected=1 } }
-            Mock Get-RegValue { 1 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) }
             $prof = @{ 'S1' = @{ Type='Override'; Justification='bad sev'; Severity='CAT-I' } }
             $r = Invoke-CheckEval -Rules $rules -ContentPack $pack -ExceptionProfile $prof -WarningAction SilentlyContinue
             $r.Severity | Should -Be 'high'      # invalid override ignored -> rule severity kept

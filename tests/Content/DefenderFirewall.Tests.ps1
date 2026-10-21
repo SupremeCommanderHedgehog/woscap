@@ -60,6 +60,7 @@ BeforeAll {
     $script:RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     $script:PackPath = Join-Path $script:RepoRoot 'Content/DefenderFirewall'
     Import-Module (Join-Path $script:RepoRoot 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
@@ -117,7 +118,7 @@ Describe 'Defender Firewall verdicts over generated registry states' {
             $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)[$Rule.Id]
             $bad = New-WoscapUnreadable -Reason 'test: access denied'
             $script:reg = @{}
-            Mock Get-RegValue { $k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null } }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $($k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null }) }
             Mock Get-WoscapMachineFact { $true } -ParameterFilter { $Fact -eq 'DomainJoined' }
 
             $good = $Rule.Value
@@ -170,7 +171,7 @@ Describe 'Defender Firewall verdicts over generated registry states' {
         InModuleScope woscap -Parameters @{ P = $script:PackPath; Rule = $_ } {
             param($P, $Rule)
             $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)[$Rule.Id]
-            Mock Get-RegValue { $null }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ($null) }
             Mock Get-WoscapMachineFact { $false } -ParameterFilter { $Fact -eq 'DomainJoined' }
             $offDomain = (Test-Descriptor -Descriptor $d).Result
             if ($Rule.DomainOnly) { $offDomain | Should -Be 'NA' } else { $offDomain | Should -Be 'Fail' }

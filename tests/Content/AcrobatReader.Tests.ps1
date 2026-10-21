@@ -49,6 +49,7 @@ BeforeAll {
     $script:RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     $script:PackPath = Join-Path $script:RepoRoot 'Content/AcrobatReader'
     Import-Module (Join-Path $script:RepoRoot 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
@@ -117,7 +118,7 @@ Describe 'AcrobatReader FeatureLockDown rules' {
             $v = $Rule.Expected
             $unread = New-WoscapUnreadable -Reason 'test: access denied'
             $script:reg = @{}; $script:paths = @()
-            Mock Get-RegValue { $k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null } }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $($k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null }) }
             Mock Test-PathPresence { $Path -in $script:paths }
 
             # Paths present, registry values, expected result.
@@ -149,8 +150,8 @@ Describe 'AcrobatReader FeatureLockDown rules' {
     It 'treats an unreadable detection path as not Pass' {
         InModuleScope woscap -Parameters @{ P = $script:PackPath } {
             $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)['ARDC-CN-000005']
-            Mock Get-RegValue { $null }
-            Mock Get-RegValue { 1 } -ParameterFilter { $Path -eq 'HKLM:\Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown' }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ($null) }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) } -ParameterFilter { $Path -eq 'HKLM:\Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown' }
             Mock Test-PathPresence { New-WoscapUnreadable -Reason 'test: access denied' }
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'Error'
         }
@@ -170,7 +171,7 @@ Describe 'AcrobatReader repair installation (ARDC-CN-000070)' {
             $wuni = "$wkey|DisableMaintenance"
             $script:arch = $null; $script:reg = @{}; $script:paths = @()
             Mock Get-CimSetting { $script:arch }
-            Mock Get-RegValue { $k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null } }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $($k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null }) }
             Mock Test-PathPresence { $Path -in $script:paths }
             $unread = New-WoscapUnreadable -Reason 'test: access denied'
             $cases = @(
@@ -224,9 +225,9 @@ Describe 'AcrobatReader HKCU and manual rules' {
             $d.Question | Should -Match ([regex]::Escape(($Rule.Path -replace '^HKCU:', 'HKCU')))
             $d.Question | Should -Match ([regex]::Escape(($acro -replace '^HKCU:', 'HKCU')))
             $d.Question | Should -Match 'absence is a finding'
-            Mock Get-RegValue { $null }
-            Mock Get-RegValue { 'READER' } -ParameterFilter { $Path -eq $Rule.Path -and $Name -eq $Rule.Name }
-            Mock Get-RegValue { 'ACROBAT' } -ParameterFilter { $Path -eq $acro -and $Name -eq $Rule.Name }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ($null) }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ('READER') } -ParameterFilter { $Path -eq $Rule.Path -and $Name -eq $Rule.Name }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ('ACROBAT') } -ParameterFilter { $Path -eq $acro -and $Name -eq $Rule.Name }
             $r = Test-Descriptor -Descriptor $d
             $r.Result | Should -Be 'NotReviewed'
             "$($r.Observed)" | Should -Be 'READER; ACROBAT'

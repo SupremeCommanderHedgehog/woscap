@@ -1,5 +1,6 @@
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
     $script:Fixture = Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures/sample-xccdf.xml'
     $script:Pack    = Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures/contentpack'
 }
@@ -12,7 +13,7 @@ Describe 'Invoke-WoscapScan' {
     It 'returns one RuleResult per rule and evaluates the fixture end-to-end' {
         # Fixture pack: WNTEST-00-000010 = Registry Foo eq 1; WNTEST-00-000020 = ScriptBlock 'Pass';
         # WNTEST-00-000030 has no authored check -> Not_Reviewed.
-        Mock -ModuleName woscap Get-RegValue { 1 }
+        Mock -ModuleName woscap Get-RegValueEntry { New-WoscapTestRegEntry (1) }
         $res = Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -Quiet
         @($res).Count | Should -Be 3
         ($res | Where-Object StigId -eq 'WNTEST-00-000010').Status | Should -Be 'NotAFinding'
@@ -20,7 +21,7 @@ Describe 'Invoke-WoscapScan' {
         ($res | Where-Object StigId -eq 'WNTEST-00-000030').Status | Should -Be 'Not_Reviewed'
     }
     It 'writes a JSON report when -JsonPath is given' {
-        Mock -ModuleName woscap Get-RegValue { 1 }
+        Mock -ModuleName woscap Get-RegValueEntry { New-WoscapTestRegEntry (1) }
         $out = Join-Path ([System.IO.Path]::GetTempPath()) ("woscap-" + [System.Guid]::NewGuid() + ".json")
         try {
             Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -JsonPath $out -Quiet | Out-Null
@@ -43,7 +44,7 @@ Describe 'Invoke-WoscapScan' {
         }
     }
     It 'emits results enumerated so pipeline filtering works per-rule' {
-        Mock -ModuleName woscap Get-RegValue { 1 }
+        Mock -ModuleName woscap Get-RegValueEntry { New-WoscapTestRegEntry (1) }
         $nr = Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -Quiet |
             Where-Object Status -eq 'Not_Reviewed'
         @($nr).Count | Should -Be 1   # only WNTEST-00-000030 has no authored check
@@ -52,14 +53,14 @@ Describe 'Invoke-WoscapScan' {
         $prof = Join-Path ([System.IO.Path]::GetTempPath()) ("prof-" + [System.Guid]::NewGuid() + ".psd1")
         Set-Content -LiteralPath $prof -Value "@{ 'WNTEST-00-000030' = @{ Type = 'NotApplicable'; Justification = 'n/a' } }"
         try {
-            Mock -ModuleName woscap Get-RegValue { 1 }
+            Mock -ModuleName woscap Get-RegValueEntry { New-WoscapTestRegEntry (1) }
             $res = Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -ProfilePath $prof -Quiet
             ($res | Where-Object StigId -eq 'WNTEST-00-000030').Status | Should -Be 'Not_Applicable'
         } finally { Remove-Item $prof -Force -ErrorAction SilentlyContinue }
     }
 
     It 'runs in-process (no remoting) when -ComputerName is localhost' {
-        Mock -ModuleName woscap Get-RegValue { 1 }
+        Mock -ModuleName woscap Get-RegValueEntry { New-WoscapTestRegEntry (1) }
         Mock -ModuleName woscap Invoke-WoscapRemoteScan { throw 'remote path should not be taken' }
         $res = Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -ComputerName 'localhost' -Quiet
         @($res).Count | Should -Be 3
@@ -75,7 +76,7 @@ Describe 'Invoke-WoscapScan' {
     }
 
     It 'scans localhost in-process AND remote hosts when the list mixes both' {
-        Mock -ModuleName woscap Get-RegValue { 1 }
+        Mock -ModuleName woscap Get-RegValueEntry { New-WoscapTestRegEntry (1) }
         Mock -ModuleName woscap Invoke-WoscapRemoteScan { @([pscustomobject]@{ Host = 'SRV01'; StigId = 'S9'; Status = 'Open'; Severity = 'high'; Exception = $null }) }
         $res = Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -ComputerName 'localhost','SRV01' -Quiet
         Should -Invoke Invoke-WoscapRemoteScan -ModuleName woscap -Times 1 -Scope It

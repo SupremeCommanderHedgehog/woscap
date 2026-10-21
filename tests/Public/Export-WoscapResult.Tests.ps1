@@ -1,5 +1,6 @@
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
@@ -7,7 +8,7 @@ Describe 'Export-WoscapResult' {
     BeforeAll {
         $script:Fixture = Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures/sample-xccdf.xml'
         $script:Pack    = Join-Path (Split-Path $PSScriptRoot -Parent) 'fixtures/contentpack'
-        Mock -ModuleName woscap Get-RegValue { 1 }
+        Mock -ModuleName woscap Get-RegValueEntry { New-WoscapTestRegEntry (1) }
         $script:Results = Invoke-WoscapScan -XccdfPath $script:Fixture -ContentPath $script:Pack -Quiet
     }
     It 'is exported as a public command' {

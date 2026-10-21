@@ -1,5 +1,6 @@
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
     $script:PackPath = Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'Content/Chrome'
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
@@ -48,9 +49,9 @@ Describe 'Chrome content pack' {
     It 'evaluates end-to-end through the engine against a mocked registry read' {
         InModuleScope woscap -Parameters @{ PackPath = $script:PackPath } {
             $p = Import-ContentPack -Path $PackPath
-            Mock Get-RegValue { 0 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (0) }
             (Test-Descriptor -Descriptor $p['DTBC-0011']).Result | Should -Be 'Pass'   # PasswordManagerEnabled=0
-            Mock Get-RegValue { 1 }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) }
             (Test-Descriptor -Descriptor $p['DTBC-0011']).Result | Should -Be 'Fail'
         }
     }

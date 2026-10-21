@@ -9,16 +9,6 @@
 # Manual entries whose evidence needs a script also live here; evidence is
 # reported, never judged.
 @{
-    # WN11-00-000170 (CAT II) - SMBv1 client (mrxsmb10) must be disabled (Start = 4).
-    'WN11-00-000170' = @{
-        Type   = 'ScriptBlock'
-        Script = {
-            $v = Get-RegValue -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10' -Name 'Start'
-            if (Test-WoscapUnreadable -Value $v) { 'Error' }
-            elseif ($v -eq 4) { 'Pass' } else { 'Fail' }
-        }
-    }
-
     # WN11-00-000015 (CAT II) - firmware must run in UEFI mode, not Legacy BIOS.
     'WN11-00-000015' = @{
         Type   = 'ScriptBlock'

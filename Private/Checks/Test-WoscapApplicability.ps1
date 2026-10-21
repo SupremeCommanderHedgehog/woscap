@@ -10,6 +10,11 @@ function Test-WoscapApplicability {
         An unrecognized predicate throws. Silently ignoring one would mark a
         rule applicable that its author meant to gate, or vice versa.
 
+        RegistryValueEquals / RegistryValueIn make a rule NA only when the
+        stored value matches AND its kind fits the gate values: integer gate
+        values need a REG_DWORD, string gate values a REG_SZ or REG_EXPAND_SZ.
+        Any other kind does not match, so the rule applies (never a false NA).
+
         Returns Applies, Reason, and Unreadable. When a predicate's underlying
         read fails, Unreadable is set and the caller must surface Error - NOT
         NA. Marking a rule NA on an unreadable fact drops it from scoring, so
@@ -60,37 +65,32 @@ function Test-WoscapApplicability {
                 }
                 break
             }
-            'RegistryValueEquals' {
+            { $_ -in @('RegistryValueEquals', 'RegistryValueIn') } {
                 # Negative gate: the rule is Not Applicable WHEN the value matches.
-                $observed = Get-RegValue -Path $arg.Path -Name $arg.Name
-                if (Test-WoscapUnreadable -Value $observed) {
+                $entry = Get-RegValueEntry -Path $arg.Path -Name $arg.Name
+                if (Test-WoscapUnreadable -Value $entry) {
                     return [pscustomobject]@{
                         Applies = $false; Unreadable = $true
-                        Reason  = (Get-WoscapUnreadableReason -Value $observed)
+                        Reason  = (Get-WoscapUnreadableReason -Value $entry)
                     }
                 }
-                if ($null -ne $observed -and "$observed" -eq "$($arg.Value)") {
+                $gateValues = @(if ($name -eq 'RegistryValueEquals') { $arg.Value } else { $arg.Values })
+                # A wrong-kind value (REG_SZ "1" for an integer gate) never
+                # matches, so it can never make a rule NA.
+                $matched = $false
+                if ($null -ne $entry -and $gateValues.Count -gt 0) {
+                    $intGate = @($gateValues | Where-Object { -not (Test-WoscapIntegerValue $_) }).Count -eq 0
+                    $strGate = @($gateValues | Where-Object { $_ -isnot [string] }).Count -eq 0
+                    if ($intGate -and $entry.Kind -eq 'DWord') {
+                        $matched = @($gateValues | ForEach-Object { [decimal]$_ }) -contains [decimal]$entry.Value
+                    } elseif ($strGate -and $entry.Kind -in @('String', 'ExpandString')) {
+                        $matched = $gateValues -contains [string]$entry.Value
+                    }
+                }
+                if ($matched) {
                     return [pscustomobject]@{
                         Applies = $false; Unreadable = $false
-                        Reason  = "Not applicable: $($arg.Path)\$($arg.Name) is $($arg.Value)."
-                    }
-                }
-                break
-            }
-            'RegistryValueIn' {
-                # Negative gate over a set: NA WHEN the value is one of Values (string compare).
-                $observed = Get-RegValue -Path $arg.Path -Name $arg.Name
-                if (Test-WoscapUnreadable -Value $observed) {
-                    return [pscustomobject]@{
-                        Applies = $false; Unreadable = $true
-                        Reason  = (Get-WoscapUnreadableReason -Value $observed)
-                    }
-                }
-                $set = @(@($arg.Values) | ForEach-Object { "$_" })
-                if ($null -ne $observed -and $set -contains "$observed") {
-                    return [pscustomobject]@{
-                        Applies = $false; Unreadable = $false
-                        Reason  = "Not applicable: $($arg.Path)\$($arg.Name) is $observed."
+                        Reason  = "Not applicable: $($arg.Path)\$($arg.Name) is $($entry.Value)."
                     }
                 }
                 break

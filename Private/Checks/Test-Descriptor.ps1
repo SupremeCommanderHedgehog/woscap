@@ -28,12 +28,31 @@ function Test-Descriptor {
     $expected = if ($Descriptor.ContainsKey('Expected')) { $Descriptor.Expected } else { $null }
     try {
         $observed = $null
+        $regKind = $null
         switch ($Descriptor.Type) {
             'Registry' {
-                $observed = Get-RegValue -Path $Descriptor.Path -Name $Descriptor.Name
+                # A descriptor whose kind cannot be resolved is a pack defect, so it
+                # is Error before any read: never Pass via AbsentIsPass, never Fail.
+                if (-not $GatherOnly) {
+                    $kindCheck = Get-WoscapRequiredRegKind -Descriptor $Descriptor
+                    if ($kindCheck.Error) {
+                        return [pscustomobject]@{ Result = 'Error'; Observed = "content pack defect: $($kindCheck.Error)"; Expected = $expected }
+                    }
+                }
+                $readSplat = @{ Path = $Descriptor.Path; Name = $Descriptor.Name }
+                if ($Descriptor.ContainsKey('NameCase') -and [string]$Descriptor.NameCase -eq 'Exact') {
+                    $readSplat['ExactNameCase'] = $true
+                }
+                $entry = Get-RegValueEntry @readSplat
+                if ($null -ne $entry -and -not (Test-WoscapUnreadable -Value $entry)) {
+                    $observed = $entry.Value
+                    $regKind  = [string]$entry.Kind
+                } else {
+                    $observed = $entry
+                }
                 # Rules worded "Value: 0 (or if the Value Name does not exist)"
                 # treat a missing value as the compliant default.
-                if ($null -eq $observed -and
+                if ($null -eq $observed -and $null -eq $regKind -and
                     $Descriptor.ContainsKey('AbsentIsPass') -and $Descriptor.AbsentIsPass) {
                     return [pscustomobject]@{ Result = 'Pass'; Observed = '<absent>'; Expected = $expected }
                 }
@@ -160,18 +179,38 @@ function Test-Descriptor {
             }
         }
 
+        # A present registry value of a kind the descriptor does not accept
+        # (REG_SZ "1" for a DWORD rule) must never reach the loose comparison.
+        $kindMismatch = $false
+        $requiredKind = $null
+        if ($null -ne $regKind -and ($Descriptor.ContainsKey('Operator') -or $Descriptor.ContainsKey('Kind'))) {
+            $requiredKind = Get-WoscapRequiredRegKind -Descriptor $Descriptor
+            if (-not $requiredKind.Error -and $requiredKind.Kinds -ne '*' -and @($requiredKind.Kinds) -notcontains $regKind) {
+                $kindMismatch = $true
+            }
+        }
+
         # Gather-only is an EXPLICIT mode, not an inference from a missing
         # Operator. Inferring it silently downgraded a typo'd or dropped
         # Operator key in a content pack from a loud Error to a NotReviewed
         # indistinguishable from "no check authored", excluding the rule from
         # the Open count and the compliance percentage.
         if ($GatherOnly) {
-            return [pscustomobject]@{ Result = 'NotReviewed'; Observed = $observed; Expected = $expected }
+            # Evidence stays readable; the kind is shown only when it is wrong.
+            $gathered = if ($kindMismatch) { "$(@($observed) -join ',') [$regKind]" } else { $observed }
+            return [pscustomobject]@{ Result = 'NotReviewed'; Observed = $gathered; Expected = $expected }
         }
         if (-not $Descriptor.ContainsKey('Operator')) {
             return [pscustomobject]@{
                 Result   = 'Error'
                 Observed = "descriptor of Type '$($Descriptor.Type)' declares no Operator"
+                Expected = $expected
+            }
+        }
+        if ($kindMismatch) {
+            return [pscustomobject]@{
+                Result   = 'Fail'
+                Observed = "$regKind '$(@($observed) -join ',')' (requires $(@($requiredKind.Kinds) -join ' or '))"
                 Expected = $expected
             }
         }

@@ -64,6 +64,7 @@ BeforeAll {
     $script:RepoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
     $script:PackPath = Join-Path $script:RepoRoot 'Content/Firefox'
     Import-Module (Join-Path $script:RepoRoot 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
@@ -128,7 +129,7 @@ Describe 'Firefox single-value rules' {
             $d.Name | Should -Be $Rule.Name
             $script:val = $null
             $script:key = "$($Rule.Path)|$($Rule.Name)"
-            Mock Get-RegValue { if ("$Path|$Name" -eq $script:key) { $script:val } else { $null } }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $(if ("$Path|$Name" -eq $script:key) { $script:val } else { $null }) }
 
             $got = [ordered]@{}
             foreach ($v in $Rule.Good) { $script:val = $v; $got["good '$v'"] = (Test-Descriptor -Descriptor $d).Result }
@@ -155,7 +156,7 @@ Describe 'Firefox nested-object rules' {
             @($d.Checks | Where-Object { -not $_.ContainsKey('AbsentIsPass') } | ForEach-Object { "$($_.Path)|$($_.Name)=$($_.Expected)|$($_.Operator)" }) |
                 Should -Be @($Rule.Expect.Keys | ForEach-Object { "$($Rule.Path)|$_=$($Rule.Expect[$_])|eq" })
             $script:reg = @{}
-            Mock Get-RegValue { $k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null } }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $($k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null }) }
             $setGood = { $script:reg = @{}; foreach ($n in $Rule.Expect.Keys) { $script:reg["$($Rule.Path)|$n"] = $Rule.Expect[$n] } }
 
             $miss = [System.Collections.Generic.List[string]]::new()
@@ -181,7 +182,7 @@ Describe 'Firefox FirefoxHome Stories override' {
             $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)['FFOX-00-000029']
             $k = 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox\FirefoxHome'
             $script:reg = @{}
-            Mock Get-RegValue { $x = "$Path|$Name"; if ($script:reg.ContainsKey($x)) { $script:reg[$x] } else { $null } }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $($x = "$Path|$Name"; if ($script:reg.ContainsKey($x)) { $script:reg[$x] } else { $null }) }
             $base = @{ Search = 0; TopSites = 0; SponsoredTopSites = 0; Pocket = 0; SponsoredPocket = 0; Highlights = 0; Snippets = 0; Locked = 1 }
             $cases = @(
                 @(@{}, 'Pass'), @(@{ Stories = 0; SponsoredStories = 0 }, 'Pass'),
@@ -209,10 +210,10 @@ Describe 'Firefox Preferences rules' {
             $d.Question | Should -Match 'ignores \(2\)'
             $f = 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox'
             Mock Test-PathPresence { $true }
-            Mock Get-RegValue { $null }
-            Mock Get-RegValue { 'JSON' } -ParameterFilter { $Path -eq $f -and $Name -eq 'Preferences' }
-            Mock Get-RegValue { 'PREF' } -ParameterFilter { $Path -eq "$f\Preferences" -and $Name -eq $Pref }
-            Mock Get-RegValue { 'CAT' } -ParameterFilter { $Path -eq "$f\EnableTrackingProtection" -and $Name -eq 'Category' }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ($null) }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ('JSON') } -ParameterFilter { $Path -eq $f -and $Name -eq 'Preferences' }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ('PREF') } -ParameterFilter { $Path -eq "$f\Preferences" -and $Name -eq $Pref }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry ('CAT') } -ParameterFilter { $Path -eq "$f\EnableTrackingProtection" -and $Name -eq 'Category' }
             $r = Test-Descriptor -Descriptor $d
             $r.Result | Should -Be 'NotReviewed'
             $want = if ($Id -eq 'FFOX-00-000025') { 'True; JSON; PREF; CAT' } else { 'True; JSON; PREF' }
@@ -261,5 +262,37 @@ Describe 'Firefox spec reconciles with the V6R9 XCCDF' -Skip:$script:NoXccdf {
         $script:Rules['FFOX-00-000001'] | Should -Match 'supported version'
         $script:Rules['FFOX-00-000006'] | Should -Match 'about:preferences'
         $script:Rules['FFOX-00-000016'] | Should -Match 'AO-approved certificates'
+    }
+}
+
+# Firefox reads policy names case-sensitively, so a wrong-case name is absent (#29).
+Describe 'Firefox exact name case' {
+    It 'every Registry descriptor, including composite and Evidence children, declares NameCase Exact' {
+        InModuleScope woscap -Parameters @{ P = $script:PackPath } {
+            param($P)
+            $data = Import-ContentPack -Path $P -WarningAction SilentlyContinue
+            $walk = {
+                param($d, $ctx)
+                if ($d -isnot [hashtable]) { return }
+                if ($d.ContainsKey('Type') -and $d.Type -eq 'Registry' -and -not ($d.ContainsKey('NameCase') -and $d.NameCase -ceq 'Exact')) { $ctx }
+                if ($d.ContainsKey('Checks')) { $i = 0; foreach ($c in @($d.Checks)) { & $walk $c "$ctx.Checks[$i]"; $i++ } }
+                if ($d.ContainsKey('Evidence')) { & $walk $d.Evidence "$ctx.Evidence" }
+            }
+            $missing = foreach ($k in @($data.Keys)) { & $walk $data[$k] $k }
+            @($missing) | Should -BeNullOrEmpty
+        }
+    }
+    It 'FFOX-00-000009 fails when PopupBlocking holds "locked" instead of "Locked"' {
+        InModuleScope woscap -Parameters @{ P = $script:PackPath } {
+            param($P)
+            $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)['FFOX-00-000009']
+            # Simulates the registry: Default is stored correctly, Locked is stored as "locked".
+            Mock Get-RegValueEntry {
+                $stored = @{ Default = 1; locked = 1 }
+                $hit = @($stored.Keys | Where-Object { if ($ExactNameCase) { $_ -ceq $Name } else { $_ -eq $Name } })
+                if ($hit.Count -eq 1) { New-WoscapTestRegEntry $stored[$hit[0]] } else { $null }
+            }
+            (Test-Descriptor -Descriptor $d).Result | Should -Be 'Fail'
+        }
     }
 }

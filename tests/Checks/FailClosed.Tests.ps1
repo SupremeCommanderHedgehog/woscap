@@ -37,7 +37,7 @@ BeforeDiscovery {
     # the previous $noRead list claimed all four "perform no read of their own",
     # which was simply false.
     $script:ReadingTypes = @(
-        @{ Type='Registry';        Breaks='Get-ItemProperty';           Base=@{ Type='Registry'; Path='HKLM:\X'; Name='Y'; AbsentIsPass=$true } }
+        @{ Type='Registry';        Breaks='Get-Item';                   Base=@{ Type='Registry'; Path='HKLM:\X'; Name='Y'; AbsentIsPass=$true } }
         @{ Type='SecEdit';         Breaks='Invoke-SecEditExportRaw';    Base=@{ Type='SecEdit'; Name='MinimumPasswordLength' } }
         @{ Type='UserRight';       Breaks='Invoke-SecEditExportRaw';    Base=@{ Type='UserRight'; Privilege='SeBackupPrivilege' } }
         @{ Type='AuditPolicy';     Breaks='Invoke-AuditPolRaw';         Base=@{ Type='AuditPolicy'; Subcategory='Logon' } }
@@ -110,7 +110,7 @@ Describe 'Fail-closed invariant: applicability gates' {
     It 'a failed RegistryValueEquals read yields Error, never NA' {
         InModuleScope woscap {
             Clear-WoscapReadCache
-            Mock Get-ItemProperty { throw [System.Security.SecurityException]::new('access denied') }
+            Mock Get-Item { throw [System.Security.SecurityException]::new('access denied') }
             $d = @{ Applicability=@{ RegistryValueEquals=@{ Path='HKLM:\X'; Name='V'; Value=1 } }
                     Type='Registry'; Path='HKLM:\Y'; Name='Z'; Operator='eq'; Expected=1 }
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'Error'
@@ -119,7 +119,7 @@ Describe 'Fail-closed invariant: applicability gates' {
     It 'a failed RegistryValueIn read yields Error, never NA' {
         InModuleScope woscap {
             Clear-WoscapReadCache
-            Mock Get-ItemProperty { throw [System.Security.SecurityException]::new('access denied') }
+            Mock Get-Item { throw [System.Security.SecurityException]::new('access denied') }
             $d = @{ Applicability=@{ RegistryValueIn=@{ Path='HKLM:\X'; Name='V'; Values=@(1, 2) } }
                     Type='Registry'; Path='HKLM:\Y'; Name='Z'; Operator='eq'; Expected=1 }
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'Error'
@@ -141,7 +141,7 @@ Describe 'Fail-closed invariant: empty is still real evidence' {
     It 'a genuinely absent registry value still passes AbsentIsPass' {
         InModuleScope woscap {
             Clear-WoscapReadCache
-            Mock Get-ItemProperty { throw [System.Management.Automation.ItemNotFoundException]::new('no key') }
+            Mock Get-Item { throw [System.Management.Automation.ItemNotFoundException]::new('no key') }
             $d = @{ Type='Registry'; Path='HKLM:\X'; Name='SafeForScripting'; Operator='ne'; Expected=1; AbsentIsPass=$true }
             (Test-Descriptor -Descriptor $d).Result | Should -Be 'Pass'
         }

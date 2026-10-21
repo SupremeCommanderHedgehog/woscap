@@ -19,6 +19,7 @@ BeforeDiscovery {
 
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'woscap.psd1') -Force
+    . (Join-Path (Split-Path $PSScriptRoot -Parent) 'helpers/New-WoscapTestRegEntry.ps1')
 }
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
@@ -46,7 +47,7 @@ Describe 'Remediation plan soundness over shipped content' {
                 $action.Registry.Kind | Should -Be ([string]$Descriptor.Kind) -Because 'a write must keep the declared registry type'
             }
 
-            # Model the real read-back: REG_DWORD comes back as Int32, REG_SZ as String.
+            # Model the real read-back, kind included: REG_DWORD reads as DWord Int32, REG_SZ as String.
             $data = $action.Registry.Data
             $script:readBack = switch ($action.Registry.Kind) {
                 'dword' {
@@ -60,10 +61,11 @@ Describe 'Remediation plan soundness over shipped content' {
                 }
                 default  { throw "unknown Kind '$($action.Registry.Kind)'" }
             }
+            $script:readKind = if ($action.Registry.Kind -eq 'dword') { 'DWord' } else { 'String' }
             $script:regPath = $action.Registry.Path
             $script:regName = $action.Registry.Name
-            Mock Get-RegValue { $null }
-            Mock Get-RegValue { $script:readBack } -ParameterFilter { $Path -eq $script:regPath -and $Name -eq $script:regName }
+            Mock Get-RegValueEntry { $null }
+            Mock Get-RegValueEntry { New-WoscapTestRegEntry $script:readBack -Kind $script:readKind } -ParameterFilter { $Path -eq $script:regPath -and $Name -eq $script:regName }
             Mock Test-WoscapApplicability { [pscustomobject]@{ Applies = $true; Unreadable = $false; Reason = '' } }
 
             $verdict = Test-Descriptor -Descriptor $Descriptor
