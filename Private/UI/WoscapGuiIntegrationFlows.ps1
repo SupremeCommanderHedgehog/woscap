@@ -1,14 +1,24 @@
 function Read-WoscapGuiIntegrationConfig {
-    <# The config form for -Hook on the target plugin: its typed hashtable, or $null on cancel or an unreadable schema. #>
+    <#
+        The config form for -Hook on the target plugin: its typed hashtable, or $null (after a
+        message) on cancel, an invalid ConfigOptions schema, or any failure building the form.
+        The form is never built from a schema Test-WoscapPluginConfigSchema rejects.
+    #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable] $Target, [Parameter(Mandatory)][string] $Hook, [Parameter(Mandatory)][string] $Title)
     try {
+        $manifest = Import-PowerShellDataFile -LiteralPath (Join-Path ([string]$Target.PluginPath) 'plugin.psd1')
+        $problems = @(Test-WoscapPluginConfigSchema -Manifest $manifest)
+        if ($problems.Count -gt 0) {
+            Show-WoscapGuiMessage -Text ("Integration '$($Target.Name)' declares invalid options and cannot be used:`r`n" + ($problems -join "`r`n"))
+            return $null
+        }
         $options = Get-WoscapGuiConfigOptions -Plugin $Target.Plugin -Hook $Hook
+        Show-WoscapGuiConfigForm -Options $options -Title $Title
     } catch {
-        Show-WoscapGuiMessage -Text "Could not read the options of '$($Target.Name)': $($_.Exception.Message)"
-        return $null
+        Show-WoscapGuiMessage -Text "Could not show the options of '$($Target.Name)': $($_.Exception.Message)"
+        $null
     }
-    Show-WoscapGuiConfigForm -Options $options -Title $Title
 }
 
 function New-WoscapGuiIntegrationSplat {
@@ -22,13 +32,30 @@ function New-WoscapGuiIntegrationSplat {
 }
 
 function Test-WoscapGuiIntegrationResults {
-    <# $true when the Scan tab holds results; otherwise says why -What needs them. #>
+    <# $true when the Scan tab holds results (and, with -RequireFresh, none predate a remediation); otherwise says why. #>
     [CmdletBinding()]
     [OutputType([bool])]
-    param([Parameter(Mandatory)][hashtable] $Tag, [Parameter(Mandatory)][string] $What)
-    if (@($Tag['Results']).Count -gt 0) { return $true }
-    Show-WoscapGuiMessage -Text "There are no current scan results to $What. Run a scan on the Scan tab first."
-    $false
+    param([Parameter(Mandatory)][hashtable] $Tag, [Parameter(Mandatory)][string] $What, [switch] $RequireFresh)
+    if (@($Tag['Results']).Count -eq 0) {
+        Show-WoscapGuiMessage -Text "There are no current scan results to $What. Run a scan on the Scan tab first."
+        return $false
+    }
+    # Same gate as Remediate: fixes were applied, so the statuses shown are out of date.
+    if ($RequireFresh -and $Tag['ResultsStale']) {
+        Show-WoscapGuiMessage -Text "The scan results predate the remediation that was applied; re-scan first."
+        return $false
+    }
+    $true
+}
+
+function Set-WoscapGuiIntegrationWarningTip {
+    <# Hover text on the Integrations status line: a partial run's warning detail ('' clears it). #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][hashtable] $Tag, [AllowEmptyString()][string] $Text = '')
+    if ($Tag.ContainsKey('StatusTip') -and $Tag['StatusTip']) {
+        $tip = if ($Text) { "Warnings:`r`n$Text" } else { '' }
+        $Tag['StatusTip'].SetToolTip($Tag['IntegrationStatus'], $tip)
+    }
 }
 
 function Start-WoscapGuiIntegrationJob {
@@ -49,6 +76,7 @@ function Start-WoscapGuiIntegrationJob {
     $Job['Succeeded'] = $false
     $Tag['IntegrationJob'] = $Job
     Set-WoscapGuiIntegrationBusy -Tag $Tag -Busy $true -Status $Status
+    Set-WoscapGuiIntegrationWarningTip -Tag $Tag -Text ''
 
     # Plain scriptblocks reach state via $script:WoscapGuiTag (see Invoke-WoscapGuiRemediate).
     # An errored run is reported once, by OnError; OnSettled handles the rest.
@@ -59,6 +87,7 @@ function Start-WoscapGuiIntegrationJob {
         $job = $t['IntegrationJob']
         $job['Succeeded'] = $true
         $job['Warnings'] = if ($Outcome.Kind -eq 'Warning') { [int]$Outcome.Count } else { 0 }
+        if ($Outcome.Kind -eq 'Warning') { Set-WoscapGuiIntegrationWarningTip -Tag $t -Text ([string]$Outcome.Message) }
         Set-WoscapGuiIntegrationBusy -Tag $t -Busy $false
         Complete-WoscapGuiIntegrationJob -Tag $t -Results @($Results)
     }
@@ -91,7 +120,7 @@ function Complete-WoscapGuiIntegrationJob {
     param([Parameter(Mandatory)][hashtable] $Tag, [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]] $Results)
     $job = $Tag['IntegrationJob']
     $name = [string]$job.Name
-    $note = if ($job['Warnings'] -gt 0) { " ($($job['Warnings']) warning(s))" } else { '' }
+    $note = if ($job['Warnings'] -gt 0) { " ($($job['Warnings']) warning(s); hover for details)" } else { '' }
     switch ([string]$job.Kind) {
         'Targets' {
             $hosts = @($Results | Where-Object { $null -ne $_ } | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
@@ -222,7 +251,7 @@ function Invoke-WoscapGuiIntegrationExportFindings {
     param([Parameter(Mandatory)][hashtable] $Tag)
     $script:WoscapGuiTag = $Tag
     if (-not (Test-WoscapGuiContentIdle -Tag $Tag)) { return }
-    if (-not (Test-WoscapGuiIntegrationResults -Tag $Tag -What 'export')) { return }
+    if (-not (Test-WoscapGuiIntegrationResults -Tag $Tag -What 'export' -RequireFresh)) { return }
     $target = Get-WoscapGuiIntegrationTarget -Tag $Tag -Hook 'Export-Findings'
     if (-not $target) { return }
     $config = Read-WoscapGuiIntegrationConfig -Target $target -Hook 'Export-Findings' -Title "Export findings - $($target.Name)"
@@ -246,7 +275,7 @@ function Invoke-WoscapGuiIntegrationExportRemediation {
     param([Parameter(Mandatory)][hashtable] $Tag)
     $script:WoscapGuiTag = $Tag
     if (-not (Test-WoscapGuiContentIdle -Tag $Tag)) { return }
-    if (-not (Test-WoscapGuiIntegrationResults -Tag $Tag -What 'export remediation for')) { return }
+    if (-not (Test-WoscapGuiIntegrationResults -Tag $Tag -What 'export remediation for' -RequireFresh)) { return }
     $target = Get-WoscapGuiIntegrationTarget -Tag $Tag -Hook 'New-Remediation'
     if (-not $target) { return }
     $config = Read-WoscapGuiIntegrationConfig -Target $target -Hook 'New-Remediation' -Title "Export remediation - $($target.Name)"

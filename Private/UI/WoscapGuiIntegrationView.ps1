@@ -21,11 +21,12 @@ function Get-WoscapGuiIntegrationFolder {
 }
 
 function Resolve-WoscapGuiIntegrationRoot {
-    <# Full path of the folder a listing reads (blank = bundled); throws on an invalid path. #>
+    <# Full path of the folder a listing reads (blank = bundled); relative to the PowerShell location, as Get-WoscapIntegration resolves it. #>
     [CmdletBinding()]
     [OutputType([string])]
     param([AllowNull()][AllowEmptyString()][string] $Folder)
-    [System.IO.Path]::GetFullPath((Get-WoscapPluginRoot -Path $Folder)).TrimEnd([char[]]@('\', '/'))
+    $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath((Get-WoscapPluginRoot -Path $Folder))
+    $full.TrimEnd([char[]]@('\', '/'))
 }
 
 function Update-WoscapGuiIntegrationView {
@@ -45,7 +46,7 @@ function Update-WoscapGuiIntegrationView {
         $root = Resolve-WoscapGuiIntegrationRoot -Folder $folder
         if (-not (Test-Path -LiteralPath $root)) { throw "Plugin folder not found: $root" }
         $splat = @{ ErrorAction = 'Stop'; WarningAction = 'SilentlyContinue' }
-        if ($folder) { $splat['Path'] = $folder }
+        if ($folder) { $splat['Path'] = $root }
         $all = @(Get-WoscapIntegration @splat)
         # Integration actions act only on the folder these rows came from.
         $Tag['IntegrationListedRoot'] = $root
@@ -125,8 +126,8 @@ function Get-WoscapGuiIntegrationTarget {
     <#
         @{ Plugin; Name; PluginPath } for running -Hook on the selected plugin, or $null after
         a message. Refuses a non-conformant plugin, a hook it does not declare, and a Plugin
-        folder edited since the grid was listed. PluginPath is the plugin's own folder when a
-        Plugin folder is set, else $null (bundled plugin by name).
+        folder edited since the grid was listed. PluginPath is always the listed plugin's own
+        folder, so a folder named differently from the manifest Name still resolves.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable] $Tag, [Parameter(Mandatory)][string] $Hook)
@@ -159,6 +160,6 @@ function Get-WoscapGuiIntegrationTarget {
     @{
         Plugin     = $plugin
         Name       = $name
-        PluginPath = if ($folder) { [string](Get-WoscapObjectProperty $plugin 'Path' '') } else { $null }
+        PluginPath = [string](Get-WoscapObjectProperty $plugin 'Path' '')
     }
 }

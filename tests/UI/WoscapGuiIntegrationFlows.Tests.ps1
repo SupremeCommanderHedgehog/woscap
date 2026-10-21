@@ -295,7 +295,7 @@ Describe 'Integration flows: what reaches the cmdlet' -Skip:(-not $script:IsSta)
     BeforeEach { Set-IntegrationFlowMocks }
     AfterEach { InModuleScope woscap { $script:form.Dispose() } }
 
-    It '<Handler> passes exactly the form hashtable as -Config, no PluginPath for a bundled plugin' -ForEach $script:Flows {
+    It '<Handler> passes exactly the form hashtable as -Config and the bundled plugin''s own folder as -PluginPath' -ForEach $script:Flows {
         New-IntegrationFlowForm
         InModuleScope woscap -Parameters @{ Handler = $Handler; Plugin = $Plugin; Command = $Command } {
             param($Handler, $Plugin, $Command)
@@ -309,11 +309,11 @@ Describe 'Integration flows: what reaches the cmdlet' -Skip:(-not $script:IsSta)
             [object]::ReferenceEquals($p['Config'], $script:cfg) | Should -BeTrue -Because 'Config must be the form hashtable itself'
             @($p['Config'].Keys | Sort-Object) | Should -Be @('Port', 'Server')
             $p['Integration'] | Should -Be $Plugin
-            $p.ContainsKey('PluginPath') | Should -BeFalse
+            $p['PluginPath'] | Should -Be (Join-Path (Get-WoscapPluginRoot) $Plugin)
         }
     }
 
-    It '<Handler> passes the plugin''s own folder as -PluginPath when a Plugin folder is set' -ForEach $script:Flows {
+    It '<Handler> passes the plugin''s own folder as -PluginPath from a Plugin folder' -ForEach $script:Flows {
         $root = New-TestFullPlugin (Join-Path $TestDrive ('plugins-' + [guid]::NewGuid().ToString('N')))
         New-IntegrationFlowForm -PluginFolder $root
         InModuleScope woscap -Parameters @{ Handler = $Handler; Root = $root } {
@@ -374,7 +374,7 @@ Describe 'Import targets' -Skip:(-not $script:IsSta) {
         InModuleScope woscap {
             Invoke-WoscapGuiIntegrationImportTargets -Tag $script:form.Tag
             $p = $script:runs[0].Params
-            @($p.Keys | Sort-Object) | Should -Be @('Config', 'Integration', 'Source', 'Targets')
+            @($p.Keys | Sort-Object) | Should -Be @('Config', 'Integration', 'PluginPath', 'Source', 'Targets')
             $p['Targets'] | Should -BeTrue
             $p['Source'] | Should -Be $script:report
         }
@@ -447,7 +447,7 @@ Describe 'Import findings' -Skip:(-not $script:IsSta) {
             Set-TestScanResults
             Invoke-WoscapGuiIntegrationImportFindings -Tag $script:form.Tag
             $p = $script:runs[0].Params
-            @($p.Keys | Sort-Object) | Should -Be @('Config', 'Findings', 'Integration', 'Path')
+            @($p.Keys | Sort-Object) | Should -Be @('Config', 'Findings', 'Integration', 'Path', 'PluginPath')
             $p['Findings'] | Should -BeTrue
             $p['Path'] | Should -Be $script:report
         }
@@ -528,7 +528,7 @@ Describe 'Run external scan' -Skip:(-not $script:IsSta) {
             $script:settle = { param($OnSettled, $OnError) & $OnSettled -Results @([pscustomobject]@{ Host = 'h'; Id = 'x' }) -Outcome $script:none }
             Mock Show-WoscapGuiIntegrationFindings { $script:dlg = @{ Findings = $Findings; Links = $Links } }
             Invoke-WoscapGuiIntegrationRunScan -Tag $script:form.Tag
-            @($script:runs[0].Params.Keys | Sort-Object) | Should -Be @('Config', 'Integration')
+            @($script:runs[0].Params.Keys | Sort-Object) | Should -Be @('Config', 'Integration', 'PluginPath')
             @($script:dlg.Findings).Count | Should -Be 1
             $script:dlg.Links | Should -BeNullOrEmpty
         }
@@ -574,7 +574,7 @@ Describe 'Export findings and remediation' -Skip:(-not $script:IsSta) {
             $script:settle = { param($OnSettled, $OnError) & $OnSettled -Results @([pscustomobject]@{ FactsPath = 'C:\t\facts.json'; Count = 2 }) -Outcome $script:none }
             Invoke-WoscapGuiIntegrationExportFindings -Tag $script:form.Tag
             $p = $script:runs[0].Params
-            @($p.Keys | Sort-Object) | Should -Be @('Config', 'Integration', 'Result')
+            @($p.Keys | Sort-Object) | Should -Be @('Config', 'Integration', 'PluginPath', 'Result')
             $r = @($p['Result'])
             $r.Count | Should -Be 2
             for ($i = 0; $i -lt 2; $i++) { [object]::ReferenceEquals($r[$i], $script:form.Tag['Results'][$i]) | Should -BeTrue }
@@ -603,7 +603,7 @@ Describe 'Export findings and remediation' -Skip:(-not $script:IsSta) {
             Invoke-WoscapGuiIntegrationExportRemediation -Tag $script:form.Tag
             Should -Invoke Get-WoscapGuiSavePath -Times 1 -Exactly -ParameterFilter { $Format -eq 'yml' }
             $p = $script:runs[0].Params
-            @($p.Keys | Sort-Object) | Should -Be @('Config', 'Integration', 'Path', 'Remediation', 'Result')
+            @($p.Keys | Sort-Object) | Should -Be @('Config', 'Integration', 'Path', 'PluginPath', 'Remediation', 'Result')
             $p['Remediation'] | Should -BeTrue
             $p['Path'] | Should -Be 'C:\out\playbook.yml'
             $r = @($p['Result'])
@@ -638,6 +638,119 @@ Describe 'Integration action wiring' -Skip:(-not $script:IsSta) {
             [void]$m.Invoke($t[$Key], @([System.EventArgs]::Empty))
             $t["Menu$Key"].PerformClick()
             Should -Invoke $Handler -Times 2 -Exactly
+        }
+    }
+}
+
+Describe 'Integration flows: review fixes' -Skip:(-not $script:IsSta) {
+    BeforeEach { Set-IntegrationFlowMocks }
+    AfterEach { InModuleScope woscap { $script:form.Dispose() } }
+
+    It 'passes the listed folder as -PluginPath when the folder name differs from the manifest Name' {
+        $root = Join-Path $TestDrive ('renamed-' + [guid]::NewGuid().ToString('N'))
+        $dir = Join-Path $root 'OpenVAS-v2'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'plugin.psd1') -Value "@{ Name = 'Fake'; Version = '1.0.0'; Capabilities = @('Invoke-ExternalScan'); Implementation = 'implementation.ps1' }"
+        Set-Content -LiteralPath (Join-Path $dir 'implementation.ps1') -Value "@{ 'Invoke-ExternalScan' = { } }"
+        New-IntegrationFlowForm -PluginFolder $root
+        InModuleScope woscap -Parameters @{ Dir = $dir } {
+            param($Dir)
+            Select-TestPlugin 'Fake'
+            Set-TestDialogAnswers
+            Invoke-WoscapGuiIntegrationRunScan -Tag $script:form.Tag
+            $p = $script:runs[0].Params
+            $p['Integration'] | Should -Be 'Fake'
+            $p['PluginPath'] | Should -Be $Dir
+        }
+    }
+
+    It 'refuses a plugin whose ConfigOptions schema is invalid, listing the errors, without building the form' {
+        $root = Join-Path $TestDrive ('badschema-' + [guid]::NewGuid().ToString('N'))
+        $dir = Join-Path $root 'Bad'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $manifest = @(
+            "@{ Name = 'Bad'; Version = '1.0.0'; Capabilities = @('Invoke-ExternalScan'); Implementation = 'implementation.ps1'"
+            "   ConfigOptions = @( @{ Name = 'Port'; Type = 'Number'; Default = 1.5; Hooks = @('Invoke-ExternalScan') }"
+            "                      @{ Name = 'Mode'; Type = 'Blob'; Hooks = @('Invoke-ExternalScan') } ) }"
+        )
+        Set-Content -LiteralPath (Join-Path $dir 'plugin.psd1') -Value $manifest
+        Set-Content -LiteralPath (Join-Path $dir 'implementation.ps1') -Value "@{ 'Invoke-ExternalScan' = { } }"
+        New-IntegrationFlowForm -PluginFolder $root
+        InModuleScope woscap {
+            Select-TestPlugin 'Bad'
+            Set-TestDialogAnswers
+            { Invoke-WoscapGuiIntegrationRunScan -Tag $script:form.Tag } | Should -Not -Throw
+            Should -Invoke Show-WoscapGuiConfigForm -Times 0 -Exactly
+            $script:runs.Count | Should -Be 0
+            $script:shown.Count | Should -Be 1
+            $script:shown[0] | Should -Match "'Port' Default"
+            $script:shown[0] | Should -Match "'Mode'"
+            Assert-TestIdle
+        }
+    }
+
+    It 'reports a config form that fails to build instead of letting it escape the handler' {
+        New-IntegrationFlowForm
+        InModuleScope woscap {
+            Select-TestPlugin 'OpenVAS'
+            Set-TestDialogAnswers
+            Mock Show-WoscapGuiConfigForm { throw 'form exploded' }
+            { Invoke-WoscapGuiIntegrationRunScan -Tag $script:form.Tag } | Should -Not -Throw
+            $script:runs.Count | Should -Be 0
+            $script:shown[0] | Should -Match 'form exploded'
+            Assert-TestIdle
+        }
+    }
+
+    It '<Handler> refuses stale results (after a remediation) before any dialog' -ForEach @(
+        @{ Handler = 'Invoke-WoscapGuiIntegrationExportFindings'; Plugin = 'Zabbix' }
+        @{ Handler = 'Invoke-WoscapGuiIntegrationExportRemediation'; Plugin = 'Ansible' }
+    ) {
+        New-IntegrationFlowForm
+        InModuleScope woscap -Parameters @{ Handler = $Handler; Plugin = $Plugin } {
+            param($Handler, $Plugin)
+            Set-TestScanResults
+            $script:form.Tag['ResultsStale'] = $true
+            Select-TestPlugin $Plugin
+            Set-TestDialogAnswers
+            & $Handler -Tag $script:form.Tag
+            $script:runs.Count | Should -Be 0
+            Should -Invoke Show-WoscapGuiConfigForm -Times 0 -Exactly
+            $script:shown.Count | Should -Be 1
+            $script:shown[0] | Should -Match 'predate'
+            $script:shown[0] | Should -Match 're-scan'
+        }
+    }
+
+    It '<Handler> shows the warning text of a partial run, not just a count' -ForEach $script:Flows {
+        New-IntegrationFlowForm
+        InModuleScope woscap -Parameters @{ Handler = $Handler; Plugin = $Plugin } {
+            param($Handler, $Plugin)
+            Set-TestScanResults
+            Select-TestPlugin $Plugin
+            Set-TestDialogAnswers
+            $script:settle = {
+                param($OnSettled, $OnError)
+                & $OnSettled -Results @('srv9') -Outcome ([pscustomobject]@{ Kind = 'Warning'; Message = 'woscap: host 10.9.9.9 skipped'; Count = 1 })
+            }
+            & $Handler -Tag $script:form.Tag
+            $t = $script:form.Tag
+            $t['StatusTip'].GetToolTip($t['IntegrationStatus']) | Should -Match 'host 10\.9\.9\.9 skipped'
+            $t['IntegrationStatus'].Text | Should -Match '1 warning'
+        }
+    }
+
+    It 'clears the previous warning tooltip when the next job starts' {
+        New-IntegrationFlowForm
+        InModuleScope woscap {
+            Select-TestPlugin 'OpenVAS'
+            Set-TestDialogAnswers
+            $script:settle = { param($OnSettled, $OnError) & $OnSettled -Results @('x') -Outcome ([pscustomobject]@{ Kind = 'Warning'; Message = 'old warning'; Count = 1 }) }
+            Invoke-WoscapGuiIntegrationRunScan -Tag $script:form.Tag
+            $script:settle = { param($OnSettled, $OnError) & $OnSettled -Results @('x') -Outcome $script:none }
+            Invoke-WoscapGuiIntegrationRunScan -Tag $script:form.Tag
+            $t = $script:form.Tag
+            $t['StatusTip'].GetToolTip($t['IntegrationStatus']) | Should -BeNullOrEmpty
         }
     }
 }

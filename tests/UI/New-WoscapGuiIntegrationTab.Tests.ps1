@@ -384,7 +384,7 @@ Describe 'Integrations tab' -Skip:(-not $script:IsSta) {
         }
     }
 
-    It 'passes no PluginPath for a bundled plugin listed from the blank folder' {
+    It 'passes the bundled plugin''s own folder as PluginPath when the folder is blank' {
         InModuleScope woscap {
             $form = New-WoscapMainForm
             try {
@@ -393,7 +393,7 @@ Describe 'Integrations tab' -Skip:(-not $script:IsSta) {
                 $null = Select-TestPlugin $t 'OpenVAS'
                 $r = Get-WoscapGuiIntegrationTarget -Tag $t -Hook 'Import-Findings'
                 $r.Plugin.Name | Should -Be 'OpenVAS'
-                $r.PluginPath | Should -BeNullOrEmpty
+                $r.PluginPath | Should -Be (Join-Path (Get-WoscapPluginRoot) 'OpenVAS')
             } finally { $form.Dispose() }
         }
     }
@@ -506,6 +506,50 @@ Describe 'Busy interplay with the Integration job' -Skip:(-not $script:IsSta) {
                     $t["Menu$k"].Enabled | Should -BeTrue
                 }
             } finally { $form.Dispose() }
+        }
+    }
+}
+
+Describe 'Relative Plugin folder' -Skip:(-not $script:IsSta) {
+    BeforeEach {
+        Mock -ModuleName woscap Show-WoscapGuiMessage { }
+        Mock -ModuleName woscap Get-WoscapGuiCredential { }
+        Mock -ModuleName woscap Get-WoscapGuiFolderPath { $null }
+        Mock -ModuleName woscap Get-WoscapGuiOpenPath { @() }
+        Mock -ModuleName woscap Get-WoscapGuiSavePath { $null }
+        Mock -ModuleName woscap Invoke-WoscapGuiScan { throw 'the runner must not start' }
+        Mock -ModuleName woscap Get-WoscapBenchmark { }
+    }
+
+    It 'resolves a relative folder against the PowerShell location, not the process directory' {
+        $base = Join-Path $TestDrive ('rel-' + [guid]::NewGuid().ToString('N'))
+        $null = New-TestPluginRoot (Join-Path $base 'plugs')
+        $decoy = Join-Path $TestDrive ('decoy-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $decoy -Force | Out-Null
+        $savedCwd = [Environment]::CurrentDirectory
+        Push-Location -LiteralPath $base
+        try {
+            [Environment]::CurrentDirectory = $decoy
+            InModuleScope woscap -Parameters @{ Base = $base } {
+                param($Base)
+                $form = New-WoscapMainForm
+                try {
+                    $t = $form.Tag
+                    $t['IntegrationPath'].Text = 'plugs'
+                    Update-WoscapGuiIntegrationView -Tag $t
+                    @($t['IntegrationGrid'].Rows | ForEach-Object { $_.Tag.Name } | Sort-Object) | Should -Be @('Broken', 'Good')
+                    $t['IntegrationListedRoot'] | Should -Be (Join-Path $Base 'plugs')
+                    $g = $t['IntegrationGrid']; $g.ClearSelection()
+                    @($g.Rows | Where-Object { $_.Tag.Name -eq 'Good' })[0].Selected = $true
+                    $r = Get-WoscapGuiIntegrationTarget -Tag $t -Hook 'Get-Targets'
+                    $r | Should -Not -BeNullOrEmpty -Because 'the guard must resolve the box the same way the listing did'
+                    $r.PluginPath | Should -Be (Join-Path (Join-Path $Base 'plugs') 'Good')
+                    Should -Invoke Show-WoscapGuiMessage -Times 0 -Exactly
+                } finally { $form.Dispose() }
+            }
+        } finally {
+            Pop-Location
+            [Environment]::CurrentDirectory = $savedCwd
         }
     }
 }

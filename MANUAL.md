@@ -368,14 +368,17 @@ out. Selecting a plugin enables the actions it supports:
 - **Run external scan…** (`Invoke-ExternalScan`) triggers the plugin's scanner
   (e.g. OpenVAS over GMP) and shows the findings.
 - **Export findings…** (`Export-Findings`) and **Export remediation…**
-  (`New-Remediation`, e.g. an Ansible playbook) use the Scan tab's current results.
+  (`New-Remediation`, e.g. an Ansible playbook) use the Scan tab's current results;
+  after a remediation they refuse until you re-scan.
 Each action shows a form built from the plugin's `ConfigOptions` (see *Authoring a
-plugin*): text, numbers, yes/no, file/folder pickers, one-per-line lists, a
-key/value table, a masked secret, and **Set…** for credentials. Credentials and
-secrets are used for that one call only — never shown, logged or saved. A plugin
-without `ConfigOptions` gets a generic Key/Type/Value grid. Network-bound actions
-run in the background; nothing starts while a scan, remediation or content job
-is running.
+plugin*): text, whole numbers (leave blank to omit), yes/no, file/folder pickers,
+one-per-line lists, a key/value table, a masked secret, and **Set…** for
+credentials. Credentials and secrets are used for that one call only — never
+shown, logged or saved. A plugin without `ConfigOptions` gets a generic
+Key/Type/Value grid; a plugin whose `ConfigOptions` are invalid is refused with
+the list of problems. Network-bound actions run in the background; nothing starts
+while a scan, remediation or content job is running. Warnings from a run show on
+hover over the Integrations status line.
 
 The **Content** tab (also the Content menu) manages the operator-local STIG
 cache through the §5.1 cmdlets. **Cache folder** (blank = the default shown
@@ -690,7 +693,8 @@ ConfigOptions = @(
 ```
 
 `Type` is one of `Text`, `Number`, `Bool`, `Credential`, `Secret`, `List`,
-`Table`, `Path` (`PathKind` = `File`, `Folder` or `SaveFile` picks the browse
+`Table`, `Path` (a `Number` is a whole 32-bit integer, so its `Default` must be
+one; `PathKind` = `File`, `Folder` or `SaveFile` picks the browse
 dialog). `Hooks` lists which of your capabilities read the key. The conformance
 check validates the schema, and for the bundled plugins a test fails if the
 implementation reads a key the schema doesn't declare.
