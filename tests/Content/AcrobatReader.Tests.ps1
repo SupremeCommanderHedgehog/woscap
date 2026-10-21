@@ -95,65 +95,122 @@ Describe 'AcrobatReader pack shape' {
             $d.Type | Should -Be 'All'
             @($d.Checks).Count | Should -Be 2
             & $sig $d.Checks[0] | Should -Be "Registry|$($Rule.Path)|$($Rule.Name)|eq|$($Rule.Expected)"
-            $d.Checks[1].Type | Should -Be 'Any'
-            & $sig $d.Checks[1].Checks[0] | Should -Be "Registry|$($Rule.AcrobatPath)|$($Rule.Name)|eq|$($Rule.Expected)"
-            $nat = 'HKLM:\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer'
-            $wow = 'HKLM:\SOFTWARE\Wow6432Node\Adobe\Adobe Acrobat\DC\Installer'
-            @($d.Checks[1].Checks[1].Checks | ForEach-Object { & $sig $_ }) | Should -Be @(
-                "Path|$nat||eq|False", "Path|$wow||eq|False",
-                "Registry|$nat|Is64BitProduct|exists|False", "Registry|$wow|Is64BitProduct|exists|False")
+            $d.Checks[0].ContainsKey('Applicability') | Should -BeFalse
+            & $sig $d.Checks[1] | Should -Be "Registry|$($Rule.AcrobatPath)|$($Rule.Name)|eq|$($Rule.Expected)"
+            @($d.Checks[1].Applicability.Keys) | Should -Be @('AcrobatUnifiedApp')
+            $d.Checks[1].Applicability.AcrobatUnifiedApp | Should -BeExactly $true
         }
     }
 }
 
-# Detection: an Adobe Acrobat\DC\Installer key in either view, probed with a fail-closed read.
+# Spec 7.2 (#36): the fact-gated shape must score every host state exactly as the
+# copy-pasted detection block did. The old ARDC-CN-000005 is kept here as the oracle.
+Describe 'AcrobatReader fact-gated shape equals the old detection shape' {
+    BeforeDiscovery {
+        $script:EquivCases = foreach ($fact in 'true', 'false', 'unreadable') {
+            foreach ($reader in 'ok', 'bad', 'absent', 'unreadable') {
+                foreach ($acrobat in 'ok', 'bad', 'absent', 'unreadable') { @{ Fact = $fact; Reader = $reader; Acrobat = $acrobat } }
+            }
+        }
+    }
+    BeforeAll {
+        $nat = 'HKLM:\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer'
+        $wow = 'HKLM:\SOFTWARE\Wow6432Node\Adobe\Adobe Acrobat\DC\Installer'
+        $script:OldShape = @{ Type = 'All'; Checks = @(
+            @{ Type = 'Registry'; Path = 'HKLM:\Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown'; Name = 'bEnhancedSecurityStandalone'; Operator = 'eq'; Expected = 1 }
+            @{ Type = 'Any'; Checks = @(
+                @{ Type = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown'; Name = 'bEnhancedSecurityStandalone'; Operator = 'eq'; Expected = 1 }
+                @{ Type = 'All'; Checks = @(
+                    @{ Type = 'Path'; Path = $nat; Operator = 'eq'; Expected = $false }
+                    @{ Type = 'Path'; Path = $wow; Operator = 'eq'; Expected = $false }
+                    @{ Type = 'Registry'; Path = $nat; Name = 'Is64BitProduct'; Operator = 'exists'; Expected = $false }
+                    @{ Type = 'Registry'; Path = $wow; Name = 'Is64BitProduct'; Operator = 'exists'; Expected = $false }
+                )}
+            )}
+        )}
+    }
+    It 'fact <Fact>, Reader root <Reader>, Acrobat root <Acrobat>' -ForEach $script:EquivCases {
+        InModuleScope woscap -Parameters @{ P = $script:PackPath; Old = $script:OldShape; Fact = $Fact; Reader = $Reader; Acrobat = $Acrobat } {
+            param($P, $Old, $Fact, $Reader, $Acrobat)
+            Clear-WoscapReadCache
+            $new = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)['ARDC-CN-000005']
+            $script:eq = @{ Reader = $Reader; Acrobat = $Acrobat; Fact = $Fact }
+            $script:rootValue = {
+                param($state)
+                switch ($state) {
+                    'ok'         { New-WoscapTestRegEntry 1 }
+                    'bad'        { New-WoscapTestRegEntry 0 }
+                    'absent'     { $null }
+                    'unreadable' { New-WoscapUnreadable -Reason 'test: access denied' }
+                }
+            }
+            # Detection probes line up with the fact: present natively, absent, or a denied key
+            # (Test-Path reports a denied key as present; the value read then fails).
+            Mock Get-RegValueEntry {
+                if ($Path -like '*\Acrobat Reader\DC\FeatureLockDown') { return (& $script:rootValue $script:eq.Reader) }
+                if ($Path -like '*\Adobe Acrobat\DC\FeatureLockDown')  { return (& $script:rootValue $script:eq.Acrobat) }
+                if ($Path -like 'HKLM:\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer') {
+                    switch ($script:eq.Fact) {
+                        'true'       { return (New-WoscapTestRegEntry 1) }
+                        'unreadable' { return (New-WoscapUnreadable -Reason 'test: access denied') }
+                    }
+                }
+                $null
+            }
+            Mock Test-PathPresence { $script:eq.Fact -in @('true', 'unreadable') -and $Path -like 'HKLM:\SOFTWARE\Adobe\*' }
+            Mock Get-WoscapMachineFact {
+                switch ($script:eq.Fact) {
+                    'true'       { $true }
+                    'false'      { $false }
+                    'unreadable' { New-WoscapUnreadable -Reason 'test: cannot determine AcrobatUnifiedApp' }
+                }
+            } -ParameterFilter { $Fact -eq 'AcrobatUnifiedApp' }
+
+            $want = (Test-Descriptor -Descriptor $Old).Result
+            # Amended spec 3: with no unified app, an unreadable Acrobat root no longer forces Error.
+            if ($Fact -eq 'false' -and $Acrobat -eq 'unreadable' -and $Reader -ne 'unreadable') {
+                $want | Should -Be 'Error' -Because 'the exception must cover only cells where the old shape differed'
+                $want = (Test-Descriptor -Descriptor $Old.Checks[0]).Result
+            }
+            (Test-Descriptor -Descriptor $new).Result | Should -Be $want
+        }
+    }
+}
+
+# Detection is the AcrobatUnifiedApp fact; its own reads are covered in Test-WoscapApplicability.Tests.ps1.
 Describe 'AcrobatReader FeatureLockDown rules' {
     It '<Id> passes and fails on both roots by detection state' -ForEach $script:Simple {
         InModuleScope woscap -Parameters @{ P = $script:PackPath; Rule = $_ } {
             param($P, $Rule)
             $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)[$Rule.Id]
-            $nat = 'HKLM:\SOFTWARE\Adobe\Adobe Acrobat\DC\Installer'
-            $wow = 'HKLM:\SOFTWARE\Wow6432Node\Adobe\Adobe Acrobat\DC\Installer'
             $r = "$($Rule.Path)|$($Rule.Name)"; $a = "$($Rule.AcrobatPath)|$($Rule.Name)"
             $v = $Rule.Expected
             $unread = New-WoscapUnreadable -Reason 'test: access denied'
-            $script:reg = @{}; $script:paths = @()
+            $script:reg = @{}; $script:fact = $false
             Mock Get-RegValueEntry { New-WoscapTestRegEntry $($k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null }) }
-            Mock Test-PathPresence { $Path -in $script:paths }
+            Mock Get-WoscapMachineFact { $script:fact } -ParameterFilter { $Fact -eq 'AcrobatUnifiedApp' }
 
-            # Paths present, registry values, expected result.
+            # Fact, registry values, expected result.
             $cases = [System.Collections.Generic.List[object]]::new()
-            $cases.Add(@(@(), @{ $r = $v }, 'Pass'))
-            foreach ($b in $Rule.Bad) { $cases.Add(@(@(), @{ $r = $b; $a = $v }, 'Fail')) }
-            $cases.Add(@(@(), @{ $a = $v }, 'Fail'))
-            $cases.Add(@(@(), @{ $r = $unread }, 'Error'))
-            $cases.Add(@(@($nat), @{ $r = $v; $a = $v; "$nat|Is64BitProduct" = 1 }, 'Pass'))
-            $cases.Add(@(@($nat), @{ $r = $v; "$nat|Is64BitProduct" = 1 }, 'Fail'))
-            $cases.Add(@(@($nat), @{ $a = $v; "$nat|Is64BitProduct" = 1 }, 'Fail'))
-            foreach ($b in $Rule.Bad) { $cases.Add(@(@($nat), @{ $r = $v; $a = $b }, 'Fail')) }
-            $cases.Add(@(@($nat), @{ $r = $v; $a = $unread }, 'Error'))
-            $cases.Add(@(@($wow), @{ $r = $v }, 'Fail'))
-            $cases.Add(@(@($wow), @{ $r = $v; $a = $v }, 'Pass'))
-            $cases.Add(@(@(), @{ $r = $v; "$wow|Is64BitProduct" = 1 }, 'Fail'))
-            $cases.Add(@(@(), @{ $r = $v; "$nat|Is64BitProduct" = $unread }, 'Error'))
-            $cases.Add(@(@(), @{ $r = $v; "$wow|Is64BitProduct" = $unread }, 'Error'))
+            $cases.Add(@($false, @{ $r = $v }, 'Pass'))
+            foreach ($b in $Rule.Bad) { $cases.Add(@($false, @{ $r = $b; $a = $v }, 'Fail')) }
+            foreach ($b in $Rule.Bad) { $cases.Add(@($false, @{ $r = $v; $a = $b }, 'Pass')) }
+            $cases.Add(@($false, @{ $a = $v }, 'Fail'))
+            $cases.Add(@($false, @{ $r = $unread }, 'Error'))
+            $cases.Add(@($false, @{ $r = $v; $a = $unread }, 'Pass'))
+            $cases.Add(@($true, @{ $r = $v; $a = $v }, 'Pass'))
+            $cases.Add(@($true, @{ $r = $v }, 'Fail'))
+            $cases.Add(@($true, @{ $a = $v }, 'Fail'))
+            foreach ($b in $Rule.Bad) { $cases.Add(@($true, @{ $r = $v; $a = $b }, 'Fail')) }
+            $cases.Add(@($true, @{ $r = $v; $a = $unread }, 'Error'))
+            $cases.Add(@($unread, @{ $r = $v; $a = $v }, 'Error'))
 
             $miss = foreach ($c in $cases) {
-                $script:paths = @($c[0]); $script:reg = $c[1]
+                $script:fact = $c[0]; $script:reg = $c[1]
                 $got = (Test-Descriptor -Descriptor $d).Result
-                if ($got -ne $c[2]) { "paths [$($c[0] -join ',')] reg [$(($c[1].Keys | ForEach-Object { "$_=$($c[1][$_])" }) -join ',')]: expected $($c[2]), got $got" }
+                if ($got -ne $c[2]) { "fact [$($c[0])] reg [$(($c[1].Keys | ForEach-Object { "$_=$($c[1][$_])" }) -join ',')]: expected $($c[2]), got $got" }
             }
             @($miss) | Should -BeNullOrEmpty
-        }
-    }
-
-    It 'treats an unreadable detection path as not Pass' {
-        InModuleScope woscap -Parameters @{ P = $script:PackPath } {
-            $d = (Import-ContentPack -Path $P -WarningAction SilentlyContinue)['ARDC-CN-000005']
-            Mock Get-RegValueEntry { New-WoscapTestRegEntry ($null) }
-            Mock Get-RegValueEntry { New-WoscapTestRegEntry (1) } -ParameterFilter { $Path -eq 'HKLM:\Software\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown' }
-            Mock Test-PathPresence { New-WoscapUnreadable -Reason 'test: access denied' }
-            (Test-Descriptor -Descriptor $d).Result | Should -Be 'Error'
         }
     }
 }
@@ -169,10 +226,12 @@ Describe 'AcrobatReader repair installation (ARDC-CN-000070)' {
             $u64 = "$ukey|Is64BitProduct"
             $wkey = 'HKLM:\SOFTWARE\Wow6432Node\Adobe\Adobe Acrobat\DC\Installer'
             $wuni = "$wkey|DisableMaintenance"
-            $script:arch = $null; $script:reg = @{}; $script:paths = @()
+            $script:arch = $null; $script:reg = @{}; $script:paths = @(); $script:fact = $false
             Mock Get-CimSetting { $script:arch }
             Mock Get-RegValueEntry { New-WoscapTestRegEntry $($k = "$Path|$Name"; if ($script:reg.ContainsKey($k)) { $script:reg[$k] } else { $null }) }
             Mock Test-PathPresence { $Path -in $script:paths }
+            # The fact follows the Installer keys, unless a case overrides it (5th element).
+            Mock Get-WoscapMachineFact { $script:fact } -ParameterFilter { $Fact -eq 'AcrobatUnifiedApp' }
             $unread = New-WoscapUnreadable -Reason 'test: access denied'
             $cases = @(
                 ,@('64-bit', @(), @{ $wow = 1 }, 'Pass')
@@ -199,12 +258,14 @@ Describe 'AcrobatReader repair installation (ARDC-CN-000070)' {
                 ,@('64-bit', @($ukey, $wkey), @{ $wow = 1; $uni = 1; $wuni = 1; $u64 = 1 }, 'Pass')
                 ,@('64-bit', @($wkey), @{ $wow = 1; $wuni = 1; $u64 = $unread }, 'Error')
                 ,@('64-bit', @($wkey), @{ $wow = 1; $wuni = $unread }, 'Error')
-                ,@('64-bit', @(), @{ $wow = 1; $u64 = $unread }, 'Error')
+                ,@('64-bit', @(), @{ $wow = 1 }, 'Error', $unread)
+                ,@('64-bit', @(), @{ $wow = 1; $uni = $unread }, 'Pass')
                 ,@('64-bit', @(), @{ $wow = $unread }, 'Error')
                 ,@($unread, @(), @{ $wow = 1 }, 'Error')
             )
             $miss = foreach ($c in $cases) {
                 $script:arch = $c[0]; $script:paths = @($c[1]); $script:reg = $c[2]
+                $script:fact = if ($c.Count -gt 4) { $c[4] } else { @($c[1] | Where-Object { $_ -in @($ukey, $wkey) }).Count -gt 0 }
                 $got = (Test-Descriptor -Descriptor $d).Result
                 if ($got -ne $c[3]) { "arch '$($c[0])' paths [$($c[1] -join ',')] reg [$(($c[2].Keys | ForEach-Object { "$_=$($c[2][$_])" }) -join ',')]: expected $($c[3]), got $got" }
             }
