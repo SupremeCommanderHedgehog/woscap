@@ -90,6 +90,21 @@ function Test-WoscapDescriptorSchema {
         }
     }
 
+    # A Registry value of the wrong kind is a Fail, so the descriptor must
+    # say (or imply) which kind it needs. Operator-less Evidence is never judged.
+    $operatorKnown = -not $Descriptor.ContainsKey('Operator') -or $validOperators -contains [string]$Descriptor.Operator
+    if ($type -eq 'Registry' -and $operatorKnown -and ($Descriptor.ContainsKey('Operator') -or $Descriptor.ContainsKey('Kind'))) {
+        $required = Get-WoscapRequiredRegKind -Descriptor $Descriptor
+        if ($required.Error) { $problems.Add("$Context has an invalid registry kind: $($required.Error)") }
+    }
+    if ($Descriptor.ContainsKey('NameCase')) {
+        if ($type -ne 'Registry') {
+            $problems.Add("$Context of Type '$type' cannot declare NameCase (Registry only)")
+        } elseif ([string]$Descriptor.NameCase -cne 'Exact') {
+            $problems.Add("$Context has NameCase '$($Descriptor.NameCase)'; the only accepted value is 'Exact'")
+        }
+    }
+
     # A non-boolean opt-out ('no', 0) would be read by intent, not by value; reject it.
     if ($Descriptor.ContainsKey('Remediate') -and $Descriptor.Remediate -isnot [bool]) {
         $problems.Add("$Context has a non-boolean Remediate")

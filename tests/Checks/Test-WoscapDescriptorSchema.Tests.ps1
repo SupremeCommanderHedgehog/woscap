@@ -125,3 +125,82 @@ Describe 'Test-WoscapDescriptorSchema' {
         }
     }
 }
+
+Describe 'Test-WoscapDescriptorSchema registry kind rules (#29)' {
+    It 'rejects a Registry descriptor whose required kind cannot be resolved, naming the rule' {
+        InModuleScope woscap {
+            $d = @{ Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='ge'; Expected='5' }
+            @(Test-WoscapDescriptorSchema -Descriptor $d -Context 'R1') | Should -Match "R1.*ge"
+        }
+    }
+    It 'rejects an unknown declared Kind' {
+        InModuleScope woscap {
+            $d = @{ Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1; Kind='binary' }
+            @(Test-WoscapDescriptorSchema -Descriptor $d) | Should -Match 'binary'
+        }
+    }
+    It 'accepts NameCase Exact on a Registry descriptor' {
+        InModuleScope woscap {
+            $d = @{ Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1; NameCase='Exact' }
+            @(Test-WoscapDescriptorSchema -Descriptor $d).Count | Should -Be 0
+        }
+    }
+    It 'rejects a NameCase other than Exact' {
+        InModuleScope woscap {
+            $d = @{ Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1; NameCase='Insensitive' }
+            @(Test-WoscapDescriptorSchema -Descriptor $d) | Should -Match 'NameCase'
+        }
+    }
+    It 'rejects NameCase on a non-Registry descriptor' {
+        InModuleScope woscap {
+            $d = @{ Type='Service'; Name='X'; Operator='eq'; Expected='Auto'; NameCase='Exact' }
+            @(Test-WoscapDescriptorSchema -Descriptor $d) | Should -Match 'NameCase'
+        }
+    }
+    It 'checks the kind of composite children' {
+        InModuleScope woscap {
+            $d = @{ Type='All'; Checks=@(
+                @{ Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='eq'; Expected=1 }
+                @{ Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='regex'; Expected=5 }
+            )}
+            @(Test-WoscapDescriptorSchema -Descriptor $d -Context 'C1') | Should -Match 'C1\.Checks\[1\].*regex'
+        }
+    }
+    It 'checks the kind of Evidence children that declare an Operator' {
+        InModuleScope woscap {
+            $d = @{ Type='Manual'; Question='Q?'
+                    Evidence=@{ Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='setequals'; Expected=@(1); Kind='dword' } }
+            @(Test-WoscapDescriptorSchema -Descriptor $d -Context 'M1') | Should -Match 'M1\.Evidence'
+        }
+    }
+    It 'accepts operator-less Registry Evidence, which is reported and not judged' {
+        InModuleScope woscap {
+            $d = @{ Type='Manual'; Question='Q?'; Evidence=@{ Type='Registry'; Path='HKLM:\X'; Name='Y' } }
+            @(Test-WoscapDescriptorSchema -Descriptor $d).Count | Should -Be 0
+        }
+    }
+    It 'NameCase is validated inside composite and Evidence children' {
+        InModuleScope woscap {
+            $d = @{ Type='Manual'; Question='Q?'
+                    Evidence=@{ Type='Any'; Checks=@(@{ Type='Registry'; Path='HKLM:\X'; Name='Y'; Operator='exists'; Expected=$true; NameCase='exact ' }) } }
+            @(Test-WoscapDescriptorSchema -Descriptor $d) | Should -Match 'NameCase'
+        }
+    }
+}
+
+Describe 'Shipped content packs pass the descriptor schema' {
+    It 'every Content/*/checks.psd1 descriptor validates with 0 problems' {
+        InModuleScope woscap {
+            $problems = foreach ($dir in Get-ChildItem -LiteralPath (Join-Path $script:WoscapModuleRoot 'Content') -Directory) {
+                if (-not (Test-Path -LiteralPath (Join-Path $dir.FullName 'checks.psd1'))) { continue }
+                $data = Import-ContentPack -Path $dir.FullName -WarningAction SilentlyContinue
+                foreach ($key in @($data.Keys)) {
+                    if ($data[$key] -is [hashtable]) {
+                        Test-WoscapDescriptorSchema -Descriptor $data[$key] -Context "$($dir.Name)/$key"
+                    }
+                }
+            }
+            @($problems) | Should -BeNullOrEmpty
+        }
+    }
+}
