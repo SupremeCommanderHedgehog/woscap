@@ -12,6 +12,14 @@ function Add-WoscapGuiProfile {
     Update-WoscapGuiProfileButton -Tag $Tag
 }
 
+function Get-WoscapGuiProfilePath {
+    <# The profile list as strings, in -ProfilePath order; an empty string[] when empty. #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][hashtable] $Tag)
+    , [string[]]@($Tag['Profiles'].Items | ForEach-Object { [string]$_ })
+}
+
 function Remove-WoscapGuiProfile {
     <# Drops the selected profile; selection moves to the next row (or the new last). #>
     [CmdletBinding()]

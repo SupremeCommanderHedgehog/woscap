@@ -49,6 +49,10 @@ function New-WoscapMainForm {
         # Non-modal channel for partial-scan warning detail (see the OnWarning handler).
         StatusTip = New-Object System.Windows.Forms.ToolTip
         AdvancedExpanded = $false
+        # Last non-minimized WindowState, so a minimized maximized window saves as maximized.
+        LastWindowState = 'Normal'
+        # The "paths cleared" text Import put on Status, or $null; Reset clears only that.
+        SettingsStatus = $null
         Results = [System.Collections.Generic.List[object]]::new()
         # Benchmark/ContentPath of the scan that produced Results; $null until one completes.
         ResultsContext = $null
@@ -198,10 +202,9 @@ function New-WoscapMainForm {
     $menu.Manual.Add_Click({ Open-WoscapGuiManual })
     $menu.About.Add_Click({ Show-WoscapGuiAbout })
 
-    # Plain scriptblock; $this.Tag is this form's own tag even when a later form replaced WoscapGuiTag.
-    $form.Add_FormClosing({
-        try { Export-WoscapGuiSettings -Tag $this.Tag -Form $this } catch { Write-Warning "Could not save GUI settings: $($_.Exception.Message)" }
-    })
+    # $this.Tag is this form's own tag even if a later form replaced WoscapGuiTag. Export never throws.
+    $form.Add_FormClosing({ Export-WoscapGuiSettings -Tag $this.Tag -Form $this })
+    $form.Add_Resize({ Update-WoscapGuiLastWindowState -Tag $this.Tag -Form $this })
     Import-WoscapGuiSettings -Tag $tag -Form $form
 
     # Release the module-scoped reference when the window closes so the form and results

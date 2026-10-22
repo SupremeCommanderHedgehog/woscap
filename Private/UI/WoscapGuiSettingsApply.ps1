@@ -24,7 +24,9 @@ function Get-WoscapGuiSettingsState {
         .DESCRIPTION
         Returns the settings field set (see Write-WoscapGuiSettingsFile) as a hashtable. For a
         maximized or minimized window the Window entry uses RestoreBounds, so the next session
-        restores to the size the user last had. Never reads credentials, results or filters.
+        restores to the size the user last had. A minimized window is saved as maximized when it
+        was maximized before it was minimized ($Tag['LastWindowState']). Never reads credentials,
+        results or filters.
         .PARAMETER Tag
         The main form's Tag hashtable.
         .PARAMETER Form
@@ -37,12 +39,15 @@ function Get-WoscapGuiSettingsState {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][hashtable] $Tag, [Parameter(Mandatory)][System.Windows.Forms.Form] $Form)
-    $bounds = if ($Form.WindowState -eq [System.Windows.Forms.FormWindowState]::Normal) { $Form.Bounds } else { $Form.RestoreBounds }
+    $states = [System.Windows.Forms.FormWindowState]
+    $bounds = if ($Form.WindowState -eq $states::Normal) { $Form.Bounds } else { $Form.RestoreBounds }
+    $maximized = $Form.WindowState -eq $states::Maximized -or
+        ($Form.WindowState -eq $states::Minimized -and [string]$Tag['LastWindowState'] -eq 'Maximized')
     @{
         Benchmark          = [string]$Tag['Benchmark'].SelectedItem
         XccdfPath          = [string]$Tag['Xccdf'].Text
         Targets            = [string]$Tag['Targets'].Text
-        Profiles           = [string[]]@($Tag['Profiles'].Items | ForEach-Object { [string]$_ })
+        Profiles           = Get-WoscapGuiProfilePath -Tag $Tag
         AdvancedExpanded   = [bool]$Tag['AdvancedExpanded']
         ContentPath        = [string]$Tag['ContentPath'].Text
         ThrottleLimit      = [int]$Tag['ThrottleLimit'].Value
@@ -52,8 +57,17 @@ function Get-WoscapGuiSettingsState {
         IntegrationPath    = [string]$Tag['IntegrationPath'].Text
         Window = @{
             X = $bounds.X; Y = $bounds.Y; Width = $bounds.Width; Height = $bounds.Height
-            Maximized = $Form.WindowState -eq [System.Windows.Forms.FormWindowState]::Maximized
+            Maximized = $maximized
         }
+    }
+}
+
+function Update-WoscapGuiLastWindowState {
+    <# Resize handler: remembers the last non-minimized state, so minimizing a maximized window still saves Maximized. #>
+    [CmdletBinding()]
+    param([AllowNull()][hashtable] $Tag, [AllowNull()][System.Windows.Forms.Form] $Form)
+    if ($Tag -and $Form -and $Form.WindowState -ne [System.Windows.Forms.FormWindowState]::Minimized) {
+        $Tag['LastWindowState'] = [string]$Form.WindowState
     }
 }
 
@@ -119,7 +133,8 @@ function Set-WoscapGuiWindowSettings {
         .SYNOPSIS
         Applies saved window bounds and state, if they are on a screen.
         .DESCRIPTION
-        Applies the bounds only when the rectangle intersects one of -Area, so a window saved on
+        Applies the bounds only when the title-bar strip (the top 30px, inset 40px on each side)
+        intersects one of -Area, so the window can always be grabbed and moved. A window saved on
         a now-detached monitor reopens at the default size and position instead. Returns $true
         when applied.
         .PARAMETER Form
@@ -141,7 +156,9 @@ function Set-WoscapGuiWindowSettings {
         [AllowEmptyCollection()][System.Drawing.Rectangle[]] $Area = @()
     )
     $rect = New-Object System.Drawing.Rectangle([int]$Window['X'], [int]$Window['Y'], [int]$Window['Width'], [int]$Window['Height'])
-    if (@($Area | Where-Object { $_.IntersectsWith($rect) }).Count -eq 0) { return $false }
+    # The window must be grabbable: overlapping a screen with only its lower part is not enough.
+    $titleBar = New-Object System.Drawing.Rectangle(($rect.X + 40), $rect.Y, [Math]::Max(1, $rect.Width - 80), 30)
+    if (@($Area | Where-Object { $_.IntersectsWith($titleBar) }).Count -eq 0) { return $false }
     $Form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
     # CenterScreen would move the window again when it is first shown.
     $Form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
@@ -175,11 +192,14 @@ function Import-WoscapGuiSettings {
         $resolved = Resolve-WoscapGuiSettings -Raw $raw -Allowed (Get-WoscapGuiSettingsAllowed -Tag $Tag -Form $Form)
         # Status first: a window failure must not hide the cleared-paths message.
         if ($resolved.Cleared -gt 0) {
-            $Tag['Status'].Text = "$($resolved.Cleared) saved path(s) no longer exist and were cleared."
+            # Remembered so Reset can clear this message without touching scan status.
+            $Tag['SettingsStatus'] = "$($resolved.Cleared) saved path(s) no longer exist and were cleared."
+            $Tag['Status'].Text = $Tag['SettingsStatus']
         }
         Set-WoscapGuiSettingsValue -Tag $Tag -Values $resolved.Values
         if ($resolved.Values.ContainsKey('Window')) {
-            [void](Set-WoscapGuiWindowSettings -Form $Form -Window $resolved.Values['Window'] -Area @(Get-WoscapGuiScreenArea))
+            $applied = Set-WoscapGuiWindowSettings -Form $Form -Window $resolved.Values['Window'] -Area @(Get-WoscapGuiScreenArea)
+            if ($applied -and $resolved.Values['Window']['Maximized']) { $Tag['LastWindowState'] = 'Maximized' }
         }
     } catch {
         Write-Verbose "GUI settings not applied: $($_.Exception.Message)"
@@ -219,8 +239,10 @@ function Reset-WoscapGuiSettings {
         Asks for confirmation through Show-WoscapGuiMessage -YesNo; only an explicit $true
         proceeds, so a closed or mocked dialog changes nothing. On Yes it deletes the settings
         file (a failure is a warning) and applies $Tag['SettingsDefaults'], the values captured
-        when the form was built. The window returns to its default size, not maximized,
-        centered on its current screen. Closing the form afterwards saves these defaults again.
+        when the form was built. The window returns to its default size (shrunk to fit a smaller
+        screen), not maximized, centered on its current screen. A "paths cleared" message from
+        loading is removed; other status text is left alone. Closing the form afterwards saves
+        these defaults again.
         .PARAMETER Tag
         The main form's Tag hashtable.
         .PARAMETER Form
@@ -241,14 +263,20 @@ function Reset-WoscapGuiSettings {
     try {
         $defaults = $Tag['SettingsDefaults']
         Set-WoscapGuiSettingsValue -Tag $Tag -Values $defaults
+        if ($Tag['SettingsStatus'] -and $Tag['Status'].Text -eq $Tag['SettingsStatus']) { $Tag['Status'].Text = '' }
+        $Tag['SettingsStatus'] = $null
         $w = $defaults['Window']
         $Form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+        $Tag['LastWindowState'] = 'Normal'
         $areas = @(Get-WoscapGuiScreenArea)
         $area = @($areas | Where-Object { $_.IntersectsWith($Form.Bounds) }) + $areas | Select-Object -First 1
         if ($area) {
-            $x = $area.X + [int][Math]::Floor(($area.Width - $w['Width']) / 2)
-            $y = $area.Y + [int][Math]::Floor(($area.Height - $w['Height']) / 2)
-            $Form.Bounds = New-Object System.Drawing.Rectangle($x, $y, $w['Width'], $w['Height'])
+            # Fit to the screen first, so centering never yields a negative offset.
+            $width = [Math]::Min([int]$w['Width'], $area.Width)
+            $height = [Math]::Min([int]$w['Height'], $area.Height)
+            $x = $area.X + [int][Math]::Floor(($area.Width - $width) / 2)
+            $y = $area.Y + [int][Math]::Floor(($area.Height - $height) / 2)
+            $Form.Bounds = New-Object System.Drawing.Rectangle($x, $y, $width, $height)
         } else {
             $Form.Size = New-Object System.Drawing.Size($w['Width'], $w['Height'])
         }

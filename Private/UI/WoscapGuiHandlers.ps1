@@ -116,7 +116,7 @@ function Invoke-WoscapGuiRun {
         Show-WoscapGuiMessage -Text 'Select a benchmark before running. (No content packs were found under Content/.)'
         return $false
     }
-    $profiles = @($Tag['Profiles'].Items | ForEach-Object { [string]$_ })
+    $profiles = Get-WoscapGuiProfilePath -Tag $Tag
     $missingProfile = @($profiles | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) }) | Select-Object -First 1
     if ($missingProfile) {
         Show-WoscapGuiMessage -Text "Profile not found: $missingProfile"

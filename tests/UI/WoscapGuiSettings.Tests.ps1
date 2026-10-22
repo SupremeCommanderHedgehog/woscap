@@ -91,10 +91,10 @@ Describe 'GUI settings file' {
         $bytes = [System.IO.File]::ReadAllBytes($file)
         $bytes[0] | Should -Not -Be 0xEF
         ([System.IO.File]::ReadAllText($file) | ConvertFrom-Json).Version | Should -Be 1
-        Test-Path -LiteralPath "$file.tmp" | Should -BeFalse
+        @(Get-ChildItem -LiteralPath (Join-Path $TestDrive 'woscap') -Filter '*.tmp').Count | Should -Be 0
     }
 
-    It 'warns, returns $false and leaves no temp file when the replace fails' {
+    It 'warns, returns $false and leaves no temp file when the first-time move fails' {
         Mock -ModuleName woscap Move-Item { throw 'locked' }
         $out = InModuleScope woscap {
             $r = Write-WoscapGuiSettingsFile -Settings @{ Targets = 'a' } -WarningVariable w -WarningAction SilentlyContinue
@@ -102,8 +102,80 @@ Describe 'GUI settings file' {
         }
         $out.Result | Should -BeFalse
         $out.Warnings | Should -BeGreaterThan 0
-        Test-Path -LiteralPath (Join-Path $TestDrive 'woscap\gui-settings.json.tmp') | Should -BeFalse
+        @(Get-ChildItem -LiteralPath (Join-Path $TestDrive 'woscap') -Filter '*.tmp').Count | Should -Be 0
         Test-Path -LiteralPath (Join-Path $TestDrive 'woscap\gui-settings.json') | Should -BeFalse
+    }
+
+    It 'warns, returns $false, keeps the old file and leaves no temp file when the replace fails' {
+        InModuleScope woscap { Write-WoscapGuiSettingsFile -Settings @{ Targets = 'old' } } | Should -BeTrue
+        $file = Join-Path $TestDrive 'woscap\gui-settings.json'
+        # A read-only target makes File.Replace fail for real.
+        (Get-Item -LiteralPath $file).IsReadOnly = $true
+        try {
+            InModuleScope woscap { Write-WoscapGuiSettingsFile -Settings @{ Targets = 'new' } -WarningAction SilentlyContinue } | Should -BeFalse
+            (Get-Content -LiteralPath $file -Raw | ConvertFrom-Json).Targets | Should -Be 'old'
+            @(Get-ChildItem -LiteralPath (Join-Path $TestDrive 'woscap') -Filter '*.tmp').Count | Should -Be 0
+        } finally { (Get-Item -LiteralPath $file).IsReadOnly = $false }
+    }
+
+    It 'replaces an existing file in place' {
+        InModuleScope woscap { Write-WoscapGuiSettingsFile -Settings @{ Targets = 'first' } } | Should -BeTrue
+        InModuleScope woscap { Write-WoscapGuiSettingsFile -Settings @{ Targets = 'second' } } | Should -BeTrue
+        (Get-Content -LiteralPath (Join-Path $TestDrive 'woscap\gui-settings.json') -Raw | ConvertFrom-Json).Targets | Should -Be 'second'
+        @(Get-ChildItem -LiteralPath (Join-Path $TestDrive 'woscap') -Filter '*.tmp').Count | Should -Be 0
+    }
+
+    It 'writes through Write-WoscapText to a unique temp file in the same folder' {
+        $script:tmpPaths = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName woscap Write-WoscapText {
+            $script:tmpPaths.Add($Path)
+            [System.IO.File]::WriteAllText($Path, $Text, (New-Object System.Text.UTF8Encoding($false)))
+        }
+        InModuleScope woscap { Write-WoscapGuiSettingsFile -Settings @{ Targets = 'a' } } | Should -BeTrue
+        InModuleScope woscap { Write-WoscapGuiSettingsFile -Settings @{ Targets = 'b' } } | Should -BeTrue
+        $script:tmpPaths.Count | Should -Be 2
+        $script:tmpPaths[0] | Should -Not -Be $script:tmpPaths[1]
+        foreach ($p in $script:tmpPaths) {
+            Split-Path $p -Parent | Should -Be (Join-Path $TestDrive 'woscap')
+            Split-Path $p -Leaf | Should -BeLike "gui-settings.json.$PID.*.tmp"
+        }
+    }
+
+    It 'does not corrupt the file when a second writer runs in the middle of the first' {
+        # Writer B runs to completion between A writing its temp file and A replacing the target.
+        $script:nested = $false
+        Mock -ModuleName woscap Write-WoscapText {
+            [System.IO.File]::WriteAllText($Path, $Text, (New-Object System.Text.UTF8Encoding($false)))
+            if (-not $script:nested) {
+                $script:nested = $true
+                InModuleScope woscap { Write-WoscapGuiSettingsFile -Settings @{ Targets = 'writer-B' } } | Should -BeTrue
+            }
+        }
+        InModuleScope woscap { Write-WoscapGuiSettingsFile -Settings @{ Targets = 'writer-A' } } | Should -BeTrue
+        $script:nested | Should -BeTrue
+        (Get-Content -LiteralPath (Join-Path $TestDrive 'woscap\gui-settings.json') -Raw | ConvertFrom-Json).Targets | Should -Be 'writer-A'
+        @(Get-ChildItem -LiteralPath (Join-Path $TestDrive 'woscap') -Filter '*.tmp').Count | Should -Be 0
+    }
+
+    It 'saves Targets of exactly the limit' {
+        $limit = InModuleScope woscap { $script:WoscapGuiTargetsMaxLength }
+        $limit | Should -Be 65536
+        InModuleScope woscap -Parameters @{ T = ('a' * 65536) } { param($T) Write-WoscapGuiSettingsFile -Settings @{ Targets = $T } } | Should -BeTrue
+        $raw = InModuleScope woscap { Read-WoscapGuiSettingsFile }
+        $raw['Targets'].Length | Should -Be 65536
+    }
+
+    It 'does not save Targets over the limit, warns, and still saves the rest' {
+        $out = InModuleScope woscap -Parameters @{ T = ('a' * 65537) } {
+            param($T)
+            $r = Write-WoscapGuiSettingsFile -Settings @{ Targets = $T; ThrottleLimit = 5 } -WarningVariable w -WarningAction SilentlyContinue
+            @{ Result = $r; Warnings = @($w | ForEach-Object { "$_" }) }
+        }
+        $out.Result | Should -BeTrue
+        ($out.Warnings -join ' ') | Should -Match 'Targets'
+        $raw = InModuleScope woscap { Read-WoscapGuiSettingsFile }
+        $raw.ContainsKey('Targets') | Should -BeFalse
+        [int]$raw['ThrottleLimit'] | Should -Be 5
     }
 
     It 'warns and returns $false without throwing when the path seam itself throws' {
@@ -199,7 +271,7 @@ Describe 'Resolve-WoscapGuiSettings' {
         @{ Field = 'ThrottleLimit'; Value = $true; Shown = 'bool' }
         @{ Field = 'AdvancedExpanded'; Value = 'true'; Shown = 'string' }
         @{ Field = 'AdvancedExpanded'; Value = 1; Shown = 'int' }
-        @{ Field = 'Targets'; Value = ('a' * 4097); Shown = 'over 4096 chars' }
+        @{ Field = 'Targets'; Value = ('a' * 65537); Shown = 'over 65536 chars' }
         @{ Field = 'Targets'; Value = 3; Shown = 'int' }
         @{ Field = 'XccdfPath'; Value = 7; Shown = 'int' }
         @{ Field = 'Profiles'; Value = 'C:\one.psd1'; Shown = 'a bare string' }
@@ -213,8 +285,8 @@ Describe 'Resolve-WoscapGuiSettings' {
         $r.Cleared | Should -Be 0
     }
 
-    It 'accepts Targets of exactly 4096 chars' {
-        (Resolve-Raw @{ Targets = ('a' * 4096) }).Values.Targets.Length | Should -Be 4096
+    It 'accepts Targets of exactly 65536 chars' {
+        (Resolve-Raw @{ Targets = ('a' * 65536) }).Values.Targets.Length | Should -Be 65536
     }
 
     It 'accepts the throttle bounds themselves' {
@@ -258,6 +330,48 @@ Describe 'Resolve-WoscapGuiSettings' {
         $r = Resolve-Raw @{ $Field = '' }
         $r.Values[$Field] | Should -BeExactly ''
         $r.Cleared | Should -Be 0
+    }
+
+    It 'keeps a network <Field> unchecked and uncounted, and still checks local paths' -ForEach @(
+        @{ Field = 'XccdfPath'; Unc = '\\srv\share\x.xml'; Mapped = 'Q:\stig\x.xml' }
+        @{ Field = 'ContentPath'; Unc = '\\srv\share\content'; Mapped = 'Q:\content' }
+        @{ Field = 'ContentDestination'; Unc = '\\srv\share\cache'; Mapped = 'Q:\cache' }
+        @{ Field = 'IntegrationPath'; Unc = '\\srv\share\plugins'; Mapped = 'Q:\plugins' }
+        @{ Field = 'JsonPath'; Unc = '\\srv\share\out\r.json'; Mapped = 'Q:\out\r.json' }
+    ) {
+        # Q: is a mapped network drive; the share itself must never be touched at startup.
+        Mock -ModuleName woscap Get-WoscapGuiDriveType { if ($Name -eq 'Q') { 'Network' } else { 'Fixed' } }
+        # Default mock forwards local checks to the real cmdlet (Pester 6 has no implicit fall-through).
+        Mock -ModuleName woscap Test-Path { & (Get-Command Test-Path -CommandType Cmdlet) -LiteralPath $LiteralPath -PathType $PathType }
+        Mock -ModuleName woscap Test-Path { $false } -ParameterFilter { "$LiteralPath" -like '\\*' -or "$LiteralPath" -like 'Q:*' }
+        foreach ($p in $Unc, $Mapped) {
+            $r = Resolve-Raw @{ $Field = $p }
+            $r.Values[$Field] | Should -Be $p
+            $r.Cleared | Should -Be 0
+        }
+        Should -Invoke -ModuleName woscap Test-Path -Times 0 -Exactly -Scope It -ParameterFilter { "$LiteralPath" -like '\\*' -or "$LiteralPath" -like 'Q:*' }
+        # A local missing path in the same field is still checked and counted.
+        (Resolve-Raw @{ $Field = $(if ($Field -eq 'JsonPath') { Join-Path $script:Gone 'r.json' } else { $script:Gone }) }).Cleared | Should -Be 1
+        # And a local existing path is kept, so the check really ran rather than failed.
+        $local = switch ($Field) { 'XccdfPath' { $script:File } 'JsonPath' { Join-Path $script:Dir 'r.json' } default { $script:Dir } }
+        $r = Resolve-Raw @{ $Field = $local }
+        $r.Values[$Field] | Should -Be $local
+        $r.Cleared | Should -Be 0
+    }
+
+    It 'keeps network profile entries unchecked while dropping a missing local one' {
+        Mock -ModuleName woscap Get-WoscapGuiDriveType { if ($Name -eq 'Q') { 'Network' } else { 'Fixed' } }
+        # Default mock forwards local checks to the real cmdlet (Pester 6 has no implicit fall-through).
+        Mock -ModuleName woscap Test-Path { & (Get-Command Test-Path -CommandType Cmdlet) -LiteralPath $LiteralPath -PathType $PathType }
+        Mock -ModuleName woscap Test-Path { $false } -ParameterFilter { "$LiteralPath" -like '\\*' -or "$LiteralPath" -like 'Q:*' }
+        $r = Resolve-Raw @{ Profiles = @('\\srv\share\p.psd1', $script:Gone, 'Q:\p.psd1', $script:ProfA) }
+        @($r.Values.Profiles) | Should -Be @('\\srv\share\p.psd1', 'Q:\p.psd1', $script:ProfA)
+        $r.Cleared | Should -Be 1
+        Should -Invoke -ModuleName woscap Test-Path -Times 0 -Exactly -Scope It -ParameterFilter { "$LiteralPath" -like '\\*' -or "$LiteralPath" -like 'Q:*' }
+    }
+
+    It 'checks a local drive normally' {
+        InModuleScope woscap { Get-WoscapGuiDriveType -Name ($env:SystemDrive.Substring(0, 1)) } | Should -Not -Be 'Network'
     }
 
     It 'accepts a JsonPath with no parent folder' {

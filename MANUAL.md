@@ -453,11 +453,17 @@ results, the severity/status filters and the Find box.
 Saved values are checked on load:
 - A benchmark or format that is no longer offered is ignored.
 - An out-of-range throttle limit is ignored.
-- A window position that is off every attached screen is ignored, so the window
-  opens centered at its default size.
+- A window position whose title bar is off every attached screen (for example on a
+  monitor that has since been disconnected) is ignored, so the window opens
+  centered at its default size.
 - A saved path that no longer exists (a moved XCCDF, a deleted profile or folder) is
   cleared, and the Scan tab status line says so once, for example
   `2 saved path(s) no longer exist and were cleared.`
+- Paths on a network location (UNC paths such as `\\server\share\...`, and mapped
+  network drives) are restored without checking that they exist, so a slow or
+  offline share never delays startup. The scan and the other actions still check
+  them when you use them.
+- A Targets list longer than 65,536 characters is not saved; a warning says so.
 - A missing, unreadable or corrupt file is ignored silently, and the defaults are
   used.
 

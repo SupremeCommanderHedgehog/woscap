@@ -75,4 +75,24 @@ Describe 'Profile list helpers' -Skip:(-not $script:IsSta) {
             $Tag['ProfileDown'].Enabled   | Should -BeFalse
         }
     }
+    It 'Get-WoscapGuiProfilePath returns the list as strings, in order, and an empty array when empty' {
+        InModuleScope woscap -Parameters @{ Tag = $script:tag } {
+            param($Tag)
+            $empty = Get-WoscapGuiProfilePath -Tag $Tag
+            , $empty | Should -BeOfType [string[]]
+            $empty.Count | Should -Be 0
+            Add-WoscapGuiProfile -Tag $Tag -Path @('C:\b.psd1', 'C:\a.psd1')
+            $paths = Get-WoscapGuiProfilePath -Tag $Tag
+            , $paths | Should -BeOfType [string[]]
+            $paths | Should -Be @('C:\b.psd1', 'C:\a.psd1')
+        }
+    }
+    It 'is the one reader of the profile list in the run handler and the settings code' {
+        $ui = Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'Private/UI'
+        foreach ($f in 'WoscapGuiHandlers.ps1', 'WoscapGuiSettingsApply.ps1') {
+            $src = Get-Content (Join-Path $ui $f) -Raw
+            $src | Should -Match 'Get-WoscapGuiProfilePath' -Because $f
+            $src | Should -Not -Match "\['Profiles'\]\.Items \|" -Because "$f should not read the list items itself"
+        }
+    }
 }

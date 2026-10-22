@@ -278,6 +278,60 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
                 $w.Maximized | Should -BeTrue
             }
         }
+
+        It 'exports Maximized = <Expected> when minimized from <From>' -ForEach @(
+            @{ From = 'Maximized'; Expected = $true }
+            @{ From = 'Normal'; Expected = $false }
+        ) {
+            InModuleScope woscap -Parameters @{ From = $From } {
+                param($From)
+                $form = New-WoscapMainForm
+                try {
+                    $form.StartPosition = 'Manual'
+                    $form.Bounds = New-Object System.Drawing.Rectangle(30, 40, 1000, 800)
+                    $form.Show(); [System.Windows.Forms.Application]::DoEvents()
+                    $form.WindowState = $From; [System.Windows.Forms.Application]::DoEvents()
+                    $form.WindowState = 'Minimized'; [System.Windows.Forms.Application]::DoEvents()
+                    Export-WoscapGuiSettings -Tag $form.Tag -Form $form
+                } finally { $form.Close(); $form.Dispose() }
+            }
+            $w = InModuleScope woscap { (Read-WoscapGuiSettingsFile)['Window'] }
+            $w.Maximized | Should -Be $Expected
+            [int]$w.Width | Should -Be 1000
+            [int]$w.Height | Should -Be 800
+        }
+
+        It 'does not apply bounds whose title bar is off every screen (detached monitor above)' {
+            # Only the primary remains; the window still overlaps its top 100px, but its title bar does not.
+            Save-TestSettings @{ Window = @{ X = 100; Y = -1000; Width = 1000; Height = 1100; Maximized = $false } }
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try {
+                    $form.StartPosition | Should -Be 'CenterScreen'
+                    $form.Size | Should -Be (New-Object System.Drawing.Size(900, 700))
+                } finally { $form.Dispose() }
+            }
+        }
+
+        It 'applies bounds whose title bar is on a monitor above the primary' {
+            Mock -ModuleName woscap Get-WoscapGuiScreenArea {
+                (New-Object System.Drawing.Rectangle(0, 0, 1920, 1040)), (New-Object System.Drawing.Rectangle(0, -1080, 1920, 1040))
+            }
+            Save-TestSettings @{ Window = @{ X = 100; Y = -1000; Width = 1000; Height = 1100; Maximized = $false } }
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try { $form.Location | Should -Be (New-Object System.Drawing.Point(100, -1000)) } finally { $form.Dispose() }
+            }
+        }
+
+        It 'does not apply bounds whose title bar only grazes a screen corner' {
+            # The title bar overlaps the screen by less than the 40px inset at its right end.
+            Save-TestSettings @{ Window = @{ X = -970; Y = 10; Width = 1000; Height = 800; Maximized = $false } }
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try { $form.StartPosition | Should -Be 'CenterScreen' } finally { $form.Dispose() }
+            }
+        }
     }
 
     Context 'FormClosing' {
@@ -293,16 +347,24 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
             }
         }
 
-        It 'never cancels the close when Export throws' {
-            Mock -ModuleName woscap Export-WoscapGuiSettings { throw 'disk gone' }
+        It 'Export never throws, so the close is never cancelled, when reading the controls fails' {
+            # The handler has no try/catch of its own; this is the guarantee it relies on.
             InModuleScope woscap {
                 $form = New-WoscapMainForm
+                # After the build, which also reads the controls for SettingsDefaults.
+                Mock Get-WoscapGuiSettingsState { throw 'control disposed' }
                 try {
+                    { Export-WoscapGuiSettings -Tag $form.Tag -Form $form -WarningAction SilentlyContinue } | Should -Not -Throw
                     $script:e = $null
-                    { $script:e = Invoke-FormClosing $form } | Should -Not -Throw
+                    { $script:e = Invoke-FormClosing $form 3>$null } | Should -Not -Throw
                     $script:e.Cancel | Should -BeFalse
                 } finally { $form.Dispose() }
             }
+        }
+
+        It 'the FormClosing handler is a bare call to Export-WoscapGuiSettings' {
+            $src = Get-Content (Join-Path (Split-Path $PSScriptRoot -Parent | Split-Path -Parent) 'Private/UI/New-WoscapMainForm.ps1') -Raw
+            $src | Should -Match '\$form\.Add_FormClosing\(\{\s*Export-WoscapGuiSettings -Tag \$this\.Tag -Form \$this\s*\}\)'
         }
 
         It 'warns and does not cancel when the save fails' {
@@ -433,6 +495,45 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
                     $form.Bounds = New-Object System.Drawing.Rectangle(-1250, 10, 1000, 800)
                     Reset-WoscapGuiSettings -Tag $form.Tag -Form $form | Should -BeTrue
                     $form.Bounds | Should -Be (New-Object System.Drawing.Rectangle((-1280 + 190), 142, 900, 700))
+                } finally { $form.Dispose() }
+            }
+        }
+
+        It 'never places the window at a negative offset on a screen smaller than the default size' {
+            Mock -ModuleName woscap Show-WoscapGuiMessage { $true }
+            Mock -ModuleName woscap Get-WoscapGuiScreenArea { New-Object System.Drawing.Rectangle(100, 50, 800, 600) }
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try {
+                    $form.WindowState = 'Normal'
+                    $form.Bounds = New-Object System.Drawing.Rectangle(120, 60, 780, 580)
+                    Reset-WoscapGuiSettings -Tag $form.Tag -Form $form | Should -BeTrue
+                    $form.Bounds | Should -Be (New-Object System.Drawing.Rectangle(100, 50, 800, 600))
+                } finally { $form.Dispose() }
+            }
+        }
+
+        It 'clears the cleared-paths status message' {
+            Mock -ModuleName woscap Show-WoscapGuiMessage { $true }
+            Save-TestSettings @{ XccdfPath = (Join-Path $TestDrive 'gone\x.xml') }
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try {
+                    $form.Tag['Status'].Text | Should -Match 'were cleared'
+                    Reset-WoscapGuiSettings -Tag $form.Tag -Form $form | Should -BeTrue
+                    $form.Tag['Status'].Text | Should -BeExactly ''
+                } finally { $form.Dispose() }
+            }
+        }
+
+        It 'leaves an unrelated status message alone' {
+            Mock -ModuleName woscap Show-WoscapGuiMessage { $true }
+            InModuleScope woscap {
+                $form = New-WoscapMainForm
+                try {
+                    $form.Tag['Status'].Text = 'Scanning...'
+                    Reset-WoscapGuiSettings -Tag $form.Tag -Form $form | Should -BeTrue
+                    $form.Tag['Status'].Text | Should -Be 'Scanning...'
                 } finally { $form.Dispose() }
             }
         }

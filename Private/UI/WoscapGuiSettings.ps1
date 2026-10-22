@@ -1,3 +1,6 @@
+# Save and load share this limit, so nothing saved is rejected on load.
+$script:WoscapGuiTargetsMaxLength = 65536
+
 # The only fields the GUI ever saves; Write-WoscapGuiSettingsFile drops anything else.
 $script:WoscapGuiSettingsFields = @('Benchmark', 'XccdfPath', 'Targets', 'Profiles', 'AdvancedExpanded', 'ContentPath',
     'ThrottleLimit', 'JsonPath', 'ExportFormat', 'ContentDestination', 'IntegrationPath', 'Window')
@@ -62,10 +65,14 @@ function Write-WoscapGuiSettingsFile {
         .SYNOPSIS
         Saves GUI settings to the per-user settings file.
         .DESCRIPTION
-        Keeps only the known settings fields, adds Version = 1, writes BOM-less UTF-8 JSON to
-        <path>.tmp and moves it over the target, so a failed write never leaves a half file.
+        Keeps only the known settings fields and adds Version = 1. Writes BOM-less UTF-8 JSON
+        (via Write-WoscapText) to a temp file unique to this process and call, in the same
+        folder. It then swaps the temp file in: [System.IO.File]::Replace when the target
+        exists, otherwise Move-Item. A crash or a second writer therefore never leaves a half
+        file; the last complete write wins.
+        Targets longer than the load limit are not saved; a warning says so.
         Creates the folder if needed. Never throws: on failure it writes a warning, removes
-        the temp file (best effort) and returns $false.
+        its temp file (best effort) and returns $false.
         .PARAMETER Settings
         The field values to save. Keys outside the known field set (credentials, results,
         filters) are dropped.
@@ -80,10 +87,13 @@ function Write-WoscapGuiSettingsFile {
     $tmp = $null
     try {
         $path = Get-WoscapGuiSettingsPath
-        $tmp = "$path.tmp"
         $data = [ordered]@{ Version = 1 }
         foreach ($name in $script:WoscapGuiSettingsFields) {
             if (-not $Settings.ContainsKey($name)) { continue }
+            if ($name -eq 'Targets' -and ([string]$Settings[$name]).Length -gt $script:WoscapGuiTargetsMaxLength) {
+                Write-Warning "Targets not saved: longer than $($script:WoscapGuiTargetsMaxLength) characters."
+                continue
+            }
             # Profiles must stay a JSON list even with zero or one entry.
             $data[$name] = if ($name -eq 'Profiles') { , @($Settings[$name]) } else { $Settings[$name] }
         }
@@ -92,8 +102,13 @@ function Write-WoscapGuiSettingsFile {
         if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
             New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null
         }
-        [System.IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding($false)))
-        Move-Item -LiteralPath $tmp -Destination $path -Force -ErrorAction Stop
+        $tmp = '{0}.{1}.{2}.tmp' -f $path, $PID, [guid]::NewGuid().ToString('N')
+        Write-WoscapText -Text $json -Path $tmp
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            [System.IO.File]::Replace($tmp, $path, [NullString]::Value, $true)
+        } else {
+            Move-Item -LiteralPath $tmp -Destination $path -Force -ErrorAction Stop
+        }
         $true
     } catch {
         Write-Warning "Could not save GUI settings: $($_.Exception.Message)"
@@ -162,7 +177,7 @@ function Resolve-WoscapGuiSettings {
         if ($v -is [string] -and @($Allowed[$pair[1]]) -ccontains $v) { $values[$pair[0]] = $v }
     }
     $v = $Raw['Targets']
-    if ($v -is [string] -and $v.Length -le 4096) { $values['Targets'] = $v }
+    if ($v -is [string] -and $v.Length -le $script:WoscapGuiTargetsMaxLength) { $values['Targets'] = $v }
     $v = $Raw['AdvancedExpanded']
     if ($v -is [bool]) { $values['AdvancedExpanded'] = $v }
     $v = $Raw['ThrottleLimit']
@@ -219,17 +234,40 @@ function Test-WoscapGuiSettingsInteger {
 }
 
 function Test-WoscapGuiSettingsPathExists {
-    <# Leaf: the file exists. Container: the folder exists. Parent: the folder holding it exists (none means the current folder). #>
+    <# Leaf: the file exists. Container: the folder exists. Parent: the folder holding it exists (none means the current folder).
+       Network paths count as existing unchecked, so startup never waits on a share; the cmdlets validate them on use. #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string] $Path, [Parameter(Mandatory)][ValidateSet('Leaf', 'Container', 'Parent')][string] $Kind)
     try {
+        if (Test-WoscapGuiNetworkPath -Path $Path) { return $true }
         if ($Kind -eq 'Parent') {
             $parent = Split-Path -Path $Path -Parent
             return (-not $parent) -or (Test-Path -LiteralPath $parent -PathType Container)
         }
         Test-Path -LiteralPath $Path -PathType $Kind
     } catch { $false }
+}
+
+function Test-WoscapGuiNetworkPath {
+    <# True for a UNC path or a drive letter whose DriveType is Network. Never touches the share itself. #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string] $Path)
+    # Device prefixes (\\?\ and \\.\) are local, except \\?\UNC\.
+    $p = $Path.Replace('/', '\')
+    if ($p.StartsWith('\\?\UNC\', [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    if ($p.StartsWith('\\') -and -not $p.StartsWith('\\?\') -and -not $p.StartsWith('\\.\')) { return $true }
+    if ($Path -match '^([A-Za-z]):') { return (Get-WoscapGuiDriveType -Name $Matches[1]) -eq 'Network' }
+    $false
+}
+
+function Get-WoscapGuiDriveType {
+    <# Seam over [System.IO.DriveInfo].DriveType ('Network', 'Fixed', ...); reads the local drive table only. #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string] $Name)
+    try { [string](New-Object System.IO.DriveInfo($Name)).DriveType } catch { 'Unknown' }
 }
 
 function ConvertTo-WoscapGuiSettingsHashtable {
