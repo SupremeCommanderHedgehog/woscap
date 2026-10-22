@@ -38,6 +38,7 @@ function New-WoscapMainForm {
 
     $tag = @{
         Menu = $menu.Menu; MenuRun = $menu.Run; MenuExport = $menu.Export; MenuRemediate = $menu.Remediate
+        MenuResetSettings = $menu.ResetSettings
         MenuContentDownload = $menu.ContentDownload; MenuContentUpdate = $menu.ContentUpdate
         MenuContentRemove = $menu.ContentRemove; MenuContentUseForScan = $menu.ContentUseForScan
         MenuContentRefresh = $menu.ContentRefresh
@@ -48,6 +49,10 @@ function New-WoscapMainForm {
         # Non-modal channel for partial-scan warning detail (see the OnWarning handler).
         StatusTip = New-Object System.Windows.Forms.ToolTip
         AdvancedExpanded = $false
+        # Last non-minimized WindowState, so a minimized maximized window saves as maximized.
+        LastWindowState = 'Normal'
+        # The "paths cleared" text Import put on Status, or $null; Reset clears only that.
+        SettingsStatus = $null
         Results = [System.Collections.Generic.List[object]]::new()
         # Benchmark/ContentPath of the scan that produced Results; $null until one completes.
         ResultsContext = $null
@@ -77,6 +82,8 @@ function New-WoscapMainForm {
     Update-WoscapGuiContentHint -Tag $tag
     Update-WoscapGuiContentSelection -Tag $tag
     Update-WoscapGuiIntegrationSelection -Tag $tag
+    # Build-time values, captured before import, for Reset settings.
+    $tag['SettingsDefaults'] = Get-WoscapGuiSettingsState -Tag $tag -Form $form
 
     # Single-window: the current form's controls, for the plain event scriptblocks below.
     $script:WoscapGuiTag = $tag
@@ -184,12 +191,21 @@ function New-WoscapMainForm {
     $menu.Run.Add_Click({ Invoke-WoscapGuiRun -Tag $script:WoscapGuiTag })
     $menu.Export.Add_Click({ Invoke-WoscapGuiExport -Tag $script:WoscapGuiTag })
     $menu.Remediate.Add_Click({ Invoke-WoscapGuiRemediate -Tag $script:WoscapGuiTag })
+    $menu.ResetSettings.Add_Click({
+        $t = $script:WoscapGuiTag
+        [void](Reset-WoscapGuiSettings -Tag $t -Form $t['Tabs'].FindForm())
+    })
     $menu.Exit.Add_Click({ $script:WoscapGuiTag['Tabs'].FindForm().Close() })
     $menu.Advanced.Add_Click({ Show-WoscapGuiAdvancedOption -Tag $script:WoscapGuiTag })
     $menu.OpenContent.Add_Click({ $t = $script:WoscapGuiTag; $t['Tabs'].SelectedTab = $t['ContentTab'] })
     $menu.OpenIntegrations.Add_Click({ $t = $script:WoscapGuiTag; $t['Tabs'].SelectedTab = $t['IntegrationsTab'] })
     $menu.Manual.Add_Click({ Open-WoscapGuiManual })
     $menu.About.Add_Click({ Show-WoscapGuiAbout })
+
+    # $this.Tag is this form's own tag even if a later form replaced WoscapGuiTag. Export never throws.
+    $form.Add_FormClosing({ Export-WoscapGuiSettings -Tag $this.Tag -Form $this })
+    $form.Add_Resize({ Update-WoscapGuiLastWindowState -Tag $this.Tag -Form $this })
+    Import-WoscapGuiSettings -Tag $tag -Form $form
 
     # Release the module-scoped reference when the window closes so the form and results
     # do not stay reachable for the rest of the session.

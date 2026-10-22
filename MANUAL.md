@@ -437,11 +437,48 @@ Warnings from the preview or the apply appear on the status line, with the
 detail on hover. Audit-policy fixes only enable the required directions
 (`Enable audit '<subcategory>': success and failure`); they never disable one.
 
+**Saved settings.** The GUI remembers its inputs between sessions. They are saved
+when you close the window and loaded when you next open it, in
+`%LOCALAPPDATA%\woscap\gui-settings.json` (per user, plain JSON). What is saved:
+- **Scan tab:** benchmark, XCCDF path, targets, the profile list (in order), whether
+  Advanced is expanded, content path, throttle limit, JSON output path and export
+  format.
+- **Other tabs:** the Content tab's Cache folder and the Integrations tab's Plugin
+  folder.
+- **The window:** its size and position, and whether it is maximized.
+
+**Never saved:** credentials (or the *Use alternate credential* tick), scan
+results, the severity/status filters and the Find box.
+
+Saved values are checked on load:
+- A benchmark or format that is no longer offered is ignored.
+- An out-of-range throttle limit is ignored.
+- A window position whose title bar is off every attached screen (for example on a
+  monitor that has since been disconnected) is ignored, so the window opens
+  centered at its default size.
+- A saved path that no longer exists (a moved XCCDF, a deleted profile or folder) is
+  cleared, and the Scan tab status line says so once, for example
+  `2 saved path(s) no longer exist and were cleared.`
+- Paths on a network location (UNC paths such as `\\server\share\...`, and mapped
+  network drives) are restored without checking that they exist, so a slow or
+  offline share never delays startup. The scan and the other actions still check
+  them when you use them.
+- A Targets list longer than 65,536 characters is not saved; a warning says so.
+- A missing, unreadable or corrupt file is ignored silently, and the defaults are
+  used.
+
+To start fresh, choose **File > Reset settings…** and confirm. The settings file
+is deleted and every saved field returns to its default. Because closing the window
+saves again, the defaults are written back on exit. You can also delete
+`gui-settings.json` while the GUI is closed.
+
 The GUI holds **no** evaluation, exception, or export logic of its own — every
 action calls the corresponding cmdlet, so it can never diverge from the CLI.
 `Private/UI/WoscapGuiParity.psd1` records, for every public cmdlet parameter, the
 GUI control that drives it or why it is CLI-only; `tests/UI/WoscapGuiParity.Tests.ps1`
-fails if a parameter is added or removed without updating it.
+fails if a parameter is added or removed without updating it. Its reserved
+`GuiOnly` section lists GUI items with no cmdlet behind them (such as Reset settings),
+each with the reason.
 
 **Requirements & boundaries:** needs an interactive desktop session (STA); it is
 **not** available on Server Core / headless hosts. For unattended, headless, or
@@ -449,7 +486,8 @@ CI use, call `Invoke-WoscapScan` / `Export-WoscapResult` directly. Internally
 the scan runs in a background runspace so the window stays responsive; the UI
 layer lives in `Private/UI/` (builder `New-WoscapMainForm` with
 `New-WoscapGuiMenu` / `New-WoscapGuiScanTab`; handler logic in
-`WoscapGuiHandlers.ps1`, `WoscapGuiShell.ps1` and `WoscapGuiProfileList.ps1`)
+`WoscapGuiHandlers.ps1`, `WoscapGuiShell.ps1` and `WoscapGuiProfileList.ps1`;
+saved settings in `WoscapGuiSettings.ps1` and `WoscapGuiSettingsApply.ps1`)
 plus the public `Show-WoscapGui` launcher.
 
 ---

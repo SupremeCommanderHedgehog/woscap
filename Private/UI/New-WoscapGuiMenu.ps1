@@ -1,6 +1,6 @@
 function New-WoscapGuiMenu {
     <#
-        Builds the main MenuStrip. Returns @{ Menu; Run; Remediate; Export; Exit; Advanced; ContentDownload;
+        Builds the main MenuStrip. Returns @{ Menu; Run; Remediate; Export; ResetSettings; Exit; Advanced; ContentDownload;
         ContentUpdate; ContentRemove; ContentUseForScan; ContentRefresh; OpenContent; IntegrationImportTargets;
         IntegrationImportFindings; IntegrationRunScan; IntegrationExportFindings; IntegrationExportRemediation;
         IntegrationRefresh; OpenIntegrations; Manual; About } so the form can wire Click handlers. No logic here.
@@ -21,6 +21,7 @@ function New-WoscapGuiMenu {
     $K = [System.Windows.Forms.Keys]
 
     $export   = & $newItem '&Export results...' ($K::Control -bor $K::E)
+    $resetSettings = & $newItem 'Reset &settings...' $null
     $exit     = & $newItem 'E&xit' $null
     $run      = & $newItem '&Run' $K::F5
     $remediate = & $newItem '&Remediate...' $null
@@ -44,6 +45,8 @@ function New-WoscapGuiMenu {
     $file = & $newItem '&File' $null
     [void]$file.DropDownItems.Add($export)
     [void]$file.DropDownItems.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+    [void]$file.DropDownItems.Add($resetSettings)
+    [void]$file.DropDownItems.Add((New-Object System.Windows.Forms.ToolStripSeparator))
     [void]$file.DropDownItems.Add($exit)
     $scan = & $newItem '&Scan' $null
     [void]$scan.DropDownItems.AddRange([System.Windows.Forms.ToolStripItem[]]@($run, $remediate, $advanced))
@@ -61,7 +64,7 @@ function New-WoscapGuiMenu {
     [void]$menu.Items.AddRange([System.Windows.Forms.ToolStripItem[]]@($file, $scan, $content, $integrations, $help))
 
     @{
-        Menu = $menu; Run = $run; Remediate = $remediate; Export = $export; Exit = $exit; Advanced = $advanced
+        Menu = $menu; Run = $run; Remediate = $remediate; Export = $export; ResetSettings = $resetSettings; Exit = $exit; Advanced = $advanced
         ContentDownload = $contentDownload; ContentUpdate = $contentUpdate; ContentRemove = $contentRemove
         ContentUseForScan = $contentUseForScan; ContentRefresh = $contentRefresh
         IntegrationImportTargets = $intTargets; IntegrationImportFindings = $intFindings; IntegrationRunScan = $intRunScan

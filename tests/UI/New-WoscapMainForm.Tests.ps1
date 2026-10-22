@@ -12,6 +12,9 @@ BeforeAll {
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
 Describe 'New-WoscapMainForm' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
 
     It 'returns a Form carrying its key controls in Tag' {
         InModuleScope woscap {

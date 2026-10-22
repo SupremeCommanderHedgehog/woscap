@@ -134,6 +134,9 @@ BeforeAll {
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
 Describe 'Integration flows: cancel, refuse, busy' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-IntegrationFlowMocks
         New-IntegrationFlowForm
@@ -292,6 +295,9 @@ Describe 'Integration flows: cancel, refuse, busy' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Integration flows: what reaches the cmdlet' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach { Set-IntegrationFlowMocks }
     AfterEach { InModuleScope woscap { $script:form.Dispose() } }
 
@@ -363,6 +369,9 @@ Describe 'Integration flows: what reaches the cmdlet' -Skip:(-not $script:IsSta)
 }
 
 Describe 'Import targets' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-IntegrationFlowMocks
         New-IntegrationFlowForm
@@ -432,6 +441,9 @@ Describe 'Import targets' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Import findings' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-IntegrationFlowMocks
         New-IntegrationFlowForm
@@ -516,6 +528,9 @@ Describe 'Import findings' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Run external scan' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-IntegrationFlowMocks
         New-IntegrationFlowForm
@@ -543,6 +558,9 @@ Describe 'Run external scan' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Export findings and remediation' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-IntegrationFlowMocks
         New-IntegrationFlowForm
@@ -616,6 +634,9 @@ Describe 'Export findings and remediation' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Integration action wiring' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         Set-IntegrationFlowMocks
         New-IntegrationFlowForm
@@ -643,6 +664,9 @@ Describe 'Integration action wiring' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Integration flows: review fixes' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach { Set-IntegrationFlowMocks }
     AfterEach { InModuleScope woscap { $script:form.Dispose() } }
 

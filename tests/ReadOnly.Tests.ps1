@@ -40,6 +40,8 @@ Describe 'Audit path is read-only' {
                     # Write-WoscapText is the reporters' single BOM-less output-writer; allow ONLY
                     # its [System.IO.File] output write, not any other mutation in that file.
                     if ($f.Name -eq 'Write-WoscapText.ps1' -and $p -eq '\[System\.IO\.File\]::(Write|Create|Delete|Move|Copy|Append)') { continue }
+                    # Allow WoscapGuiSettings.ps1's folder create and delete: the user's own GUI settings file, not the audited host.
+                    if ($f.Name -eq 'WoscapGuiSettings.ps1' -and $p -in @('New-Item', 'Remove-Item')) { continue }
                     "$($f.Name): $p"
                 }
             }

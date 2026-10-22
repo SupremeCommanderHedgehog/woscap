@@ -8,6 +8,9 @@ BeforeAll {
 AfterAll { Remove-Module woscap -Force -ErrorAction SilentlyContinue }
 
 Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         InModuleScope woscap {
             $me = $env:COMPUTERNAME
@@ -352,6 +355,9 @@ Describe 'Invoke-WoscapGuiRemediate' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Invoke-WoscapGuiRemediate targeting' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         InModuleScope woscap {
             $me = $env:COMPUTERNAME
@@ -501,6 +507,9 @@ Describe 'Invoke-WoscapGuiRemediate targeting' -Skip:(-not $script:IsSta) {
 }
 
 Describe 'Invoke-WoscapGuiRemediate outcomes' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         InModuleScope woscap {
             $me = $env:COMPUTERNAME
@@ -706,6 +715,9 @@ Describe 'Invoke-WoscapGuiRemediate outcomes' -Skip:(-not $script:IsSta) {
 
 # Spec 7.6 (#36): a multi-write fix is one dialog row, and unticking it skips all of its writes.
 Describe 'Invoke-WoscapGuiRemediate with a multi-write fix' -Skip:(-not $script:IsSta) {
+    BeforeAll {
+        Mock -ModuleName woscap Get-WoscapGuiSettingsPath { Join-Path $TestDrive 'woscap\gui-settings.json' }   # never the real %LOCALAPPDATA%
+    }
     BeforeEach {
         InModuleScope woscap {
             $me = $env:COMPUTERNAME
