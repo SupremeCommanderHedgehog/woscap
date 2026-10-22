@@ -64,7 +64,7 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
                 $t['ContentDestination'].Text = $Dir
                 $t['IntegrationPath'].Text = $Dir
                 $first.StartPosition = 'Manual'
-                $first.Bounds = New-Object System.Drawing.Rectangle(40, 50, 1000, 800)
+                $first.Bounds = New-Object System.Drawing.Rectangle(40, 50, 960, 720)
                 $format = [string]$t['Format'].SelectedItem
                 Export-WoscapGuiSettings -Tag $t -Form $first
             } finally { $first.Dispose() }
@@ -83,7 +83,7 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
                 $t['Format'].SelectedItem | Should -Be $format
                 $t['ContentDestination'].Text | Should -Be $Dir
                 $t['IntegrationPath'].Text | Should -Be $Dir
-                $second.Bounds | Should -Be (New-Object System.Drawing.Rectangle(40, 50, 1000, 800))
+                $second.Bounds | Should -Be (New-Object System.Drawing.Rectangle(40, 50, 960, 720))
                 $second.WindowState | Should -Be 'Normal'
                 $t['Status'].Text | Should -BeExactly ''
             } finally { $second.Dispose() }
@@ -203,12 +203,12 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
 
     Context 'window bounds' {
         It 'applies on-screen bounds' {
-            Save-TestSettings @{ Window = @{ X = 100; Y = 80; Width = 1100; Height = 850; Maximized = $false } }
+            Save-TestSettings @{ Window = @{ X = 100; Y = 80; Width = 1000; Height = 740; Maximized = $false } }
             InModuleScope woscap {
                 $form = New-WoscapMainForm
                 try {
                     $form.StartPosition | Should -Be 'Manual'
-                    $form.Bounds | Should -Be (New-Object System.Drawing.Rectangle(100, 80, 1100, 850))
+                    $form.Bounds | Should -Be (New-Object System.Drawing.Rectangle(100, 80, 1000, 740))
                     $form.WindowState | Should -Be 'Normal'
                 } finally { $form.Dispose() }
             }
@@ -264,17 +264,17 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
                 $form = New-WoscapMainForm
                 try {
                     $form.StartPosition = 'Manual'
-                    $form.Bounds = New-Object System.Drawing.Rectangle(30, 40, 1000, 800)
+                    $form.Bounds = New-Object System.Drawing.Rectangle(30, 40, 960, 720)
                     $form.Show(); [System.Windows.Forms.Application]::DoEvents()
                     $form.WindowState = 'Maximized'; [System.Windows.Forms.Application]::DoEvents()
-                    $form.Bounds | Should -Not -Be (New-Object System.Drawing.Rectangle(30, 40, 1000, 800))
+                    $form.Bounds | Should -Not -Be (New-Object System.Drawing.Rectangle(30, 40, 960, 720))
                     Export-WoscapGuiSettings -Tag $form.Tag -Form $form
                 } finally { $form.Close(); $form.Dispose() }
                 $w = (Read-WoscapGuiSettingsFile)['Window']
                 [int]$w.X | Should -Be 30
                 [int]$w.Y | Should -Be 40
-                [int]$w.Width | Should -Be 1000
-                [int]$w.Height | Should -Be 800
+                [int]$w.Width | Should -Be 960
+                [int]$w.Height | Should -Be 720
                 $w.Maximized | Should -BeTrue
             }
         }
@@ -288,7 +288,7 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
                 $form = New-WoscapMainForm
                 try {
                     $form.StartPosition = 'Manual'
-                    $form.Bounds = New-Object System.Drawing.Rectangle(30, 40, 1000, 800)
+                    $form.Bounds = New-Object System.Drawing.Rectangle(30, 40, 960, 720)
                     $form.Show(); [System.Windows.Forms.Application]::DoEvents()
                     $form.WindowState = $From; [System.Windows.Forms.Application]::DoEvents()
                     $form.WindowState = 'Minimized'; [System.Windows.Forms.Application]::DoEvents()
@@ -297,8 +297,8 @@ Describe 'GUI settings applied to the main form' -Skip:(-not $script:IsSta) {
             }
             $w = InModuleScope woscap { (Read-WoscapGuiSettingsFile)['Window'] }
             $w.Maximized | Should -Be $Expected
-            [int]$w.Width | Should -Be 1000
-            [int]$w.Height | Should -Be 800
+            [int]$w.Width | Should -Be 960
+            [int]$w.Height | Should -Be 720
         }
 
         It 'does not apply bounds whose title bar is off every screen (detached monitor above)' {
